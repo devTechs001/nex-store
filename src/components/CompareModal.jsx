@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Layers, Star, ShoppingBag, Trash2 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
+import { getProductArtUrl } from '../utils/storeEngine.js';
 
 export default function CompareModal({
   isOpen,
@@ -122,7 +123,7 @@ export default function CompareModal({
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                             <img
-                              src={p.image_url}
+                              src={getProductArtUrl(p)}
                               alt={p.name}
                               className="h-32 w-full rounded-xl object-cover bg-slate-950"
                             />
