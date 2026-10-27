@@ -181,7 +181,8 @@ const ALLOWED_TABLES = [
   'integrations',
   'security_events',
   'push_notifications',
-  'terminal_logs'
+  'terminal_logs',
+  'terminal_scripts'
 ];
 
 function getDatabaseStats() {
@@ -253,6 +254,7 @@ app.get('/api/bootstrap', (_req, res) => {
   const securityEvents = db.prepare('SELECT * FROM security_events ORDER BY created_at DESC LIMIT 35').all();
   const notifications = db.prepare('SELECT * FROM push_notifications ORDER BY created_at DESC LIMIT 40').all();
   const terminalLogs = db.prepare('SELECT * FROM terminal_logs ORDER BY created_at DESC LIMIT 40').all();
+  const terminalScripts = db.prepare('SELECT * FROM terminal_scripts ORDER BY run_count DESC').all();
 
   res.json({
     categories,
@@ -269,6 +271,7 @@ app.get('/api/bootstrap', (_req, res) => {
     securityEvents,
     notifications,
     terminalLogs,
+    terminalScripts,
     analytics: getAnalyticsSummary(),
     dbStats: getDatabaseStats(),
     presence: getPresenceSummary()
@@ -1785,7 +1788,389 @@ app.post('/api/notifications/mark-read', (req, res) => {
   res.json({ notifications });
 });
 
-// 17. Interactive NEX Cloud CLI & Terminal Execution Engine (/api/terminal/exec)
+// 17. Interactive NEX-SH v3.0 Power Shell, Pipe Filter & Multi-Line Scripting Engine (/api/terminal/exec)
+function applyTerminalPipes(lines, pipeSegments) {
+  let result = [...lines];
+  for (const rawPipe of pipeSegments) {
+    const p = rawPipe.trim();
+    const lowerP = p.toLowerCase();
+    if (lowerP.startsWith('grep ')) {
+      const pattern = p.slice(5).trim().replace(/^["']|["']$/g, '').toLowerCase();
+      result = result.filter((line) => line.toLowerCase().includes(pattern));
+    } else if (lowerP.startsWith('head')) {
+      const n = parseInt(p.replace(/^head\s*-?n?\s*/i, ''), 10) || 5;
+      result = result.slice(0, n);
+    } else if (lowerP.startsWith('tail')) {
+      const n = parseInt(p.replace(/^tail\s*-?n?\s*/i, ''), 10) || 5;
+      result = result.slice(-n);
+    } else if (lowerP === 'count' || lowerP.startsWith('wc')) {
+      result = [`${result.length} line(s)`];
+    } else if (lowerP === 'sort') {
+      result = [...result].sort();
+    } else if (lowerP === 'reverse') {
+      result = [...result].reverse();
+    } else if (lowerP === 'upper') {
+      result = result.map((l) => l.toUpperCase());
+    }
+  }
+  return result;
+}
+
+function executeSingleCommand(singleRawCmd) {
+  const pipeParts = singleRawCmd.split('|');
+  const baseCmd = pipeParts[0].trim();
+  const pipeSegments = pipeParts.slice(1);
+  const lower = baseCmd.toLowerCase();
+
+  let outputLines = [];
+  let exitCode = 0;
+
+  if (!baseCmd || baseCmd.startsWith('#')) {
+    return { outputLines: [], exitCode: 0 };
+  }
+
+  if (lower === 'help' || lower === 'nex help' || lower === '--help') {
+    outputLines = [
+      'NEX-SH v3.0 • Interactive Cloud CLI, Pipe Filter & Automation Scripting Engine',
+      '────────────────────────────────────────────────────────────────────────────────────────',
+      '  CORE COMMANDS:',
+      '    nex status                   Inspect system health, memory, WS clients & 17 SQLite tables',
+      '    nex servers                  List all 6 global edge server nodes, latency & RPS',
+      '    nex ping                     Calibrate round-trip latency across all edge server nodes',
+      '    nex apps                     List verified multi-source apps (Netlify, Vercel, GitHub)',
+      '    nex deploy <url>             Import & verify a live app from Netlify/Vercel/GitHub URL',
+      '    nex security scan            Run deep WAF, SQLi/XSS & SHA-256 package security audit',
+      '    nex security block           Simulate & block a live SQLi/DDoS threat at edge gateway',
+      '    nex products                 List flagship hardware SKUs, prices & live warehouse stock',
+      '    nex restock                  Auto-replenish (+15 units) all low-stock hardware SKUs',
+      '    nex sql <SELECT ...>         Execute a read-only SQL query against any of the 17 tables',
+      '    nex notify <message>         Broadcast a real-time push notification to all clients',
+      '    nex theme <id>               Switch UI theme (obsidian|light|cyber|midnight|forest|ocean)',
+      '  SCRIPTING, DIAGNOSTICS & PIPES:',
+      '    nex scripts                  List all saved .nexsh automation scripts in SQLite',
+      '    nex run <script-name>        Execute a multi-line .nexsh automation playbook',
+      '    nex benchmark                Run SQLite WAL + SVG CAD + Edge Mesh throughput benchmark',
+      '    top | netstat | uname -a     Inspect live edge processes, sockets & kernel telemetry',
+      '    <cmd> | grep <text>          Filter command output lines (also: | head 5, | count, | sort)',
+      '    <cmd1> && <cmd2>             Chain multiple commands sequentially'
+    ];
+  } else if (lower.startsWith('echo ')) {
+    const text = baseCmd.slice(5).trim().replace(/^["']|["']$/g, '');
+    outputLines = [text];
+  } else if (lower === 'whoami') {
+    outputLines = ['root@nex-edge-nbo (uid=0 gid=0 groups=0(root),100(secops),101(sqlite-wal))'];
+  } else if (lower === 'uname -a' || lower === 'uname') {
+    outputLines = [
+      'Linux nex-edge-nbo-01 6.11.0-nex-anycast #1 SMP PREEMPT_DYNAMIC Node.js ' +
+        process.version +
+        ' x86_64 GNU/Linux (SQLite3 WAL Engine)'
+    ];
+  } else if (lower === 'uptime') {
+    outputLines = [
+      `up ${Math.round(process.uptime())} seconds, ${Math.max(1, clients.size)} active WS user(s), load average: 0.24, 0.19, 0.15`
+    ];
+  } else if (lower === 'env') {
+    outputLines = [
+      'NEX_VERSION=3.0.0',
+      'NEX_CLUSTER_PRIMARY=af-south-nbo-01 (196.216.84.12)',
+      'SQLITE_JOURNAL_MODE=WAL',
+      'SQLITE_TABLES=17',
+      'WAF_SHIELD=ENABLED (Cloudflare Anycast + Ed25519)',
+      `NODE_RUNTIME=${process.version}`
+    ];
+  } else if (lower === 'top') {
+    const nodes = db.prepare('SELECT * FROM server_nodes ORDER BY cpu_load DESC').all();
+    outputLines = [
+      'PID    USER      PR   VIRT    RES    STATE   CPU%   MEM%   NODE / PROCESS',
+      '────── ───────── ──── ─────── ────── ─────── ────── ────── ──────────────────────────────',
+      ...nodes.map(
+        (n, idx) =>
+          `${String(1400 + idx * 37).padEnd(6)} root      20   1.84G   512M   RUN     ${(n.cpu_load + '%').padEnd(6)} ${(n.ram_usage + '%').padEnd(6)} nex-edge-worker (${n.id})`
+      )
+    ];
+  } else if (lower === 'netstat') {
+    const nodes = db.prepare('SELECT * FROM server_nodes').all();
+    outputLines = [
+      'PROTO  LOCAL ADDRESS          FOREIGN EDGE PEER      STATE         LATENCY   CONNS',
+      '────── ────────────────────── ────────────────────── ───────────── ───────── ──────',
+      ...nodes.map(
+        (n) =>
+          `tcp4   0.0.0.0:3000           ${n.ip_address.padEnd(18)}:443 ESTABLISHED   ${(n.latency_ms + 'ms').padEnd(9)} ${n.active_connections}`
+      )
+    ];
+  } else if (lower === 'nex benchmark' || lower === 'benchmark') {
+    const t0 = performance.now();
+    const prodCount = db.prepare('SELECT COUNT(*) as c FROM products').get().c;
+    const appCount = db.prepare('SELECT COUNT(*) as c FROM apps').get().c;
+    const sampleSvg = renderProductSvg('prod-aether-pro', { view: 'blueprint' });
+    const elapsed = Math.max(0.2, Number((performance.now() - t0).toFixed(2)));
+    const opsPerSec = Math.round((1000 / elapsed) * 45);
+    outputLines = [
+      `[BENCHMARK] SQLite 3 WAL Read Throughput : ${opsPerSec.toLocaleString()} queries/sec (${prodCount} SKUs, ${appCount} Apps)`,
+      `[BENCHMARK] Procedural 4-Angle CAD SVG   : ${(sampleSvg.length / 1024).toFixed(1)} KB vector generated in ${elapsed}ms`,
+      `[BENCHMARK] Edge WebSocket Multiplexer   : 0.4ms frame broadcast latency across 6 Anycast nodes`,
+      `[RESULT]    Overall NEX-Store Engine Score: 99.9 / 100 (ULTRA-LOW LATENCY)`
+    ];
+  } else if (lower === 'nex scripts' || lower === 'scripts') {
+    const scripts = db.prepare('SELECT * FROM terminal_scripts ORDER BY run_count DESC').all();
+    outputLines = [
+      'NAME                             CATEGORY            RUNS    STATUS    DESCRIPTION',
+      '──────────────────────────────── ─────────────────── ─────── ───────── ────────────────────────────────────────',
+      ...scripts.map(
+        (s) =>
+          `${s.name.padEnd(32)} ${s.category.padEnd(19)} ${String(s.run_count).padEnd(7)} ${s.last_status.padEnd(9)} ${s.title}`
+      )
+    ];
+  } else if (lower.startsWith('nex run ')) {
+    const targetName = baseCmd.slice('nex run '.length).trim();
+    const scriptRow = db
+      .prepare('SELECT * FROM terminal_scripts WHERE name = ? OR id = ?')
+      .get(targetName, targetName);
+    if (!scriptRow) {
+      exitCode = 1;
+      outputLines = [
+        `[ERROR] Script "${targetName}" not found. Run "nex scripts" to list available .nexsh playbooks.`
+      ];
+    } else {
+      db.prepare('UPDATE terminal_scripts SET run_count = run_count + 1, updated_at = ? WHERE id = ?').run(
+        new Date().toISOString(),
+        scriptRow.id
+      );
+      outputLines = [
+        `▶ Executing Playbook: ${scriptRow.name} (${scriptRow.title})`,
+        '────────────────────────────────────────────────────────────────────────────────'
+      ];
+      const subLines = scriptRow.script_body
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'));
+      for (const subCmd of subLines) {
+        outputLines.push(`$ ${subCmd}`);
+        const subRes = executeSingleCommand(subCmd);
+        outputLines.push(...subRes.outputLines);
+      }
+      outputLines.push(`✓ Playbook ${scriptRow.name} completed (run #${scriptRow.run_count + 1})`);
+    }
+  } else if (lower === 'nex status' || lower === 'status' || lower === 'nex health') {
+    const stats = getDatabaseStats();
+    const mem = process.memoryUsage();
+    const nodes = db.prepare('SELECT * FROM server_nodes').all();
+    const avgLat = Math.round(nodes.reduce((s, n) => s + n.latency_ms, 0) / Math.max(1, nodes.length));
+    outputLines = [
+      `[OK] Runtime         : Node.js ${process.version} • Uptime ${Math.round(process.uptime())}s • RSS ${(mem.rss / 1024 / 1024).toFixed(1)} MB`,
+      `[OK] Database Engine : ${stats.engine} (${stats.sizeFormatted})`,
+      `[OK] Schema Tables   : ${stats.totalTables} tables • ${stats.totalRows} total rows`,
+      `[OK] Edge Cluster    : ${nodes.length}/${nodes.length} nodes online • Avg Latency ${avgLat}ms`,
+      `[OK] Security Shield : 99.8% Hardened • Cloudflare WAF + SHA-256 Package Signing Active`
+    ];
+  } else if (lower === 'nex servers' || lower === 'servers') {
+    const nodes = db.prepare('SELECT * FROM server_nodes ORDER BY latency_ms ASC').all();
+    outputLines = [
+      'ID           REGION            IP ADDRESS       LATENCY   CPU    RAM    RPS     STATUS',
+      '──────────── ───────────────── ──────────────── ───────── ────── ────── ─────── ──────',
+      ...nodes.map(
+        (n) =>
+          `${n.id.padEnd(12)} ${n.region.padEnd(17)} ${n.ip_address.padEnd(16)} ${(n.latency_ms + 'ms').padEnd(9)} ${(n.cpu_load + '%').padEnd(6)} ${(n.ram_usage + '%').padEnd(6)} ${String(n.rps).padEnd(7)} ${n.status.toUpperCase()}`
+      )
+    ];
+  } else if (lower === 'nex ping' || lower === 'ping') {
+    const nodes = db.prepare('SELECT * FROM server_nodes ORDER BY latency_ms ASC').all();
+    outputLines = [
+      'Pinging 6 global NEX Anycast Edge Nodes with 64 bytes of telemetry data:',
+      ...nodes.map(
+        (n) => `  64 bytes from ${n.ip_address} (${n.name}): icmp_seq=1 ttl=58 time=${n.latency_ms}.2 ms [OK]`
+      ),
+      '--- 6 packets transmitted, 6 received, 0% packet loss ---'
+    ];
+  } else if (lower.startsWith('nex apps') || lower === 'apps') {
+    const appsList = db.prepare('SELECT * FROM apps ORDER BY downloads DESC').all();
+    outputLines = [
+      'ID                  NAME                        SOURCE         VERSION   INSTALLS   SECURITY',
+      '─────────────────── ─────────────────────────── ────────────── ───────── ────────── ────────',
+      ...appsList.map(
+        (a) =>
+          `${a.id.padEnd(19)} ${a.name.slice(0, 26).padEnd(27)} ${(a.source_provider || 'NEX').padEnd(14)} ${('v' + a.version).padEnd(9)} ${String(a.downloads).padEnd(10)} ${a.security_score || 99}/100`
+      )
+    ];
+  } else if (lower.startsWith('nex deploy ')) {
+    const rawUrl = baseCmd.slice('nex deploy '.length).trim();
+    const normalized = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`;
+    let host = 'custom-app.netlify.app';
+    try {
+      host = new URL(normalized).hostname;
+    } catch {}
+    const sub = host.split('.')[0] || 'edge-app';
+    const title = sub
+      .split(/[-_]+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+    const provider = host.includes('netlify')
+      ? 'Netlify'
+      : host.includes('vercel')
+      ? 'Vercel'
+      : host.includes('github')
+      ? 'GitHub'
+      : 'Community Dev';
+    const id = `app-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const sha = crypto.createHash('sha256').update(`${id}:${normalized}`).digest('hex');
+
+    db.prepare(`
+      INSERT INTO apps (
+        id, name, description, version, category, language, platforms_json,
+        rating, reviews_count, downloads, size, developer, icon, license, price,
+        is_featured, is_verified, source_provider, live_url, repo_url,
+        sha256_hash, security_score, permissions_json, created_at
+      ) VALUES (?, ?, ?, '1.0.0', 'web', 'typescript', '["web","linux","macos"]', 5.0, 1, 1, '11.4 MB', ?, '🚀', 'MIT', 'Free', 1, 1, ?, ?, '', ?, 99, '["Sandboxed Iframe","Zero-Trust Verified"]', ?)
+    `).run(
+      id,
+      title,
+      `Imported via NEX-SH CLI from ${normalized}`,
+      `@${sub}_dev`,
+      provider,
+      normalized,
+      sha,
+      now
+    );
+
+    const createdApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
+    const notif = recordPushNotification({
+      channel: 'deployment',
+      priority: 'high',
+      title: `CLI Deployed ${provider} App: ${title}`,
+      message: `Published ${normalized} with SHA-256 ${sha.slice(0, 12)}...`,
+      action_url: 'apps'
+    });
+
+    broadcast('app:created', {
+      app: createdApp,
+      notification: notif,
+      dbStats: getDatabaseStats()
+    });
+
+    outputLines = [
+      `[+] Fetching deployment manifest from ${normalized}...`,
+      `[+] Detected Provider: ${provider} • Package: "${title}"`,
+      `[+] Computing SHA-256 signature: ${sha}`,
+      `[+] Running isolated sandbox security audit... PASS (99/100)`,
+      `[SUCCESS] Published ${title} (${id}) to SQLite apps table & broadcasted to all clients!`
+    ];
+  } else if (lower.startsWith('nex security scan') || lower === 'security scan') {
+    const secEvent = recordSecurityEvent({
+      event_type: 'cli_audit',
+      severity: 'low',
+      source_ip: '127.0.0.1',
+      target_resource: 'NEX-SH CLI Deep Security Scan',
+      action_taken: 'VERIFIED',
+      description: 'CLI-triggered deep audit verified all 17 SQLite tables, WAF rules, and SHA-256 app signatures.'
+    });
+    const securityEvents = db.prepare('SELECT * FROM security_events ORDER BY created_at DESC LIMIT 35').all();
+    broadcast('security:updated', {
+      securityEvents,
+      latestSecurityEvent: secEvent,
+      dbStats: getDatabaseStats()
+    });
+    outputLines = [
+      '[SCAN] Auditing 17 SQLite WAL tables for injection vectors... CLEAN',
+      '[SCAN] Verifying SHA-256 signatures across all Netlify/GitHub apps... 100% VALID',
+      '[SCAN] Checking Cloudflare WAF & Anycast DDoS rules... ARMED',
+      '[PASS] Security Posture Score: 99.8% Hardened (0 vulnerabilities found)'
+    ];
+  } else if (lower.startsWith('nex security block')) {
+    const secEvent = recordSecurityEvent({
+      event_type: 'waf_cli_block',
+      severity: 'critical',
+      source_ip: '185.220.101.99',
+      target_resource: 'POST /api/db/query',
+      action_taken: 'BLOCKED',
+      description: 'CLI threat simulation intercepted stacked SQLi payload in 0.2ms.'
+    });
+    const securityEvents = db.prepare('SELECT * FROM security_events ORDER BY created_at DESC LIMIT 35').all();
+    broadcast('security:updated', {
+      securityEvents,
+      latestSecurityEvent: secEvent,
+      dbStats: getDatabaseStats()
+    });
+    outputLines = [
+      '[ALERT] Simulated incoming SQLi payload from 185.220.101.99 -> POST /api/db/query',
+      '[WAF] Rule #SQLI-09 triggered in 0.2ms -> Action: BLOCKED & IP Blacklisted',
+      `[LOGGED] Event ${secEvent.id} committed to SQLite security_events table.`
+    ];
+  } else if (lower === 'nex products' || lower === 'products') {
+    const prods = getAllProducts();
+    outputLines = [
+      'SKU           NAME                                      PRICE      STOCK   CATEGORY',
+      '───────────── ───────────────────────────────────────── ────────── ─────── ──────────',
+      ...prods.map(
+        (p) =>
+          `${p.sku.padEnd(13)} ${p.name.slice(0, 40).padEnd(41)} ${('$' + p.price).padEnd(10)} ${String(p.stock).padEnd(7)} ${p.category}`
+      )
+    ];
+  } else if (lower === 'nex restock' || lower === 'restock') {
+    const lowProducts = db
+      .prepare('SELECT * FROM products WHERE stock <= low_stock_threshold + 5')
+      .all();
+    const now = new Date().toISOString();
+    const stmt = db.prepare('UPDATE products SET stock = stock + 15, updated_at = ? WHERE id = ?');
+    for (const p of lowProducts) {
+      stmt.run(now, p.id);
+    }
+    const allProducts = getAllProducts();
+    broadcast('products:bulk_restocked', {
+      products: allProducts,
+      analytics: getAnalyticsSummary(),
+      dbStats: getDatabaseStats()
+    });
+    outputLines = [
+      `[WAREHOUSE] Replenished +15 units across ${lowProducts.length} hardware SKUs.`,
+      `[SYNC] Broadcasted updated inventory levels to all connected WebSocket clients.`
+    ];
+  } else if (lower.startsWith('nex notify ')) {
+    const msgText = baseCmd.slice('nex notify '.length).trim();
+    const notif = recordPushNotification({
+      channel: 'realtime',
+      priority: 'high',
+      title: 'NEX-SH Terminal Broadcast',
+      message: msgText,
+      action_url: 'subsystems'
+    });
+    const notifications = db.prepare('SELECT * FROM push_notifications ORDER BY created_at DESC LIMIT 40').all();
+    broadcast('notification:new', {
+      notification: notif,
+      notifications,
+      dbStats: getDatabaseStats()
+    });
+    outputLines = [
+      `[PUSH] Dispatched real-time notification (${notif.id}): "${msgText}"`,
+      `[WS] Broadcasted to ${Math.max(1, clients.size)} active WebSocket client(s).`
+    ];
+  } else if (lower.startsWith('nex sql ') || lower.startsWith('select ') || lower.startsWith('pragma ')) {
+    const sqlQuery = lower.startsWith('nex sql ') ? baseCmd.slice('nex sql '.length).trim() : baseCmd;
+    if (!/^(SELECT|PRAGMA|WITH)\b/i.test(sqlQuery) || /;\s*(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE)\b/i.test(sqlQuery)) {
+      exitCode = 1;
+      outputLines = ['[ERROR] Only read-only SELECT / PRAGMA / WITH queries are permitted in NEX-SH.'];
+    } else {
+      const rows = db.prepare(sqlQuery).all().slice(0, 15);
+      outputLines = [
+        `Query returned ${rows.length} row(s):`,
+        ...rows.map((r) => JSON.stringify(r))
+      ];
+    }
+  } else {
+    exitCode = 127;
+    outputLines = [
+      `nex-sh: command not found: "${baseCmd}"`,
+      `Type "help" to view available NEX-SH v3.0 commands, pipes (| grep), and scripting options.`
+    ];
+  }
+
+  if (pipeSegments.length > 0 && exitCode === 0) {
+    outputLines = applyTerminalPipes(outputLines, pipeSegments);
+  }
+
+  return { outputLines, exitCode };
+}
+
 app.post('/api/terminal/exec', (req, res) => {
   const startTime = performance.now();
   const rawCmd = String(req.body?.command || '').trim();
@@ -1793,271 +2178,92 @@ app.post('/api/terminal/exec', (req, res) => {
     return res.status(400).json({ error: 'Empty command' });
   }
 
-  const lower = rawCmd.toLowerCase();
-  let outputLines = [];
-  let exitCode = 0;
+  let combinedLines = [];
+  let finalExitCode = 0;
 
   try {
-    if (lower === 'help' || lower === 'nex help' || lower === '--help') {
-      outputLines = [
-        'NEX-SH v2.7 • Interactive Cloud & Subsystem Shell (Connected to SQLite WAL + Edge Mesh)',
-        '────────────────────────────────────────────────────────────────────────────────────────',
-        '  nex status                   Inspect system health, memory, WS clients & 16 SQLite tables',
-        '  nex servers                  List all 6 global edge server nodes, latency & RPS',
-        '  nex ping                     Calibrate round-trip latency across all edge server nodes',
-        '  nex apps                     List verified multi-source apps (Netlify, Vercel, GitHub)',
-        '  nex deploy <url>             Import & verify a live app from Netlify/Vercel/GitHub URL',
-        '  nex security scan            Run deep WAF, SQLi/XSS & SHA-256 package security audit',
-        '  nex security block           Simulate & block a live SQLi/DDoS threat at edge gateway',
-        '  nex products                 List flagship hardware SKUs, prices & live warehouse stock',
-        '  nex restock                  Auto-replenish (+15 units) all low-stock hardware SKUs',
-        '  nex sql <SELECT ...>         Execute a read-only SQL query against any of the 16 tables',
-        '  nex notify <message>         Broadcast a real-time push notification to all clients',
-        '  nex theme <id>               Switch UI theme (obsidian|light|cyber|midnight|forest|ocean)',
-        '  clear                        Clear terminal scrollback buffer'
-      ];
-    } else if (lower === 'nex status' || lower === 'status' || lower === 'nex health') {
-      const stats = getDatabaseStats();
-      const mem = process.memoryUsage();
-      const nodes = db.prepare('SELECT * FROM server_nodes').all();
-      const avgLat = Math.round(nodes.reduce((s, n) => s + n.latency_ms, 0) / Math.max(1, nodes.length));
-      outputLines = [
-        `[OK] Runtime         : Node.js ${process.version} • Uptime ${Math.round(process.uptime())}s • RSS ${(mem.rss / 1024 / 1024).toFixed(1)} MB`,
-        `[OK] Database Engine : ${stats.engine} (${stats.sizeFormatted})`,
-        `[OK] Schema Tables   : ${stats.totalTables} tables • ${stats.totalRows} total rows`,
-        `[OK] Edge Cluster    : ${nodes.length}/${nodes.length} nodes online • Avg Latency ${avgLat}ms`,
-        `[OK] Security Shield : 99.8% Hardened • Cloudflare WAF + SHA-256 Package Signing Active`
-      ];
-    } else if (lower === 'nex servers' || lower === 'servers') {
-      const nodes = db.prepare('SELECT * FROM server_nodes ORDER BY latency_ms ASC').all();
-      outputLines = [
-        'ID           REGION            IP ADDRESS       LATENCY   CPU    RAM    RPS     STATUS',
-        '──────────── ───────────────── ──────────────── ───────── ────── ────── ─────── ──────',
-        ...nodes.map(
-          (n) =>
-            `${n.id.padEnd(12)} ${n.region.padEnd(17)} ${n.ip_address.padEnd(16)} ${(n.latency_ms + 'ms').padEnd(9)} ${(n.cpu_load + '%').padEnd(6)} ${(n.ram_usage + '%').padEnd(6)} ${String(n.rps).padEnd(7)} ${n.status.toUpperCase()}`
-        )
-      ];
-    } else if (lower === 'nex ping' || lower === 'ping') {
-      const nodes = db.prepare('SELECT * FROM server_nodes ORDER BY latency_ms ASC').all();
-      outputLines = [
-        'Pinging 6 global NEX Anycast Edge Nodes with 64 bytes of telemetry data:',
-        ...nodes.map(
-          (n) => `  64 bytes from ${n.ip_address} (${n.name}): icmp_seq=1 ttl=58 time=${n.latency_ms}.2 ms [OK]`
-        ),
-        '--- 6 packets transmitted, 6 received, 0% packet loss ---'
-      ];
-    } else if (lower.startsWith('nex apps') || lower === 'apps') {
-      const appsList = db.prepare('SELECT * FROM apps ORDER BY downloads DESC').all();
-      outputLines = [
-        'ID                  NAME                        SOURCE         VERSION   INSTALLS   SECURITY',
-        '─────────────────── ─────────────────────────── ────────────── ───────── ────────── ────────',
-        ...appsList.map(
-          (a) =>
-            `${a.id.padEnd(19)} ${a.name.slice(0, 26).padEnd(27)} ${(a.source_provider || 'NEX').padEnd(14)} ${('v' + a.version).padEnd(9)} ${String(a.downloads).padEnd(10)} ${a.security_score || 99}/100`
-        )
-      ];
-    } else if (lower.startsWith('nex deploy ')) {
-      const rawUrl = rawCmd.slice('nex deploy '.length).trim();
-      const normalized = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`;
-      let host = 'custom-app.netlify.app';
-      try {
-        host = new URL(normalized).hostname;
-      } catch {}
-      const sub = host.split('.')[0] || 'edge-app';
-      const title = sub
-        .split(/[-_]+/)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
-      const provider = host.includes('netlify')
-        ? 'Netlify'
-        : host.includes('vercel')
-        ? 'Vercel'
-        : host.includes('github')
-        ? 'GitHub'
-        : 'Community Dev';
-      const id = `app-${Date.now().toString(36)}`;
-      const now = new Date().toISOString();
-      const sha = crypto.createHash('sha256').update(`${id}:${normalized}`).digest('hex');
+    // Support multi-line .nexsh scripts AND && / ; chained commands (unless inside SQL)
+    const isSqlRaw = /^(nex\s+sql\s+|select\s+|pragma\s+)/i.test(rawCmd);
+    const statements = isSqlRaw
+      ? [rawCmd]
+      : rawCmd
+          .split(/\r?\n|&&/)
+          .map((s) => s.trim())
+          .filter((s) => s && !s.startsWith('#'));
 
-      db.prepare(`
-        INSERT INTO apps (
-          id, name, description, version, category, language, platforms_json,
-          rating, reviews_count, downloads, size, developer, icon, license, price,
-          is_featured, is_verified, source_provider, live_url, repo_url,
-          sha256_hash, security_score, permissions_json, created_at
-        ) VALUES (?, ?, ?, '1.0.0', 'web', 'typescript', '["web","linux","macos"]', 5.0, 1, 1, '11.4 MB', ?, '🚀', 'MIT', 'Free', 1, 1, ?, ?, '', ?, 99, '["Sandboxed Iframe","Zero-Trust Verified"]', ?)
-      `).run(
-        id,
-        title,
-        `Imported via NEX-SH CLI from ${normalized}`,
-        `@${sub}_dev`,
-        provider,
-        normalized,
-        sha,
-        now
-      );
-
-      const createdApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
-      const notif = recordPushNotification({
-        channel: 'deployment',
-        priority: 'high',
-        title: `CLI Deployed ${provider} App: ${title}`,
-        message: `Published ${normalized} with SHA-256 ${sha.slice(0, 12)}...`,
-        action_url: 'apps'
-      });
-
-      broadcast('app:created', {
-        app: createdApp,
-        notification: notif,
-        dbStats: getDatabaseStats()
-      });
-
-      outputLines = [
-        `[+] Fetching deployment manifest from ${normalized}...`,
-        `[+] Detected Provider: ${provider} • Package: "${title}"`,
-        `[+] Computing SHA-256 signature: ${sha}`,
-        `[+] Running isolated sandbox security audit... PASS (99/100)`,
-        `[SUCCESS] Published ${title} (${id}) to SQLite apps table & broadcasted to all clients!`
-      ];
-    } else if (lower.startsWith('nex security scan') || lower === 'security scan') {
-      const secEvent = recordSecurityEvent({
-        event_type: 'cli_audit',
-        severity: 'low',
-        source_ip: '127.0.0.1',
-        target_resource: 'NEX-SH CLI Deep Security Scan',
-        action_taken: 'VERIFIED',
-        description: 'CLI-triggered deep audit verified all 16 SQLite tables, WAF rules, and SHA-256 app signatures.'
-      });
-      const securityEvents = db.prepare('SELECT * FROM security_events ORDER BY created_at DESC LIMIT 35').all();
-      broadcast('security:updated', {
-        securityEvents,
-        latestSecurityEvent: secEvent,
-        dbStats: getDatabaseStats()
-      });
-      outputLines = [
-        '[SCAN] Auditing 16 SQLite WAL tables for injection vectors... CLEAN',
-        '[SCAN] Verifying SHA-256 signatures across all Netlify/GitHub apps... 100% VALID',
-        '[SCAN] Checking Cloudflare WAF & Anycast DDoS rules... ARMED',
-        '[PASS] Security Posture Score: 99.8% Hardened (0 vulnerabilities found)'
-      ];
-    } else if (lower.startsWith('nex security block')) {
-      const secEvent = recordSecurityEvent({
-        event_type: 'waf_cli_block',
-        severity: 'critical',
-        source_ip: '185.220.101.99',
-        target_resource: 'POST /api/db/query',
-        action_taken: 'BLOCKED',
-        description: 'CLI threat simulation intercepted stacked SQLi payload in 0.2ms.'
-      });
-      const securityEvents = db.prepare('SELECT * FROM security_events ORDER BY created_at DESC LIMIT 35').all();
-      broadcast('security:updated', {
-        securityEvents,
-        latestSecurityEvent: secEvent,
-        dbStats: getDatabaseStats()
-      });
-      outputLines = [
-        '[ALERT] Simulated incoming SQLi payload from 185.220.101.99 -> POST /api/db/query',
-        '[WAF] Rule #SQLI-09 triggered in 0.2ms -> Action: BLOCKED & IP Blacklisted',
-        `[LOGGED] Event ${secEvent.id} committed to SQLite security_events table.`
-      ];
-    } else if (lower === 'nex products' || lower === 'products') {
-      const prods = getAllProducts();
-      outputLines = [
-        'SKU           NAME                                      PRICE      STOCK   CATEGORY',
-        '───────────── ───────────────────────────────────────── ────────── ─────── ──────────',
-        ...prods.map(
-          (p) =>
-            `${p.sku.padEnd(13)} ${p.name.slice(0, 40).padEnd(41)} ${('$' + p.price).padEnd(10)} ${String(p.stock).padEnd(7)} ${p.category}`
-        )
-      ];
-    } else if (lower === 'nex restock' || lower === 'restock') {
-      const lowProducts = db
-        .prepare('SELECT * FROM products WHERE stock <= low_stock_threshold + 5')
-        .all();
-      const now = new Date().toISOString();
-      const stmt = db.prepare('UPDATE products SET stock = stock + 15, updated_at = ? WHERE id = ?');
-      for (const p of lowProducts) {
-        stmt.run(now, p.id);
+    for (const stmt of statements) {
+      if (statements.length > 1) {
+        combinedLines.push(`$ ${stmt}`);
       }
-      const allProducts = getAllProducts();
-      broadcast('products:bulk_restocked', {
-        products: allProducts,
-        analytics: getAnalyticsSummary(),
-        dbStats: getDatabaseStats()
-      });
-      outputLines = [
-        `[WAREHOUSE] Replenished +15 units across ${lowProducts.length} hardware SKUs.`,
-        `[SYNC] Broadcasted updated inventory levels to all connected WebSocket clients.`
-      ];
-    } else if (lower.startsWith('nex notify ')) {
-      const msgText = rawCmd.slice('nex notify '.length).trim();
-      const notif = recordPushNotification({
-        channel: 'realtime',
-        priority: 'high',
-        title: 'NEX-SH Terminal Broadcast',
-        message: msgText,
-        action_url: 'subsystems'
-      });
-      const notifications = db.prepare('SELECT * FROM push_notifications ORDER BY created_at DESC LIMIT 40').all();
-      broadcast('notification:new', {
-        notification: notif,
-        notifications,
-        dbStats: getDatabaseStats()
-      });
-      outputLines = [
-        `[PUSH] Dispatched real-time notification (${notif.id}): "${msgText}"`,
-        `[WS] Broadcasted to ${Math.max(1, clients.size)} active WebSocket client(s).`
-      ];
-    } else if (lower.startsWith('nex sql ') || lower.startsWith('select ') || lower.startsWith('pragma ')) {
-      const sqlQuery = lower.startsWith('nex sql ') ? rawCmd.slice('nex sql '.length).trim() : rawCmd;
-      if (!/^(SELECT|PRAGMA|WITH)\b/i.test(sqlQuery) || /;\s*(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE)\b/i.test(sqlQuery)) {
-        exitCode = 1;
-        outputLines = ['[ERROR] Only read-only SELECT / PRAGMA / WITH queries are permitted in NEX-SH.'];
-      } else {
-        const rows = db.prepare(sqlQuery).all().slice(0, 15);
-        outputLines = [
-          `Query returned ${rows.length} row(s):`,
-          JSON.stringify(rows, null, 2)
-        ];
+      const { outputLines, exitCode } = executeSingleCommand(stmt);
+      combinedLines.push(...outputLines);
+      if (exitCode !== 0) {
+        finalExitCode = exitCode;
+        break;
       }
-    } else {
-      exitCode = 127;
-      outputLines = [
-        `nex-sh: command not found: "${rawCmd}"`,
-        `Type "help" to view available NEX Cloud CLI commands.`
-      ];
     }
   } catch (err) {
-    exitCode = 1;
-    outputLines = [`[ERROR] ${err.message || 'Command execution failed'}`];
+    finalExitCode = 1;
+    combinedLines.push(`[ERROR] ${err.message || 'Command execution failed'}`);
   }
 
   const durationMs = Number((performance.now() - startTime).toFixed(2));
-  const outputText = outputLines.join('\n');
+  const outputText = combinedLines.join('\n');
   const logEntry = recordTerminalLog({
-    command: rawCmd,
+    command: rawCmd.includes('\n') ? `[Script] ${rawCmd.split('\n')[0]}...` : rawCmd,
     output: outputText,
-    exit_code: exitCode,
+    exit_code: finalExitCode,
     actor: 'root@nex-edge-nbo',
     duration_ms: durationMs
   });
 
   const terminalLogs = db.prepare('SELECT * FROM terminal_logs ORDER BY created_at DESC LIMIT 40').all();
+  const terminalScripts = db.prepare('SELECT * FROM terminal_scripts ORDER BY run_count DESC').all();
   broadcast('terminal:executed', {
     logEntry,
     terminalLogs,
+    terminalScripts,
     dbStats: getDatabaseStats()
   });
 
   res.json({
     command: rawCmd,
     output: outputText,
-    exitCode,
+    exitCode: finalExitCode,
     durationMs,
     logEntry,
-    terminalLogs
+    terminalLogs,
+    terminalScripts
   });
+});
+
+app.post('/api/terminal/scripts', (req, res) => {
+  const {
+    id,
+    name = 'custom-playbook.nexsh',
+    title = 'Custom Automation Script',
+    category = 'Custom Ops',
+    description = 'User-defined NEX-SH automation playbook',
+    script_body = 'nex status\nnex servers'
+  } = req.body || {};
+
+  const cleanName = name.trim().endsWith('.nexsh') ? name.trim() : `${name.trim()}.nexsh`;
+  const scriptId = id || `scr-${Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT OR REPLACE INTO terminal_scripts (
+      id, name, title, category, description, author, script_body, run_count, last_status, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'root@nex-edge-nbo', ?, COALESCE((SELECT run_count FROM terminal_scripts WHERE id = ?), 0), 'READY', ?)
+  `).run(scriptId, cleanName, title.trim(), category.trim(), description.trim(), script_body, scriptId, now);
+
+  const terminalScripts = db.prepare('SELECT * FROM terminal_scripts ORDER BY run_count DESC').all();
+  broadcast('terminal:scripts_updated', {
+    terminalScripts,
+    dbStats: getDatabaseStats()
+  });
+
+  res.status(201).json({ terminalScripts });
 });
 
 // Serve frontend build or attach Vite middleware
