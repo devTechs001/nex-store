@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db, seedDatabase, formatProductRow } from './db.js';
 import { renderProductSvg } from './productArt.js';
+import { THEMES } from '../src/utils/themes.js';
 
-console.log('Running NEX Store SQLite & Subsystems Verification Suite...');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+console.log('Running NEX Store SQLite, Cross-Browser CSS & Subsystems Verification Suite...');
 
 // 1. Ensure schema & seed
 const seedResult = seedDatabase();
@@ -56,4 +63,12 @@ assert.ok(sampleProd.id && sampleProd.sku && Array.isArray(sampleProd.colors));
 const svgOutput = renderProductSvg(sampleProd.id, { view: 'blueprint' }, sampleProd);
 assert.ok(svgOutput.includes('<svg') && svgOutput.includes(sampleProd.sku));
 
-console.log('✅ All 16 SQLite tables, multi-source apps, edge servers, security shield, CLI terminal, and CAD SVG renders verified!');
+// 5. Verify Cross-Browser CSS & 6-Theme Palette Engine
+const cssSource = fs.readFileSync(path.resolve(__dirname, '../src/index.css'), 'utf8');
+assert.ok(cssSource.includes('-webkit-backdrop-filter'), 'Missing Safari -webkit-backdrop-filter prefix');
+assert.ok(cssSource.includes('scrollbar-width: thin'), 'Missing Firefox scrollbar-width rule');
+assert.ok(cssSource.includes('select option'), 'Missing Windows Chrome/Edge <select><option> contrast rule');
+assert.ok(cssSource.includes('@supports (background: color-mix'), 'Missing color-mix() @supports progressive enhancement');
+assert.ok(Object.keys(THEMES).length >= 6, 'Expected 6 complete UI theme palettes');
+
+console.log('✅ All 16 SQLite tables, cross-browser CSS rules, 6 themes, multi-source apps, edge servers, security shield, CLI terminal, and CAD SVG renders verified!');
