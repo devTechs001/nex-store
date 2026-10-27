@@ -179,6 +179,17 @@ export default function App() {
               if (payload.dbStats) setDbStats(payload.dbStats);
               break;
 
+            case 'products:bulk_restocked':
+              if (payload.products) setProducts(payload.products);
+              if (payload.inventoryLogs) setInventoryLogs(payload.inventoryLogs);
+              if (payload.activity) {
+                setActivityEvents((prev) => [payload.activity, ...prev]);
+                pushToast(payload.activity.title, payload.activity.message, 'success');
+              }
+              if (payload.analytics) setAnalytics(payload.analytics);
+              if (payload.dbStats) setDbStats(payload.dbStats);
+              break;
+
             case 'order:created':
               setOrders((prev) => [
                 payload.order,
@@ -426,6 +437,10 @@ export default function App() {
     });
   };
 
+  const handleBulkRestockLow = async () => {
+    await fetch('/api/products/restock-low', { method: 'POST' });
+  };
+
   const handleToggleFlashSale = async (productId, isFlash) => {
     await fetch(`/api/products/${productId}`, {
       method: 'PATCH',
@@ -619,6 +634,7 @@ export default function App() {
             currency={currency}
             darkMode={darkMode}
             onQuickStockUpdate={handleQuickStockUpdate}
+            onBulkRestockLow={handleBulkRestockLow}
             onToggleFlashSale={handleToggleFlashSale}
             onCreateProduct={handleCreateProduct}
             onDeleteProduct={handleDeleteProduct}

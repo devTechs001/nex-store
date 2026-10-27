@@ -5,17 +5,19 @@ import {
   Play,
   RotateCcw,
   Download,
-  HardDrive,
-  CheckCircle2,
   Key,
   Terminal,
-  Sparkles
+  FileSpreadsheet
 } from 'lucide-react';
 
 const PRESET_QUERIES = [
   {
     label: 'Top Grossing Hardware SKUs',
     sql: `SELECT sku, name, category, price, stock, sold_count, ROUND(price * sold_count, 2) AS gross_revenue\nFROM products\nORDER BY gross_revenue DESC;`
+  },
+  {
+    label: 'Enterprise Apps Leaderboard',
+    sql: `SELECT name, version, category, language, rating, downloads, size, developer\nFROM apps\nORDER BY downloads DESC;`
   },
   {
     label: 'Orders + Item Count Join',
@@ -28,10 +30,6 @@ const PRESET_QUERIES = [
   {
     label: 'Verified Reviews + Product Join',
     sql: `SELECT r.author_name, r.author_location, r.rating, r.title, p.name AS product_name, r.helpful_count\nFROM reviews r\nJOIN products p ON p.id = r.product_id\nORDER BY r.helpful_count DESC;`
-  },
-  {
-    label: 'Recent Inventory Ledger Audit',
-    sql: `SELECT product_name, change_amount, previous_stock, new_stock, reason, actor, created_at\nFROM inventory_logs\nORDER BY created_at DESC\nLIMIT 15;`
   }
 ];
 
@@ -94,22 +92,43 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
     URL.revokeObjectURL(url);
   };
 
+  const handleExportCsv = (rows, filename = `${selectedTable}.csv`) => {
+    if (!rows || rows.length === 0) return;
+    const cols = Object.keys(rows[0]);
+    const csvLines = [
+      cols.join(','),
+      ...rows.map((r) =>
+        cols
+          .map((c) => {
+            const v = r[c] === null || r[c] === undefined ? '' : String(r[c]);
+            return `"${v.replace(/"/g, '""')}"`;
+          })
+          .join(',')
+      )
+    ];
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const activeRows = queryResult ? queryResult.rows : tableData.rows;
   const activeColumns =
     activeRows && activeRows.length > 0
       ? Object.keys(activeRows[0])
       : tableData.columns.map((c) => c.name);
 
+  const cardSurface = darkMode ? 'surface-card-dark' : 'surface-card-light';
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 space-y-6">
       {/* Top Database Engine Telemetry Header */}
-      <div
-        className={`flex flex-wrap items-center justify-between gap-4 rounded-3xl border p-6 ${
-          darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-        }`}
-      >
-        <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 rounded-full bg-cyan-500/15 border border-cyan-500/30 px-3 py-0.5 font-mono-num text-xs font-semibold text-cyan-400">
+      <div className={`flex flex-wrap items-center justify-between gap-4 rounded-3xl p-6 md:p-8 ${cardSurface}`}>
+        <div className="space-y-1.5">
+          <div className="inline-flex items-center gap-2 rounded-full bg-cyan-500/15 border border-cyan-500/30 px-3 py-0.5 font-mono-num text-xs font-bold text-cyan-400">
             <Database className="h-3.5 w-3.5" />
             <span>RELATIONAL SQLITE 3 ENGINE • WAL PERSISTENCE</span>
           </div>
@@ -117,24 +136,36 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
             NEX Store SQLite Database Studio
           </h1>
           <p className={`text-xs sm:text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-            Inspect all 10 relational tables (`products`, `categories`, `orders`, `order_items`,
-            `reviews`, `coupons`, `inventory_logs`, `activity_events`, `chat_messages`,
-            `subscribers`), view column schemas, and execute live SQL queries.
+            Inspect all {dbStats?.totalTables || 11} relational tables (`products`, `apps`,
+            `categories`, `orders`, `order_items`, `reviews`, `coupons`, `inventory_logs`,
+            `activity_events`, `chat_messages`, `subscribers`), view column schemas, and execute live SQL queries.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-3.5 py-2 font-mono-num text-xs">
+          <div
+            className={`rounded-2xl border px-3.5 py-2 font-mono-num text-xs ${
+              darkMode
+                ? 'border-white/[0.08] bg-slate-950/80'
+                : 'border-slate-200 bg-slate-50'
+            }`}
+          >
             <div className="text-[10px] text-slate-400">DB FILE & SIZE</div>
             <div className="font-bold text-cyan-400">
               {dbStats?.filePath || 'data/nexstore.db'} ({dbStats?.sizeFormatted || '64.0 KB'})
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-3.5 py-2 font-mono-num text-xs">
+          <div
+            className={`rounded-2xl border px-3.5 py-2 font-mono-num text-xs ${
+              darkMode
+                ? 'border-white/[0.08] bg-slate-950/80'
+                : 'border-slate-200 bg-slate-50'
+            }`}
+          >
             <div className="text-[10px] text-slate-400">TOTAL RECORDS</div>
             <div className="font-bold text-emerald-400">
-              {dbStats?.totalRows || 0} rows / {dbStats?.totalTables || 10} tables
+              {dbStats?.totalRows || 0} rows / {dbStats?.totalTables || 11} tables
             </div>
           </div>
 
@@ -147,7 +178,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
               await fetchTable(selectedTable);
               setResetting(false);
             }}
-            className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-4 py-2.5 text-xs font-semibold text-amber-300 transition cursor-pointer"
+            className="inline-flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-4 py-2.5 text-xs font-semibold text-amber-400 transition cursor-pointer"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>{resetting ? 'Re-Seeding...' : 'Reset & Re-Seed DB'}</span>
@@ -159,13 +190,9 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left 3 Cols: Relational Table Selector & Schema */}
         <div className="lg:col-span-3 space-y-4">
-          <div
-            className={`rounded-2xl border p-4 space-y-2 ${
-              darkMode ? 'bg-slate-900/75 border-slate-800' : 'bg-white border-slate-200'
-            }`}
-          >
+          <div className={`rounded-3xl p-4 space-y-2 ${cardSurface}`}>
             <h2 className="font-mono-num text-xs font-bold uppercase tracking-wider text-slate-400 px-1">
-              SQLite Tables ({dbStats?.tables?.length || 10})
+              SQLite Tables ({dbStats?.tables?.length || 11})
             </h2>
             <div className="space-y-1">
               {(dbStats?.tables || []).map((t) => {
@@ -179,7 +206,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
                     }}
                     className={`w-full flex items-center justify-between rounded-xl px-3 py-2 font-mono-num text-xs transition cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-600 text-white font-bold shadow-sm'
+                        ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white font-bold shadow-sm'
                         : darkMode
                         ? 'text-slate-300 hover:bg-slate-800/70'
                         : 'text-slate-700 hover:bg-slate-100'
@@ -191,7 +218,11 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
                     </span>
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] ${
-                        isSelected ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'
+                        isSelected
+                          ? 'bg-white/20 text-white'
+                          : darkMode
+                          ? 'bg-slate-800 text-slate-300'
+                          : 'bg-slate-200 text-slate-700'
                       }`}
                     >
                       {t.rowCount}
@@ -203,11 +234,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
           </div>
 
           {/* Selected Table Column Schema */}
-          <div
-            className={`rounded-2xl border p-4 space-y-2.5 ${
-              darkMode ? 'bg-slate-900/75 border-slate-800' : 'bg-white border-slate-200'
-            }`}
-          >
+          <div className={`rounded-3xl p-4 space-y-2.5 ${cardSurface}`}>
             <h3 className="font-mono-num text-xs font-bold uppercase tracking-wider text-slate-400">
               Schema: `{selectedTable}`
             </h3>
@@ -219,13 +246,19 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
               ).map((col) => (
                 <div
                   key={col.name}
-                  className="flex items-center justify-between rounded-lg bg-slate-950/70 border border-slate-800/80 px-2.5 py-1.5 font-mono-num text-[11px]"
+                  className={`flex items-center justify-between rounded-xl border px-2.5 py-1.5 font-mono-num text-[11px] ${
+                    darkMode
+                      ? 'bg-slate-950/70 border-white/[0.07] text-slate-200'
+                      : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
                 >
-                  <span className="flex items-center gap-1.5 text-slate-200">
+                  <span className="flex items-center gap-1.5">
                     {Boolean(col.pk) && <Key className="h-3 w-3 text-amber-400" />}
                     <span>{col.name}</span>
                   </span>
-                  <span className="text-[10px] text-indigo-400">{col.type || 'TEXT'}</span>
+                  <span className="text-[10px] font-bold text-indigo-400">
+                    {col.type || 'TEXT'}
+                  </span>
                 </div>
               ))}
             </div>
@@ -235,11 +268,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
         {/* Right 9 Cols: Interactive SQL Query Console & Live Data Table */}
         <div className="lg:col-span-9 space-y-5">
           {/* Interactive SQL Console */}
-          <div
-            className={`rounded-2xl border p-5 space-y-3.5 ${
-              darkMode ? 'bg-slate-900/75 border-slate-800' : 'bg-white border-slate-200'
-            }`}
-          >
+          <div className={`rounded-3xl p-5 space-y-3.5 ${cardSurface}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Terminal className="h-4 w-4 text-cyan-400" />
@@ -256,7 +285,11 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
                       setSqlInput(pq.sql);
                       handleRunSql(pq.sql);
                     }}
-                    className="rounded-lg bg-slate-950 hover:bg-indigo-500/20 border border-slate-800 hover:border-indigo-500/40 px-2.5 py-1 font-mono-num text-[10px] text-slate-300 hover:text-indigo-300 transition cursor-pointer"
+                    className={`rounded-lg border px-2.5 py-1 font-mono-num text-[10px] font-semibold transition cursor-pointer ${
+                      darkMode
+                        ? 'bg-slate-950 border-white/[0.08] text-slate-300 hover:border-indigo-500/40 hover:text-indigo-300'
+                        : 'bg-slate-100 border-slate-200 text-slate-700 hover:border-indigo-400 hover:text-indigo-600'
+                    }`}
                   >
                     {pq.label}
                   </button>
@@ -269,12 +302,16 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
                 rows={3}
                 value={sqlInput}
                 onChange={(e) => setSqlInput(e.target.value)}
-                className="flex-1 rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono-num text-xs text-cyan-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className={`flex-1 rounded-2xl border p-3.5 font-mono-num text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                  darkMode
+                    ? 'border-white/[0.08] bg-slate-950 text-cyan-300'
+                    : 'border-slate-300 bg-slate-900 text-cyan-300'
+                }`}
               />
               <div className="flex sm:flex-col justify-between gap-2">
                 <button
                   onClick={() => handleRunSql()}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-3 text-xs font-semibold text-white shadow-lg shadow-indigo-600/30 cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 px-5 py-3 text-xs font-semibold text-white shadow-lg shadow-indigo-600/30 cursor-pointer"
                 >
                   <Play className="h-3.5 w-3.5" />
                   <span>Execute SQL</span>
@@ -282,7 +319,11 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
                 {queryResult && (
                   <button
                     onClick={() => setQueryResult(null)}
-                    className="rounded-xl border border-slate-700 px-3 py-2 text-[11px] text-slate-300 hover:text-white cursor-pointer"
+                    className={`rounded-xl border px-3 py-2 text-[11px] font-semibold cursor-pointer ${
+                      darkMode
+                        ? 'border-white/[0.1] text-slate-300 hover:text-white'
+                        : 'border-slate-300 text-slate-700 hover:text-slate-900'
+                    }`}
                   >
                     Show Table `{selectedTable}`
                   </button>
@@ -291,44 +332,69 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
             </div>
 
             {queryError && (
-              <div className="rounded-xl bg-rose-500/15 border border-rose-500/30 p-3 font-mono-num text-xs text-rose-300">
+              <div className="rounded-xl bg-rose-500/15 border border-rose-500/30 p-3 font-mono-num text-xs text-rose-400">
                 {queryError}
               </div>
             )}
           </div>
 
           {/* Live Data Grid */}
-          <div
-            className={`rounded-2xl border overflow-hidden ${
-              darkMode ? 'bg-slate-900/75 border-slate-800' : 'bg-white border-slate-200'
-            }`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-5 py-3.5">
+          <div className={`rounded-3xl overflow-hidden ${cardSurface}`}>
+            <div
+              className={`flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5 ${
+                darkMode ? 'border-white/[0.08]' : 'border-slate-200'
+              }`}
+            >
               <div className="flex items-center gap-2 font-mono-num text-xs">
                 <span className="font-bold text-indigo-400">
                   {queryResult ? 'CUSTOM SQL QUERY RESULT' : `TABLE: ${selectedTable}`}
                 </span>
                 <span className="text-slate-500">•</span>
-                <span className="text-emerald-400">{activeRows.length} rows returned</span>
+                <span className="text-emerald-400 font-semibold">
+                  {activeRows.length} rows returned
+                </span>
                 {queryResult?.durationMs !== undefined && (
-                  <span className="rounded bg-cyan-500/15 px-2 py-0.5 text-[10px] text-cyan-300">
+                  <span className="rounded bg-cyan-500/15 px-2 py-0.5 text-[10px] font-bold text-cyan-400">
                     {queryResult.durationMs} ms
                   </span>
                 )}
               </div>
 
-              <button
-                onClick={() =>
-                  handleExportJson(
-                    activeRows,
-                    queryResult ? 'nexstore-query.json' : `${selectedTable}.json`
-                  )
-                }
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 px-3 py-1.5 font-mono-num text-[11px] text-slate-200 cursor-pointer"
-              >
-                <Download className="h-3.5 w-3.5 text-cyan-400" />
-                <span>Export JSON</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    handleExportCsv(
+                      activeRows,
+                      queryResult ? 'nexstore-query.csv' : `${selectedTable}.csv`
+                    )
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 font-mono-num text-[11px] font-semibold cursor-pointer ${
+                    darkMode
+                      ? 'border-white/[0.1] bg-slate-800/80 hover:bg-slate-700 text-slate-200'
+                      : 'border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Export CSV</span>
+                </button>
+
+                <button
+                  onClick={() =>
+                    handleExportJson(
+                      activeRows,
+                      queryResult ? 'nexstore-query.json' : `${selectedTable}.json`
+                    )
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 font-mono-num text-[11px] font-semibold cursor-pointer ${
+                    darkMode
+                      ? 'border-white/[0.1] bg-slate-800/80 hover:bg-slate-700 text-slate-200'
+                      : 'border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  <Download className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>Export JSON</span>
+                </button>
+              </div>
             </div>
 
             {loadingTable ? (
@@ -342,7 +408,13 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
             ) : (
               <div className="overflow-x-auto max-h-[460px]">
                 <table className="w-full border-collapse text-left font-mono-num text-xs">
-                  <thead className="sticky top-0 bg-slate-950 border-b border-slate-800 text-[11px] uppercase text-slate-400">
+                  <thead
+                    className={`sticky top-0 border-b text-[11px] uppercase text-slate-400 ${
+                      darkMode
+                        ? 'bg-slate-950 border-white/[0.08]'
+                        : 'bg-slate-100 border-slate-200'
+                    }`}
+                  >
                     <tr>
                       {activeColumns.map((col) => (
                         <th key={col} className="px-3.5 py-2.5 whitespace-nowrap">
@@ -351,21 +423,39 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60">
+                  <tbody
+                    className={`divide-y ${
+                      darkMode ? 'divide-white/[0.06]' : 'divide-slate-200'
+                    }`}
+                  >
                     {activeRows.map((row, rIdx) => (
-                      <tr key={rIdx} className="hover:bg-slate-800/30">
+                      <tr
+                        key={rIdx}
+                        className={
+                          darkMode ? 'hover:bg-slate-800/30' : 'hover:bg-slate-100/70'
+                        }
+                      >
                         {activeColumns.map((col) => {
                           const val = row[col];
-                          const strVal =
-                            val === null || val === undefined
-                              ? 'NULL'
-                              : typeof val === 'object'
-                              ? JSON.stringify(val)
-                              : String(val);
+                          const isNull = val === null || val === undefined;
+                          const isNum = typeof val === 'number';
+                          const strVal = isNull
+                            ? 'NULL'
+                            : typeof val === 'object'
+                            ? JSON.stringify(val)
+                            : String(val);
                           return (
                             <td
                               key={col}
-                              className="px-3.5 py-2.5 max-w-[240px] truncate text-slate-300"
+                              className={`px-3.5 py-2.5 max-w-[240px] truncate ${
+                                isNull
+                                  ? 'text-slate-500 italic'
+                                  : isNum
+                                  ? 'text-indigo-400 font-semibold'
+                                  : darkMode
+                                  ? 'text-slate-300'
+                                  : 'text-slate-700'
+                              }`}
                               title={strVal}
                             >
                               {strVal}

@@ -1286,6 +1286,80 @@ app.post('/api/subscribers', (req, res) => {
   }
 });
 
+// 11. Bulk Restock Low-Stock Products (System Operations Improvement)
+app.post('/api/products/restock-low', (_req, res) => {
+  const lowProducts = db
+    .prepare('SELECT * FROM products WHERE stock <= low_stock_threshold + 2')
+    .all();
+
+  const now = new Date().toISOString();
+  const updateStmt = db.prepare(
+    'UPDATE products SET stock = ?, updated_at = ? WHERE id = ?'
+  );
+  const logStmt = db.prepare(`
+    INSERT INTO inventory_logs (
+      id, product_id, product_name, change_amount, previous_stock, new_stock, reason, actor, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const prod of lowProducts) {
+    const addQty = 15;
+    const newStock = prod.stock + addQty;
+    updateStmt.run(newStock, now, prod.id);
+    logStmt.run(
+      `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      prod.id,
+      prod.name,
+      addQty,
+      prod.stock,
+      newStock,
+      'Automated Low-Stock Warehouse Replenishment (+15)',
+      'NEX Auto-Replenish Engine',
+      now
+    );
+  }
+
+  const allProducts = getAllProducts();
+  const inventoryLogs = db.prepare('SELECT * FROM inventory_logs ORDER BY created_at DESC LIMIT 30').all();
+  const activity = recordActivityEvent({
+    event_type: 'stock_update',
+    title: `Auto-Replenished ${lowProducts.length} Low-Stock SKUs`,
+    message:
+      lowProducts.length > 0
+        ? `Added +15 units to ${lowProducts.map((p) => p.sku).join(', ')}`
+        : 'All warehouse SKUs verified above low-stock threshold',
+    meta: { count: lowProducts.length }
+  });
+
+  const payload = {
+    products: allProducts,
+    inventoryLogs,
+    activity,
+    analytics: getAnalyticsSummary(),
+    dbStats: getDatabaseStats()
+  };
+
+  broadcast('products:bulk_restocked', payload);
+  res.json(payload);
+});
+
+// 12. System Health & Diagnostics Telemetry
+app.get('/api/system/health', (_req, res) => {
+  const mem = process.memoryUsage();
+  res.json({
+    status: 'healthy',
+    nodeVersion: process.version,
+    uptimeSeconds: Math.round(process.uptime()),
+    memoryMb: {
+      rss: Number((mem.rss / 1024 / 1024).toFixed(1)),
+      heapUsed: Number((mem.heapUsed / 1024 / 1024).toFixed(1))
+    },
+    wsClients: clients.size,
+    dbStats: getDatabaseStats(),
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Serve frontend build or attach Vite middleware
 const distPath = path.resolve(__dirname, '../dist');
 if (fs.existsSync(path.join(distPath, 'index.html'))) {
