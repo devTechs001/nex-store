@@ -1,123 +1,44 @@
-# nex-store
+# NEX STORE // Gen-5 Hardware Commerce & Real-Time Operations Platform
 
-A modern, enterprise-grade app store built with React, Vite, and Tailwind CSS.
+**NEX Store** is a full-stack e-commerce storefront, real-time operations command center, and interactive SQLite database studio built with **React 19**, **Tailwind CSS v4**, **Express 5**, **WebSockets (`ws`)**, and **Node.js Native SQLite (`node:sqlite` in WAL mode)**.
 
-## 🚀 Features
+---
 
-- 📱 Mobile-first responsive design for desktop and mobile
-- 🔍 Advanced search and filtering across categories, languages, platforms, and ratings
-- 📂 Category-driven app organization
-- ⬇️ Download tracking and installation management
-- ⭐ Ratings and reviews for apps
-- 👤 User profile and favorites experience
-- 🌙 Dark theme support
-- 📤 App upload flow for submissions
+## Key Capabilities
 
-## 🛠️ Tech Stack
+### 1. Relational SQLite 3 Database (`data/nexstore.db`)
+Automatically provisioned and seeded on startup with **10 relational tables** in Write-Ahead Logging (`WAL`) mode:
+- `categories` — Hardware categories (`Spatial Audio`, `Next-Gen Compute`, `Precision Peripherals`, `Biometric & Spatial`, `Optics & Aerial`, `GaN Power & Desk`)
+- `products` — Full catalog with SKUs, pricing, live stock counts, low-stock thresholds, multi-angle CAD galleries, technical specs, and colorways
+- `orders` & `order_items` — Customer orders, shipping telemetry, promo discounts, and line items
+- `reviews` — Verified customer reviews with helpful vote counters and live product rating recalculation
+- `coupons` — Promotional discount engine (`WELCOME10`, `NEX20`, `FLASH75`, `STUDIO150`, plus custom codes)
+- `inventory_logs` — Immutable audit ledger recording every stock adjustment, order deduction, and warehouse restock
+- `activity_events` — Real-time event stream persisted to disk
+- `chat_messages` — Customer & AI Concierge live chat history
+- `subscribers` — Flash Deal newsletter subscribers
 
-- React 19
-- Vite
-- Tailwind CSS
-- Lucide React
+### 2. Real-Time WebSocket Engine (`/ws`)
+- **Live Presence & Viewer Telemetry**: Tracks active connected shoppers and how many engineers are inspecting each product in real time.
+- **Instant Inventory & Price Sync**: Stock changes, restocks, flash deal toggles, and new product launches in Admin Command immediately broadcast to all open storefront clients.
+- **Live Order Fulfillment Pipeline**: Advancing an order through `placed → processing → packed → shipped → delivered` updates the customer's Live Order Tracker without refreshing.
+- **Live Store Concierge Chat**: Context-aware AI & Admin support desk backed by SQLite and WebSockets.
 
-## 📦 Installation
+### 3. Storefront & UI/UX Highlights
+- **Interactive 4-Angle CAD & Studio Viewer**: Switch between `Studio Hero`, `Detail Cutaway`, `CAD Blueprint`, and `Telemetry Spec` renders with dynamic colorway previewing.
+- **Multi-Facet Filtering & Command Search (`⌘K`)**: Filter by category, stock availability, flash deals, price ceiling, and sort order.
+- **Multi-Currency & Theme Support**: Instant conversion across **USD ($)**, **KES (KSh)**, **EUR (€)**, and **GBP (£)**, plus **Dark / Light Mode**.
+- **Side-by-Side Hardware Comparison**: Compare up to 4 products across price, rating, stock, and engineering specs.
+- **Interactive SQLite DB Studio**: Browse all 10 tables, inspect column schemas (`PRAGMA table_info`), execute read-only `SELECT` queries, export JSON, or reset & re-seed the database in one click.
+
+---
+
+## Quick Start
 
 ```bash
-npm install
+# Build frontend assets and start the unified HTTP + WebSocket + SQLite server on 0.0.0.0:3000
 npm run dev
-npm run build
-npm run preview
+
+# Run automated SQLite & backend verification suite
+npm test
 ```
-
-## 📁 Project Structure
-
-```text
-src/
-├── components/
-│   ├── common/
-│   │   ├── Button.jsx
-│   │   ├── Input.jsx
-│   │   ├── Badge.jsx
-│   │   ├── Modal.jsx
-│   │   └── Rating.jsx
-│   ├── layout/
-│   │   ├── Header.jsx
-│   │   ├── Sidebar.jsx
-│   │   └── MobileNav.jsx
-│   ├── apps/
-│   │   ├── AppCard.jsx
-│   │   └── AppDetails.jsx
-│   └── categories/
-│       └── CategoryCard.jsx
-├── pages/
-│   ├── Home.jsx
-│   ├── Explore.jsx
-│   ├── Downloads.jsx
-│   ├── Profile.jsx
-│   └── Settings.jsx
-├── context/
-│   └── AppContext.jsx
-├── data/
-│   └── mockData.js
-├── styles/
-│   └── index.css
-├── App.jsx
-└── main.jsx
-```
-
-## 🎨 Design System
-
-| Element | Value |
-| --- | --- |
-| Primary Color | `#0ef` |
-| Background | `#1f242d` |
-| Secondary BG | `#323946` |
-| Text | `#fff` |
-| Font | Poppins |
-
-## 📱 Categories
-
-- All Apps
-- Web Apps
-- Desktop
-- Mobile
-- CLI Tools
-- APIs
-- Libraries
-- Utilities
-
-## 🔧 Supported Languages
-
-JavaScript, TypeScript, Python, Java, C++, C#, Rust, Go, Swift, Kotlin
-
-## 🌐 Platforms
-
-Windows, macOS, Linux, Android, iOS, Web, Cross-Platform
-
-## 🚀 Getting Started
-
-1. Open your browser to `http://localhost:3000`
-2. Browse featured apps on the home page
-3. Use the Explore page to search and filter apps
-4. Click any app to see its details
-5. Download apps to add them to your library
-6. Upload your own apps using the Upload button
-
-## 📸 Screenshots
-
-The app includes:
-- Hero section with call-to-action buttons
-- Featured apps grid
-- New release items
-- Top-rated app lists
-- Advanced filtering modal
-- App detail modal with tabs
-- Responsive mobile navigation
-
-## 🤝 Contributing
-
-Contributions are welcome. Please feel free to submit a pull request.
-
-## 📄 License
-
-MIT License
