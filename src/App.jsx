@@ -9,16 +9,18 @@ import AdminDashboardView from './components/AdminDashboardView.jsx';
 import DatabaseStudioView from './components/DatabaseStudioView.jsx';
 import LiveChatWidget from './components/LiveChatWidget.jsx';
 import CommandPaletteModal from './components/CommandPaletteModal.jsx';
+import AppStoreView from './components/AppStoreView.jsx';
 import { CheckCircle2, Zap } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('store'); // 'store' | 'tracker' | 'admin' | 'database'
+  const [activeTab, setActiveTab] = useState('store'); // 'store' | 'apps' | 'tracker' | 'admin' | 'database'
   const [darkMode, setDarkMode] = useState(true);
   const [currency, setCurrency] = useState('USD');
 
   // Store Data State (Bootstrapped from SQLite & kept in sync via WebSockets)
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+  const [apps, setApps] = useState([]);
   const [coupons, setCoupons] = useState([]);
   const [orders, setOrders] = useState([]);
   const [inventoryLogs, setInventoryLogs] = useState([]);
@@ -96,6 +98,7 @@ export default function App() {
       if (res.ok) {
         setCategories(data.categories || []);
         setProducts(data.products || []);
+        setApps(data.apps || []);
         setCoupons(data.coupons || []);
         setOrders(data.orders || []);
         setInventoryLogs(data.inventoryLogs || []);
@@ -238,6 +241,26 @@ export default function App() {
               setCoupons((prev) =>
                 prev.map((c) => (c.id === payload.coupon.id ? payload.coupon : c))
               );
+              break;
+
+            case 'app:created':
+              setApps((prev) => [payload.app, ...prev.filter((a) => a.id !== payload.app.id)]);
+              if (payload.activity) {
+                setActivityEvents((prev) => [payload.activity, ...prev]);
+                pushToast(payload.activity.title, payload.activity.message, 'success');
+              }
+              if (payload.dbStats) setDbStats(payload.dbStats);
+              break;
+
+            case 'app:downloaded':
+              setApps((prev) =>
+                prev.map((a) => (a.id === payload.app.id ? payload.app : a))
+              );
+              if (payload.activity) {
+                setActivityEvents((prev) => [payload.activity, ...prev]);
+                pushToast(payload.activity.title, payload.activity.message, 'realtime');
+              }
+              if (payload.dbStats) setDbStats(payload.dbStats);
               break;
 
             case 'chat:message':
@@ -477,6 +500,18 @@ export default function App() {
     await fetch('/api/db/reset', { method: 'POST' });
   };
 
+  const handleDownloadApp = async (appId) => {
+    await fetch(`/api/apps/${appId}/download`, { method: 'POST' });
+  };
+
+  const handleCreateApp = async (appPayload) => {
+    await fetch('/api/apps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(appPayload)
+    });
+  };
+
   const wishlistProducts = useMemo(
     () => products.filter((p) => wishlistIds.includes(p.id)),
     [products, wishlistIds]
@@ -549,6 +584,15 @@ export default function App() {
             coupons={coupons}
             onSubscribeNewsletter={handleSubscribeNewsletter}
             onNavigateTab={setActiveTab}
+          />
+        )}
+
+        {activeTab === 'apps' && (
+          <AppStoreView
+            apps={apps}
+            darkMode={darkMode}
+            onDownloadApp={handleDownloadApp}
+            onCreateApp={handleCreateApp}
           />
         )}
 

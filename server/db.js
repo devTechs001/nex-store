@@ -7,7 +7,8 @@ import {
   SEED_PRODUCTS,
   SEED_COUPONS,
   SEED_REVIEWS,
-  SEED_ORDERS
+  SEED_ORDERS,
+  SEED_APPS
 } from './seedData.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -167,6 +168,27 @@ export function initSchema() {
       email TEXT UNIQUE NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS apps (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      version TEXT NOT NULL,
+      category TEXT NOT NULL,
+      language TEXT NOT NULL,
+      platforms_json TEXT,
+      rating REAL NOT NULL DEFAULT 4.8,
+      reviews_count INTEGER NOT NULL DEFAULT 1,
+      downloads INTEGER NOT NULL DEFAULT 0,
+      size TEXT NOT NULL,
+      developer TEXT NOT NULL,
+      icon TEXT NOT NULL DEFAULT '📦',
+      license TEXT NOT NULL DEFAULT 'MIT',
+      price TEXT NOT NULL DEFAULT 'Free',
+      is_featured INTEGER NOT NULL DEFAULT 0,
+      is_verified INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -184,7 +206,27 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM chat_messages;
       DELETE FROM products;
       DELETE FROM categories;
+      DELETE FROM apps;
     `);
+  }
+
+  const appCountRow = db.prepare('SELECT COUNT(*) as count FROM apps').get();
+  if (!appCountRow || appCountRow.count === 0) {
+    const nowApps = new Date().toISOString();
+    const insertApp = db.prepare(`
+      INSERT INTO apps (
+        id, name, description, version, category, language, platforms_json,
+        rating, reviews_count, downloads, size, developer, icon, license, price,
+        is_featured, is_verified, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const a of SEED_APPS) {
+      insertApp.run(
+        a.id, a.name, a.description, a.version, a.category, a.language,
+        a.platforms_json, a.rating, a.reviews_count, a.downloads, a.size,
+        a.developer, a.icon, a.license, a.price, a.is_featured, a.is_verified, nowApps
+      );
+    }
   }
 
   const countRow = db.prepare('SELECT COUNT(*) as count FROM products').get();

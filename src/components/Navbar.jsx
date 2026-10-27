@@ -14,7 +14,8 @@ import {
   Store,
   Radio,
   Zap,
-  Command
+  Command,
+  Terminal
 } from 'lucide-react';
 import { CURRENCIES, formatRelativeTime } from '../utils/currency.js';
 
@@ -41,7 +42,8 @@ export default function Navbar({
   dbStats
 }) {
   const navItems = [
-    { id: 'store', label: 'Storefront', icon: Store },
+    { id: 'store', label: 'Hardware Store', icon: Store },
+    { id: 'apps', label: 'App Store', icon: Terminal },
     { id: 'tracker', label: 'Order Tracker', icon: Truck },
     { id: 'admin', label: 'Admin Ops', icon: ShieldCheck },
     {

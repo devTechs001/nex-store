@@ -163,6 +163,7 @@ function getAnalyticsSummary() {
 
 const ALLOWED_TABLES = [
   'products',
+  'apps',
   'categories',
   'orders',
   'order_items',
@@ -225,6 +226,7 @@ app.get('/api/product-art/:idFile', (req, res) => {
 app.get('/api/bootstrap', (_req, res) => {
   const categories = db.prepare('SELECT * FROM categories').all();
   const products = getAllProducts();
+  const apps = db.prepare('SELECT * FROM apps ORDER BY is_featured DESC, downloads DESC').all();
   const coupons = db.prepare('SELECT * FROM coupons ORDER BY active DESC, discount_value DESC').all();
   const orders = getOrdersWithItems(30);
   const reviews = db.prepare(`
@@ -241,6 +243,7 @@ app.get('/api/bootstrap', (_req, res) => {
   res.json({
     categories,
     products,
+    apps,
     coupons,
     orders,
     reviews,
@@ -251,6 +254,93 @@ app.get('/api/bootstrap', (_req, res) => {
     dbStats: getDatabaseStats(),
     presence: getPresenceSummary()
   });
+});
+
+// 2b. Enterprise Software Apps Endpoints (SQLite + Real-Time WS)
+app.get('/api/apps', (_req, res) => {
+  const apps = db.prepare('SELECT * FROM apps ORDER BY is_featured DESC, downloads DESC').all();
+  res.json({ apps });
+});
+
+app.post('/api/apps', (req, res) => {
+  const {
+    name,
+    description = 'Enterprise application package',
+    version = '1.0.0',
+    category = 'utility',
+    language = 'typescript',
+    size = '24.5 MB',
+    developer = 'Community Developer',
+    icon = '🚀',
+    license = 'MIT'
+  } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'App name is required' });
+  }
+
+  const id = `app-${Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO apps (
+      id, name, description, version, category, language, platforms_json,
+      rating, reviews_count, downloads, size, developer, icon, license, price,
+      is_featured, is_verified, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 5.0, 1, 1, ?, ?, ?, ?, 'Free', 1, 1, ?)
+  `).run(
+    id,
+    name.trim(),
+    description.trim(),
+    version.trim(),
+    category,
+    language,
+    JSON.stringify(['linux', 'macos', 'windows']),
+    size,
+    developer.trim(),
+    icon,
+    license,
+    now
+  );
+
+  const createdApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
+  const activity = recordActivityEvent({
+    event_type: 'product_created',
+    title: `New App Published • ${createdApp.name}`,
+    message: `${createdApp.developer} published ${createdApp.name} v${createdApp.version} (${createdApp.language})`,
+    meta: { app_id: createdApp.id }
+  });
+
+  broadcast('app:created', {
+    app: createdApp,
+    activity,
+    dbStats: getDatabaseStats()
+  });
+
+  res.status(201).json({ app: createdApp });
+});
+
+app.post('/api/apps/:id/download', (req, res) => {
+  const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'App not found' });
+
+  db.prepare('UPDATE apps SET downloads = downloads + 1 WHERE id = ?').run(existing.id);
+  const updatedApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(existing.id);
+
+  const activity = recordActivityEvent({
+    event_type: 'live_purchase',
+    title: `App Installed • ${updatedApp.name}`,
+    message: `${updatedApp.name} v${updatedApp.version} deployed (${updatedApp.downloads.toLocaleString()} total installs)`,
+    meta: { app_id: updatedApp.id, downloads: updatedApp.downloads }
+  });
+
+  broadcast('app:downloaded', {
+    app: updatedApp,
+    activity,
+    dbStats: getDatabaseStats()
+  });
+
+  res.json({ app: updatedApp });
 });
 
 // 3. Products Endpoints
