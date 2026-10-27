@@ -1,0 +1,151 @@
+import React from 'react';
+import { X, Layers, Star, ShoppingBag, Trash2 } from 'lucide-react';
+import { formatPrice } from '../utils/currency.js';
+
+export default function CompareModal({
+  isOpen,
+  onClose,
+  compareProducts,
+  onRemoveCompare,
+  onClearCompare,
+  onAddToCart,
+  currency,
+  darkMode
+}) {
+  if (!isOpen) return null;
+
+  const allSpecKeys = Array.from(
+    new Set(compareProducts.flatMap((p) => Object.keys(p.specs || {})))
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+      <div
+        className={`w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-3xl border shadow-2xl ${
+          darkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+        }`}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900/95 px-6 py-4 backdrop-blur-md">
+          <div className="flex items-center gap-2.5">
+            <Layers className="h-5 w-5 text-cyan-400" />
+            <h2 className="font-display text-lg font-bold text-white">
+              Hardware Side-by-Side Spec Comparison ({compareProducts.length}/4)
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {compareProducts.length > 0 && (
+              <button
+                onClick={onClearCompare}
+                className="rounded-xl border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:text-rose-400 cursor-pointer"
+              >
+                Clear All
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-xl border border-slate-700 bg-slate-800 p-2 text-slate-300 hover:text-white cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6">
+          {compareProducts.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 p-12 text-center space-y-2">
+              <Layers className="mx-auto h-10 w-10 text-slate-500" />
+              <p className="text-sm font-bold">No Hardware Selected for Comparison</p>
+              <p className="text-xs text-slate-400">
+                Click the layer icon on up to 4 product cards to compare their engineering telemetry side-by-side.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800">
+                    <th className="w-44 py-4 pr-4 font-mono-num uppercase text-slate-400">
+                      Metric / Spec
+                    </th>
+                    {compareProducts.map((p) => (
+                      <th key={p.id} className="min-w-[210px] p-4 align-top">
+                        <div className="relative rounded-2xl border border-slate-800 bg-slate-950/70 p-3 space-y-2.5">
+                          <button
+                            onClick={() => onRemoveCompare(p.id)}
+                            className="absolute right-2 top-2 rounded-lg bg-slate-900/90 p-1.5 text-slate-400 hover:text-rose-400 cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                          <img
+                            src={p.image_url}
+                            alt={p.name}
+                            className="h-32 w-full rounded-xl object-cover"
+                          />
+                          <div className="font-mono-num text-[10px] text-indigo-400">{p.sku}</div>
+                          <div className="font-display text-sm font-bold leading-snug">{p.name}</div>
+                          <div className="flex items-center justify-between pt-1">
+                            <span className="font-mono-num text-base font-bold text-white">
+                              {formatPrice(p.price, currency)}
+                            </span>
+                            <button
+                              onClick={() => onAddToCart(p)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1.5 text-[11px] font-semibold text-white cursor-pointer"
+                            >
+                              <ShoppingBag className="h-3 w-3" /> Add
+                            </button>
+                          </div>
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70">
+                  <tr>
+                    <td className="py-3 pr-4 font-semibold text-slate-400">Brand</td>
+                    {compareProducts.map((p) => (
+                      <td key={p.id} className="p-3 font-semibold">
+                        {p.brand}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="py-3 pr-4 font-semibold text-slate-400">Rating</td>
+                    {compareProducts.map((p) => (
+                      <td key={p.id} className="p-3">
+                        <span className="inline-flex items-center gap-1 font-mono-num font-bold text-amber-400">
+                          <Star className="h-3.5 w-3.5 fill-amber-400" />
+                          {p.rating} ({p.review_count} reviews)
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="py-3 pr-4 font-semibold text-slate-400">Live Warehouse Stock</td>
+                    {compareProducts.map((p) => (
+                      <td key={p.id} className="p-3 font-mono-num font-semibold text-emerald-400">
+                        {p.stock} units available
+                      </td>
+                    ))}
+                  </tr>
+                  {allSpecKeys.map((specKey) => (
+                    <tr key={specKey}>
+                      <td className="py-3 pr-4 font-mono-num text-[11px] uppercase text-indigo-400">
+                        {specKey}
+                      </td>
+                      {compareProducts.map((p) => (
+                        <td key={p.id} className="p-3 text-slate-300">
+                          {p.specs?.[specKey] || '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
