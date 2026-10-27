@@ -49,7 +49,8 @@ export default function Navbar({
   soundEnabled,
   onToggleSound,
   unreadNotificationsCount = 0,
-  onOpenNotifications
+  onOpenNotifications,
+  onOpenTerminal
 }) {
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 
@@ -310,6 +311,16 @@ export default function Navbar({
                 </>
               )}
             </div>
+
+            {/* Interactive NEX-SH Cloud Terminal Trigger */}
+            <button
+              onClick={onOpenTerminal}
+              className="theme-input relative flex h-9 items-center gap-1.5 rounded-xl px-2.5 font-mono-num text-xs font-bold text-cyan-400 transition cursor-pointer"
+              title="Open Interactive NEX-SH Cloud CLI Terminal (⌘J)"
+            >
+              <Terminal className="h-3.5 w-3.5 text-cyan-400" />
+              <span className="hidden lg:inline">CLI</span>
+            </button>
 
             {/* Sound Synthesizer Mute/Unmute Toggle */}
             <button

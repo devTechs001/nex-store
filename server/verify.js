@@ -29,22 +29,25 @@ const expectedTables = [
   'server_nodes',
   'integrations',
   'security_events',
-  'push_notifications'
+  'push_notifications',
+  'terminal_logs'
 ];
 
 for (const tbl of expectedTables) {
   assert.ok(tables.includes(tbl), `Missing SQLite table: ${tbl}`);
 }
 
-// 3. Verify Multi-Source Apps, Server Nodes, Integrations & Security Events
+// 3. Verify Multi-Source Apps, Server Nodes, Integrations, Security Events & Terminal Logs
 const appCount = db.prepare('SELECT COUNT(*) as c FROM apps').get().c;
 const srvCount = db.prepare('SELECT COUNT(*) as c FROM server_nodes').get().c;
 const intCount = db.prepare('SELECT COUNT(*) as c FROM integrations').get().c;
 const secCount = db.prepare('SELECT COUNT(*) as c FROM security_events').get().c;
+const termCount = db.prepare('SELECT COUNT(*) as c FROM terminal_logs').get().c;
 assert.ok(appCount >= 8, 'Expected at least 8 seeded multi-source apps');
 assert.ok(srvCount >= 6, 'Expected at least 6 seeded edge server nodes');
 assert.ok(intCount >= 8, 'Expected at least 8 seeded platform integrations');
 assert.ok(secCount >= 5, 'Expected at least 5 seeded security events');
+assert.ok(termCount >= 3, 'Expected at least 3 seeded terminal logs');
 
 // 4. Verify Product Formatting & SVG Studio Render
 const sampleProd = formatProductRow(db.prepare('SELECT * FROM products LIMIT 1').get());
@@ -53,4 +56,4 @@ assert.ok(sampleProd.id && sampleProd.sku && Array.isArray(sampleProd.colors));
 const svgOutput = renderProductSvg(sampleProd.id, { view: 'blueprint' }, sampleProd);
 assert.ok(svgOutput.includes('<svg') && svgOutput.includes(sampleProd.sku));
 
-console.log('✅ All 15 SQLite tables, multi-source apps, edge servers, security shield, and CAD SVG renders verified!');
+console.log('✅ All 16 SQLite tables, multi-source apps, edge servers, security shield, CLI terminal, and CAD SVG renders verified!');

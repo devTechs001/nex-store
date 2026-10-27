@@ -12,6 +12,7 @@ import CommandPaletteModal from './components/CommandPaletteModal.jsx';
 import AppStoreView from './components/AppStoreView.jsx';
 import SubsystemsHubView from './components/SubsystemsHubView.jsx';
 import NotificationCenterDrawer from './components/NotificationCenterDrawer.jsx';
+import InteractiveTerminalModal from './components/InteractiveTerminalModal.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
 import { getFallbackBootstrapData, getProductArtUrl } from './utils/storeEngine.js';
 import {
@@ -114,6 +115,8 @@ export default function App() {
   const [integrations, setIntegrations] = useState(initialSeed.integrations);
   const [securityEvents, setSecurityEvents] = useState(initialSeed.securityEvents);
   const [notifications, setNotifications] = useState(initialSeed.notifications);
+  const [terminalLogs, setTerminalLogs] = useState(initialSeed.terminalLogs || []);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [analytics, setAnalytics] = useState(initialSeed.analytics);
   const [dbStats, setDbStats] = useState(initialSeed.dbStats);
   const [presence, setPresence] = useState(initialSeed.presence);
@@ -195,6 +198,7 @@ export default function App() {
       if (Array.isArray(data.integrations) && data.integrations.length > 0) setIntegrations(data.integrations);
       if (Array.isArray(data.securityEvents) && data.securityEvents.length > 0) setSecurityEvents(data.securityEvents);
       if (Array.isArray(data.notifications) && data.notifications.length > 0) setNotifications(data.notifications);
+      if (Array.isArray(data.terminalLogs) && data.terminalLogs.length > 0) setTerminalLogs(data.terminalLogs);
       if (data.analytics && Object.keys(data.analytics).length > 0) setAnalytics(data.analytics);
       if (data.dbStats && Object.keys(data.dbStats).length > 0) setDbStats(data.dbStats);
       if (data.presence) setPresence(data.presence);
@@ -440,6 +444,11 @@ export default function App() {
                 if (payload.presence) setPresence(payload.presence);
                 break;
 
+              case 'terminal:executed':
+                if (payload.terminalLogs) setTerminalLogs(payload.terminalLogs);
+                if (payload.dbStats) setDbStats(payload.dbStats);
+                break;
+
               case 'store:reseeded':
                 setCategories(payload.categories || []);
                 setProducts(payload.products || []);
@@ -456,7 +465,7 @@ export default function App() {
                 setDbStats(payload.dbStats || {});
                 pushToast(
                   'Database Reset Complete',
-                  'All 15 SQLite tables restored to seed state.',
+                  'All 16 SQLite tables restored to seed state.',
                   'success'
                 );
                 break;
@@ -500,14 +509,18 @@ export default function App() {
     }
   }, [selectedProduct?.id]);
 
-  // Cmd/Ctrl + K Shortcut to open Command Palette, Escape to close
+  // Cmd/Ctrl + K Shortcut to open Command Palette, Cmd/Ctrl + J to open Cloud Terminal, Escape to close
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        setTerminalOpen((prev) => !prev);
       } else if (e.key === 'Escape') {
         setCommandPaletteOpen(false);
+        setTerminalOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1155,6 +1168,152 @@ export default function App() {
     );
   };
 
+  const handleExecuteTerminalCommand = async (rawCommand) => {
+    const cmd = String(rawCommand || '').trim();
+    const lower = cmd.toLowerCase();
+
+    // Client-side UI theme command
+    if (lower.startsWith('nex theme ')) {
+      const targetTheme = lower.slice('nex theme '.length).trim();
+      if (THEMES[targetTheme]) {
+        setThemeId(targetTheme);
+        handlePlaySound('success');
+        return {
+          output: `[THEME] Switched active UI palette to "${THEMES[targetTheme].name}" (${targetTheme}).`,
+          exitCode: 0,
+          durationMs: 0.6
+        };
+      }
+      return {
+        output: `[ERROR] Unknown theme "${targetTheme}". Available: ${Object.keys(THEMES).join(', ')}`,
+        exitCode: 1,
+        durationMs: 0.5
+      };
+    }
+
+    try {
+      const res = await fetch('/api/terminal/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd })
+      });
+      if (isJsonResponse(res)) {
+        const data = await res.json();
+        if (lower.includes('security block')) handlePlaySound('alert');
+        else if (lower.includes('security scan')) handlePlaySound('security');
+        else if (lower.includes('deploy') || lower.includes('restock')) handlePlaySound('success');
+        else handlePlaySound('ping');
+        return data;
+      }
+    } catch {
+      // Static fallback below
+    }
+
+    // Client-side fallback when running on static Netlify
+    handlePlaySound('ping');
+    if (lower === 'help' || lower === 'nex help') {
+      return {
+        output: [
+          'NEX-SH v2.7 • Interactive Cloud & Subsystem Shell',
+          '  nex status            Inspect system health, 16 SQLite tables & 6 edge servers',
+          '  nex servers           List all 6 global edge server nodes & latency',
+          '  nex ping              Calibrate latency across all edge server nodes',
+          '  nex apps              List verified multi-source apps (Netlify, Vercel, GitHub)',
+          '  nex deploy <url>      Import & verify a live app from Netlify/Vercel/GitHub URL',
+          '  nex security scan     Run deep WAF, SQLi/XSS & SHA-256 package security audit',
+          '  nex security block    Simulate & block a live SQLi/DDoS threat',
+          '  nex products          List flagship hardware SKUs & warehouse stock',
+          '  nex restock           Auto-replenish (+15 units) all low-stock hardware SKUs',
+          '  nex theme <id>        Switch UI theme (obsidian|light|cyber|midnight|forest|ocean)',
+          '  clear                 Clear terminal buffer'
+        ].join('\n'),
+        exitCode: 0,
+        durationMs: 0.9
+      };
+    }
+    if (lower === 'nex status' || lower === 'status') {
+      return {
+        output: [
+          `[OK] Database Engine : ${dbStats?.engine || 'SQLite 3 WAL'}`,
+          `[OK] Schema Tables   : ${dbStats?.totalTables || 16} tables`,
+          `[OK] Edge Cluster    : ${serverNodes.length}/${serverNodes.length} nodes online`,
+          `[OK] Security Shield : 99.8% Hardened • Cloudflare WAF + SHA-256 Active`
+        ].join('\n'),
+        exitCode: 0,
+        durationMs: 1.1
+      };
+    }
+    if (lower === 'nex servers' || lower === 'servers' || lower === 'nex ping') {
+      return {
+        output: serverNodes
+          .map((n) => `${n.id.padEnd(12)} ${n.region.padEnd(16)} ${n.ip_address.padEnd(16)} ${n.latency_ms}ms  CPU:${n.cpu_load}%  [${n.status.toUpperCase()}]`)
+          .join('\n'),
+        exitCode: 0,
+        durationMs: 1.4
+      };
+    }
+    if (lower.startsWith('nex apps') || lower === 'apps') {
+      return {
+        output: apps
+          .map((a) => `${a.id.padEnd(19)} ${a.name.slice(0, 26).padEnd(27)} ${(a.source_provider || 'NEX').padEnd(12)} v${a.version}`)
+          .join('\n'),
+        exitCode: 0,
+        durationMs: 1.3
+      };
+    }
+    if (lower.startsWith('nex deploy ')) {
+      const rawUrl = cmd.slice('nex deploy '.length).trim();
+      await handleCreateApp({
+        name: rawUrl.replace(/^https?:\/\//, '').split('.')[0] || 'Netlify Edge App',
+        source_provider: 'Netlify',
+        live_url: rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
+      });
+      return {
+        output: `[SUCCESS] Deployed & verified ${rawUrl} into NEX App Store!`,
+        exitCode: 0,
+        durationMs: 2.4
+      };
+    }
+    if (lower.startsWith('nex security scan')) {
+      await handleRunSecurityScan();
+      return {
+        output: '[PASS] Security Posture Score: 99.8% Hardened (0 vulnerabilities found)',
+        exitCode: 0,
+        durationMs: 1.8
+      };
+    }
+    if (lower.startsWith('nex security block')) {
+      await handleSimulateThreat();
+      return {
+        output: '[WAF] Rule #SQLI-09 triggered in 0.2ms -> Action: BLOCKED & IP Blacklisted',
+        exitCode: 0,
+        durationMs: 1.5
+      };
+    }
+    if (lower === 'nex products' || lower === 'products') {
+      return {
+        output: products
+          .map((p) => `${p.sku.padEnd(13)} ${p.name.slice(0, 38).padEnd(40)} $${p.price}  (${p.stock} in stock)`)
+          .join('\n'),
+        exitCode: 0,
+        durationMs: 1.2
+      };
+    }
+    if (lower === 'nex restock' || lower === 'restock') {
+      await handleBulkRestockLow();
+      return {
+        output: '[WAREHOUSE] Replenished +15 units across low-stock hardware SKUs.',
+        exitCode: 0,
+        durationMs: 1.6
+      };
+    }
+    return {
+      output: `nex-sh: command executed: "${cmd}" (Type "help" for full command reference)`,
+      exitCode: 0,
+      durationMs: 1.0
+    };
+  };
+
   const wishlistProducts = useMemo(
     () => products.filter((p) => wishlistIds.includes(p.id)),
     [products, wishlistIds]
@@ -1233,6 +1392,10 @@ export default function App() {
         onOpenNotifications={() => {
           handlePlaySound('click');
           setNotificationDrawerOpen(true);
+        }}
+        onOpenTerminal={() => {
+          handlePlaySound('click');
+          setTerminalOpen(true);
         }}
       />
 
@@ -1363,6 +1526,16 @@ export default function App() {
         desktopPushStatus={desktopPushStatus}
         onRequestDesktopPush={handleRequestDesktopPush}
         onNavigateTab={setActiveTab}
+        onPlaySound={handlePlaySound}
+      />
+
+      {/* Interactive NEX-SH Cloud CLI & Terminal Emulator Modal (⌘J) */}
+      <InteractiveTerminalModal
+        isOpen={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
+        terminalLogs={terminalLogs}
+        onExecuteCommand={handleExecuteTerminalCommand}
+        wsConnected={wsConnected}
         onPlaySound={handlePlaySound}
       />
 
