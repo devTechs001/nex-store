@@ -23,6 +23,7 @@ import {
   triggerDesktopPush
 } from './utils/soundEngine.js';
 import { CheckCircle2, Zap, ShieldAlert, Bell } from 'lucide-react';
+import './App.css';
 
 export default function App() {
   const initialSeed = useMemo(() => getFallbackBootstrapData(), []);

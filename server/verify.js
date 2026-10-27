@@ -74,8 +74,12 @@ assert.ok(cssSource.includes('select option'), 'Missing Windows Chrome/Edge <sel
 assert.ok(cssSource.includes('@supports (background: color-mix'), 'Missing color-mix() @supports progressive enhancement');
 assert.ok(Object.keys(THEMES).length >= 6, 'Expected 6 complete UI theme palettes');
 
-// 6. Verify Documentation & NEX-SH v3.0 Assets
+// 6. Verify Documentation, App.css & NEX-SH v3.0 Assets
 assert.ok(fs.existsSync(path.resolve(__dirname, '../docs/ARCHITECTURE_AND_GUIDE.md')), 'Missing docs/ARCHITECTURE_AND_GUIDE.md');
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/DocumentationView.jsx')), 'Missing src/components/DocumentationView.jsx');
+assert.ok(fs.existsSync(path.resolve(__dirname, '../src/App.css')), 'Missing src/App.css');
+assert.ok(fs.existsSync(path.resolve(__dirname, '../src/app.css')), 'Missing src/app.css');
+const appCssSource = fs.readFileSync(path.resolve(__dirname, '../src/App.css'), 'utf8');
+assert.ok(appCssSource.includes('.bg-engineering-grid-dark') && appCssSource.includes('.no-scrollbar'), 'Missing App.css engineering grid or scrollbar utility rules');
 
 console.log('✅ All 17 SQLite tables, NEX-SH v3.0 .nexsh playbooks, documentation suite, cross-browser CSS rules, 6 themes, multi-source apps, edge servers, security shield, and CAD SVG renders verified!');
