@@ -10,14 +10,21 @@ import DatabaseStudioView from './components/DatabaseStudioView.jsx';
 import LiveChatWidget from './components/LiveChatWidget.jsx';
 import CommandPaletteModal from './components/CommandPaletteModal.jsx';
 import AppStoreView from './components/AppStoreView.jsx';
+import SubsystemsHubView from './components/SubsystemsHubView.jsx';
+import NotificationCenterDrawer from './components/NotificationCenterDrawer.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
 import { getFallbackBootstrapData, getProductArtUrl } from './utils/storeEngine.js';
-import { CheckCircle2, Zap } from 'lucide-react';
+import {
+  playSound,
+  requestDesktopPushPermission,
+  triggerDesktopPush
+} from './utils/soundEngine.js';
+import { CheckCircle2, Zap, ShieldAlert, Bell } from 'lucide-react';
 
 export default function App() {
   const initialSeed = useMemo(() => getFallbackBootstrapData(), []);
 
-  const [activeTab, setActiveTab] = useState('store'); // 'store' | 'apps' | 'tracker' | 'admin' | 'database'
+  const [activeTab, setActiveTab] = useState('store'); // 'store' | 'apps' | 'subsystems' | 'tracker' | 'admin' | 'database'
   const [themeId, setThemeId] = useState(() => {
     try {
       return localStorage.getItem('nexstore_theme') || 'obsidian';
@@ -27,16 +34,34 @@ export default function App() {
   });
   const [currency, setCurrency] = useState('USD');
 
+  // Sound Synthesizer & Desktop Push State
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexstore_sound');
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+  const [soundVolume, setSoundVolume] = useState(0.4);
+  const [desktopPushStatus, setDesktopPushStatus] = useState(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'ready';
+  });
+  const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
+
   const activeTheme = useMemo(
-    () => THEMES.find((t) => t.id === themeId) || THEMES[0],
+    () => THEMES[themeId] || THEMES.obsidian,
     [themeId]
   );
   const darkMode = activeTheme.isDark;
 
   const setDarkMode = useCallback((nextDark) => {
     setThemeId((prev) => {
-      if ( typeof nextDark === 'function') {
-        const currentIsDark = (THEMES.find((t) => t.id === prev) || THEMES[0]).isDark;
+      if (typeof nextDark === 'function') {
+        const currentIsDark = (THEMES[prev] || THEMES.obsidian).isDark;
         const resolved = nextDark(currentIsDark);
         return resolved ? 'obsidian' : 'light';
       }
@@ -51,7 +76,32 @@ export default function App() {
     } catch {}
   }, [themeId]);
 
-  // Store Data State (Pre-hydrated immediately from seed + synced with SQLite & WebSockets)
+  useEffect(() => {
+    try {
+      localStorage.setItem('nexstore_sound', JSON.stringify(soundEnabled));
+    } catch {}
+  }, [soundEnabled]);
+
+  const handlePlaySound = useCallback(
+    (type = 'ping', force = false) => {
+      playSound(type, { enabled: force || soundEnabled, volume: soundVolume });
+    },
+    [soundEnabled, soundVolume]
+  );
+
+  const handleRequestDesktopPush = useCallback(async () => {
+    const perm = await requestDesktopPushPermission();
+    setDesktopPushStatus(perm);
+    handlePlaySound('push');
+    if (perm === 'granted') {
+      triggerDesktopPush(
+        'NEX Store Desktop Push Enabled',
+        'You will now receive real-time server, app deployment, and security notifications.'
+      );
+    }
+  }, [handlePlaySound]);
+
+  // Store & Subsystems State (Pre-hydrated immediately from seed + synced with SQLite & WebSockets)
   const [categories, setCategories] = useState(initialSeed.categories);
   const [products, setProducts] = useState(initialSeed.products);
   const [apps, setApps] = useState(initialSeed.apps);
@@ -60,6 +110,10 @@ export default function App() {
   const [inventoryLogs, setInventoryLogs] = useState(initialSeed.inventoryLogs);
   const [activityEvents, setActivityEvents] = useState(initialSeed.activityEvents);
   const [chatMessages, setChatMessages] = useState(initialSeed.chatMessages);
+  const [serverNodes, setServerNodes] = useState(initialSeed.serverNodes);
+  const [integrations, setIntegrations] = useState(initialSeed.integrations);
+  const [securityEvents, setSecurityEvents] = useState(initialSeed.securityEvents);
+  const [notifications, setNotifications] = useState(initialSeed.notifications);
   const [analytics, setAnalytics] = useState(initialSeed.analytics);
   const [dbStats, setDbStats] = useState(initialSeed.dbStats);
   const [presence, setPresence] = useState(initialSeed.presence);
@@ -104,7 +158,7 @@ export default function App() {
     setToasts((prev) => [{ id, title, message, type }, ...prev.slice(0, 3)]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4200);
+    }, 4400);
   }, []);
 
   // Persist Cart & Wishlist
@@ -129,36 +183,20 @@ export default function App() {
       const res = await fetch('/api/bootstrap');
       if (!isJsonResponse(res)) return;
       const data = await res.json();
-      if (Array.isArray(data.categories) && data.categories.length > 0) {
-        setCategories(data.categories);
-      }
-      if (Array.isArray(data.products) && data.products.length > 0) {
-        setProducts(data.products);
-      }
-      if (Array.isArray(data.apps) && data.apps.length > 0) {
-        setApps(data.apps);
-      }
-      if (Array.isArray(data.coupons) && data.coupons.length > 0) {
-        setCoupons(data.coupons);
-      }
-      if (Array.isArray(data.orders) && data.orders.length > 0) {
-        setOrders(data.orders);
-      }
-      if (Array.isArray(data.inventoryLogs)) {
-        setInventoryLogs(data.inventoryLogs);
-      }
-      if (Array.isArray(data.activityEvents) && data.activityEvents.length > 0) {
-        setActivityEvents(data.activityEvents);
-      }
-      if (Array.isArray(data.chatMessages) && data.chatMessages.length > 0) {
-        setChatMessages(data.chatMessages);
-      }
-      if (data.analytics && Object.keys(data.analytics).length > 0) {
-        setAnalytics(data.analytics);
-      }
-      if (data.dbStats && Object.keys(data.dbStats).length > 0) {
-        setDbStats(data.dbStats);
-      }
+      if (Array.isArray(data.categories) && data.categories.length > 0) setCategories(data.categories);
+      if (Array.isArray(data.products) && data.products.length > 0) setProducts(data.products);
+      if (Array.isArray(data.apps) && data.apps.length > 0) setApps(data.apps);
+      if (Array.isArray(data.coupons) && data.coupons.length > 0) setCoupons(data.coupons);
+      if (Array.isArray(data.orders) && data.orders.length > 0) setOrders(data.orders);
+      if (Array.isArray(data.inventoryLogs)) setInventoryLogs(data.inventoryLogs);
+      if (Array.isArray(data.activityEvents) && data.activityEvents.length > 0) setActivityEvents(data.activityEvents);
+      if (Array.isArray(data.chatMessages) && data.chatMessages.length > 0) setChatMessages(data.chatMessages);
+      if (Array.isArray(data.serverNodes) && data.serverNodes.length > 0) setServerNodes(data.serverNodes);
+      if (Array.isArray(data.integrations) && data.integrations.length > 0) setIntegrations(data.integrations);
+      if (Array.isArray(data.securityEvents) && data.securityEvents.length > 0) setSecurityEvents(data.securityEvents);
+      if (Array.isArray(data.notifications) && data.notifications.length > 0) setNotifications(data.notifications);
+      if (data.analytics && Object.keys(data.analytics).length > 0) setAnalytics(data.analytics);
+      if (data.dbStats && Object.keys(data.dbStats).length > 0) setDbStats(data.dbStats);
       if (data.presence) setPresence(data.presence);
     } catch {
       // Static deployment fallback already hydrated via initialSeed
@@ -309,6 +347,12 @@ export default function App() {
 
               case 'app:created':
                 setApps((prev) => [payload.app, ...prev.filter((a) => a.id !== payload.app.id)]);
+                if (payload.securityEvent) {
+                  setSecurityEvents((prev) => [payload.securityEvent, ...prev]);
+                }
+                if (payload.notification) {
+                  setNotifications((prev) => [payload.notification, ...prev]);
+                }
                 if (payload.activity) {
                   setActivityEvents((prev) => [payload.activity, ...prev]);
                   pushToast(payload.activity.title, payload.activity.message, 'success');
@@ -325,6 +369,61 @@ export default function App() {
                   pushToast(payload.activity.title, payload.activity.message, 'realtime');
                 }
                 if (payload.dbStats) setDbStats(payload.dbStats);
+                break;
+
+              case 'servers:updated':
+                if (payload.serverNodes) setServerNodes(payload.serverNodes);
+                if (payload.notification) {
+                  setNotifications((prev) => [payload.notification, ...prev]);
+                  pushToast(payload.notification.title, payload.notification.message, 'success');
+                } else if (payload.activity) {
+                  setActivityEvents((prev) => [payload.activity, ...prev]);
+                  pushToast(payload.activity.title, payload.activity.message, 'realtime');
+                }
+                if (payload.dbStats) setDbStats(payload.dbStats);
+                break;
+
+              case 'integrations:updated':
+                if (payload.integrations) setIntegrations(payload.integrations);
+                if (payload.notification) {
+                  setNotifications((prev) => [payload.notification, ...prev]);
+                  pushToast(payload.notification.title, payload.notification.message, 'success');
+                } else if (payload.activity) {
+                  setActivityEvents((prev) => [payload.activity, ...prev]);
+                  pushToast(payload.activity.title, payload.activity.message, 'realtime');
+                }
+                if (payload.dbStats) setDbStats(payload.dbStats);
+                break;
+
+              case 'security:updated':
+                if (payload.securityEvents) setSecurityEvents(payload.securityEvents);
+                if (payload.notifications) setNotifications(payload.notifications);
+                if (payload.notification) {
+                  pushToast(
+                    payload.notification.title,
+                    payload.notification.message,
+                    payload.latestSecurityEvent?.action_taken === 'BLOCKED' ? 'security' : 'success'
+                  );
+                  triggerDesktopPush(payload.notification.title, payload.notification.message);
+                }
+                if (payload.dbStats) setDbStats(payload.dbStats);
+                break;
+
+              case 'notification:new':
+                if (payload.notifications) {
+                  setNotifications(payload.notifications);
+                } else if (payload.notification) {
+                  setNotifications((prev) => [payload.notification, ...prev]);
+                }
+                if (payload.notification) {
+                  pushToast(payload.notification.title, payload.notification.message, 'push');
+                  triggerDesktopPush(payload.notification.title, payload.notification.message);
+                }
+                if (payload.dbStats) setDbStats(payload.dbStats);
+                break;
+
+              case 'notifications:updated':
+                if (payload.notifications) setNotifications(payload.notifications);
                 break;
 
               case 'chat:message':
@@ -344,15 +443,20 @@ export default function App() {
               case 'store:reseeded':
                 setCategories(payload.categories || []);
                 setProducts(payload.products || []);
+                if (payload.apps) setApps(payload.apps);
                 setCoupons(payload.coupons || []);
                 setOrders(payload.orders || []);
                 setInventoryLogs(payload.inventoryLogs || []);
                 setActivityEvents(payload.activityEvents || []);
+                if (payload.serverNodes) setServerNodes(payload.serverNodes);
+                if (payload.integrations) setIntegrations(payload.integrations);
+                if (payload.securityEvents) setSecurityEvents(payload.securityEvents);
+                if (payload.notifications) setNotifications(payload.notifications);
                 setAnalytics(payload.analytics || {});
                 setDbStats(payload.dbStats || {});
                 pushToast(
                   'Database Reset Complete',
-                  'All 11 SQLite tables restored to seed state.',
+                  'All 15 SQLite tables restored to seed state.',
                   'success'
                 );
                 break;
@@ -412,6 +516,7 @@ export default function App() {
 
   // Cart Handlers
   const handleAddToCart = (product, colorName, qty = 1) => {
+    handlePlaySound('cart');
     const selectedColor = colorName || product.colors?.[0]?.name || 'Default Finish';
     setCart((prev) => {
       const idx = prev.findIndex(
@@ -463,6 +568,7 @@ export default function App() {
   };
 
   const handleToggleWishlist = (productId) => {
+    handlePlaySound('click');
     setWishlistIds((prev) => {
       const exists = prev.includes(productId);
       return exists ? prev.filter((id) => id !== productId) : [...prev, productId];
@@ -470,6 +576,7 @@ export default function App() {
   };
 
   const handleToggleCompare = (productId) => {
+    handlePlaySound('click');
     setCompareIds((prev) => {
       if (prev.includes(productId)) return prev.filter((id) => id !== productId);
       if (prev.length >= 4) {
@@ -482,6 +589,7 @@ export default function App() {
 
   // Real-Time Operations Actions (with instant local fallback when hosted statically)
   const handleSimulateRealtime = async () => {
+    handlePlaySound('ping');
     try {
       const res = await fetch('/api/realtime/simulate', { method: 'POST' });
       if (isJsonResponse(res)) return;
@@ -505,6 +613,7 @@ export default function App() {
   };
 
   const handleQuickStockUpdate = async (productId, newStock, stockReason) => {
+    handlePlaySound('click');
     try {
       const res = await fetch(`/api/products/${productId}`, {
         method: 'PATCH',
@@ -520,6 +629,7 @@ export default function App() {
   };
 
   const handleBulkRestockLow = async () => {
+    handlePlaySound('success');
     try {
       const res = await fetch('/api/products/restock-low', { method: 'POST' });
       if (isJsonResponse(res)) return;
@@ -531,6 +641,7 @@ export default function App() {
   };
 
   const handleToggleFlashSale = async (productId, isFlash) => {
+    handlePlaySound('ping');
     try {
       const res = await fetch(`/api/products/${productId}`, {
         method: 'PATCH',
@@ -553,6 +664,7 @@ export default function App() {
   };
 
   const handleCreateProduct = async (productPayload) => {
+    handlePlaySound('success');
     try {
       const res = await fetch('/api/products', {
         method: 'POST',
@@ -599,6 +711,7 @@ export default function App() {
   };
 
   const handleAdvanceOrderStatus = async (orderId, status) => {
+    handlePlaySound('ping');
     try {
       const res = await fetch(`/api/orders/${orderId}/status`, {
         method: 'PATCH',
@@ -612,16 +725,7 @@ export default function App() {
         o.id === orderId || o.order_number === orderId
           ? {
               ...o,
-              status,
-              timeline: [
-                ...(o.timeline || []),
-                {
-                  status,
-                  label: `Status updated to ${status.toUpperCase()}`,
-                  timestamp: new Date().toISOString(),
-                  completed: true
-                }
-              ]
+              status
             }
           : o
       )
@@ -630,6 +734,7 @@ export default function App() {
   };
 
   const handleCreateCoupon = async (couponPayload) => {
+    handlePlaySound('success');
     try {
       const res = await fetch('/api/coupons', {
         method: 'POST',
@@ -663,6 +768,7 @@ export default function App() {
   };
 
   const handleSendChatMessage = async (text) => {
+    handlePlaySound('click');
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -687,13 +793,14 @@ export default function App() {
       sender: 'agent',
       sender_name: 'Aria · NEX AI Concierge',
       message:
-        'Thanks for reaching out! Use code NEX20 at checkout for 20% off orders over $250, or inspect any hardware model in 4-angle CAD view.',
+        'Thanks for reaching out! Use code NEX20 at checkout for 20% off orders over $400, import Netlify apps in the App Store tab, or inspect live edge servers in Subsystems.',
       created_at: new Date().toISOString()
     };
     setChatMessages((prev) => [...prev, userMsg, replyMsg]);
   };
 
   const handleSubscribeNewsletter = async (email) => {
+    handlePlaySound('success');
     try {
       const res = await fetch('/api/subscribers', {
         method: 'POST',
@@ -713,6 +820,7 @@ export default function App() {
   };
 
   const handleResetDatabase = async () => {
+    handlePlaySound('server');
     try {
       const res = await fetch('/api/db/reset', { method: 'POST' });
       if (isJsonResponse(res)) return;
@@ -725,9 +833,13 @@ export default function App() {
     setOrders(fresh.orders);
     setInventoryLogs(fresh.inventoryLogs);
     setActivityEvents(fresh.activityEvents);
+    setServerNodes(fresh.serverNodes);
+    setIntegrations(fresh.integrations);
+    setSecurityEvents(fresh.securityEvents);
+    setNotifications(fresh.notifications);
     setAnalytics(fresh.analytics);
     setDbStats(fresh.dbStats);
-    pushToast('Database Reset Complete', 'Restored all 11 tables to seed state.', 'success');
+    pushToast('Database Reset Complete', 'Restored all 15 SQLite tables to seed state.', 'success');
   };
 
   const handleDownloadApp = async (appId) => {
@@ -742,8 +854,8 @@ export default function App() {
     );
     const target = apps.find((a) => a.id === appId);
     pushToast(
-      'Installer Package Ready',
-      `Started downloading ${target?.name || 'NEX App'} (${target?.version || 'v2.0'})`,
+      'Package Installed & Verified',
+      `Installed ${target?.name || 'NEX App'} (${target?.source_provider || 'Netlify'})`,
       'success'
     );
   };
@@ -757,27 +869,290 @@ export default function App() {
       });
       if (isJsonResponse(res)) return;
     } catch {}
+    const now = new Date().toISOString();
+    const provider = appPayload.source_provider || 'Netlify';
+    const liveUrl =
+      appPayload.live_url ||
+      `https://${appPayload.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.netlify.app`;
     const newApp = {
-      id: `app-${Date.now()}`,
+      id: `app-${Date.now().toString(36)}`,
       name: appPayload.name,
-      developer: appPayload.developer || 'NEX Community Lab',
-      category: appPayload.category || 'Utilities & DevTools',
+      developer: appPayload.developer || 'Community Developer',
+      category: appPayload.category || 'web',
+      language: appPayload.language || 'typescript',
       version: appPayload.version || '1.0.0',
-      size_mb: Number(appPayload.size_mb) || 28.5,
-      price: Number(appPayload.price) || 0,
+      size: appPayload.size || '14.2 MB',
+      price: 'Free',
+      license: 'MIT',
       rating: 5.0,
+      reviews_count: 1,
       downloads: 1,
-      platforms: appPayload.platforms || ['macOS', 'Windows', 'Linux'],
-      badge: appPayload.badge || 'COMMUNITY',
-      accent_color: appPayload.accent_color || '#6366f1',
-      icon_name: 'Cpu',
-      description: appPayload.description || 'Custom companion app published to NEX App Hub.',
-      features: appPayload.features || ['Zero-latency telemetry', 'Cross-platform sync'],
-      release_notes: appPayload.release_notes || 'Initial public release.',
-      updated_at: new Date().toISOString()
+      icon: appPayload.icon || '🚀',
+      is_featured: 1,
+      is_verified: 1,
+      source_provider: provider,
+      live_url: liveUrl,
+      repo_url: appPayload.repo_url || '',
+      sha256_hash: `9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08`,
+      security_score: 99,
+      permissions_json: JSON.stringify(['Sandboxed Iframe', 'WebAudio API', 'Zero-Trust Verified']),
+      description: appPayload.description || 'Community application deployed to NEX App Store.',
+      created_at: now
+    };
+    const notif = {
+      id: `notif-${Date.now()}`,
+      channel: 'deployment',
+      priority: 'high',
+      title: `New ${provider} App Imported: ${newApp.name}`,
+      message: `${newApp.developer} published ${newApp.name} (${liveUrl})`,
+      action_url: 'apps',
+      is_read: 0,
+      created_at: now
     };
     setApps((prev) => [newApp, ...prev]);
-    pushToast('App Published', `${newApp.name} is now live in the App Store`, 'success');
+    setNotifications((prev) => [notif, ...prev]);
+    pushToast(notif.title, notif.message, 'success');
+    triggerDesktopPush(notif.title, notif.message);
+  };
+
+  // Subsystem Handlers (Edge Servers, Integrations, Security, Push Broadcasts)
+  const handleServerAction = async (serverId, action) => {
+    try {
+      const res = await fetch(`/api/servers/${serverId}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    setServerNodes((prev) =>
+      prev.map((n) => {
+        if (n.id !== serverId) return n;
+        if (action === 'restart') {
+          return { ...n, cpu_load: 18, ram_usage: 34, latency_ms: Math.max(5, n.latency_ms - 2) };
+        }
+        if (action === 'scale') {
+          return {
+            ...n,
+            cpu_load: Math.max(14, n.cpu_load - 7),
+            active_connections: n.active_connections + 65,
+            rps: n.rps + 320
+          };
+        }
+        return { ...n, latency_ms: Math.max(4, n.latency_ms + (Math.random() > 0.5 ? 1 : -1)) };
+      })
+    );
+    pushToast('Server Operation Complete', `Executed ${action.toUpperCase()} on ${serverId}`, 'realtime');
+  };
+
+  const handlePulseServers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/servers/pulse', { method: 'POST' });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    setServerNodes((prev) =>
+      prev.map((n) => ({
+        ...n,
+        cpu_load: Math.min(90, Math.max(12, n.cpu_load + (Math.floor(Math.random() * 9) - 4))),
+        latency_ms: Math.min(80, Math.max(4, n.latency_ms + (Math.floor(Math.random() * 5) - 2))),
+        rps: Math.max(250, n.rps + (Math.floor(Math.random() * 70) - 32))
+      }))
+    );
+  }, []);
+
+  const handleProvisionServer = async (srvPayload) => {
+    try {
+      const res = await fetch('/api/servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(srvPayload)
+      });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    const ip = `172.24.${Math.floor(10 + Math.random() * 200)}.${Math.floor(10 + Math.random() * 200)}`;
+    const created = {
+      id: `srv-${Date.now().toString(36)}`,
+      name: srvPayload.name,
+      region: srvPayload.region,
+      provider: srvPayload.provider,
+      ip_address: ip,
+      status: 'online',
+      cpu_load: 19,
+      ram_usage: 36,
+      latency_ms: 13,
+      active_connections: 120,
+      rps: 560,
+      uptime_pct: 100,
+      version: 'v2.6.0-wal',
+      updated_at: new Date().toISOString()
+    };
+    setServerNodes((prev) => [...prev, created]);
+    pushToast('Edge Server Provisioned', `${created.name} online at ${ip}`, 'success');
+  };
+
+  const handleSyncIntegration = async (intId, toggleStatus = false) => {
+    try {
+      const res = await fetch(`/api/integrations/${intId}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toggleStatus })
+      });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    setIntegrations((prev) =>
+      prev.map((i) => {
+        if (i.id !== intId) return i;
+        const nextStatus = toggleStatus
+          ? i.status === 'connected'
+            ? 'paused'
+            : 'connected'
+          : 'connected';
+        return {
+          ...i,
+          status: nextStatus,
+          events_synced: toggleStatus ? i.events_synced : (i.events_synced || 0) + 28
+        };
+      })
+    );
+    pushToast('Integration Synced', `Updated bridge ${intId}`, 'realtime');
+  };
+
+  const handleCreateIntegration = async (intPayload) => {
+    try {
+      const res = await fetch('/api/integrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(intPayload)
+      });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    const created = {
+      id: `int-${Date.now().toString(36)}`,
+      name: intPayload.name,
+      provider: intPayload.provider,
+      category: intPayload.category,
+      status: 'connected',
+      endpoint_url: intPayload.endpoint_url,
+      webhook_secret_masked: 'whsec_live_9912••••••••4e2a',
+      events_synced: 1,
+      latency_ms: 14,
+      last_sync_at: new Date().toISOString()
+    };
+    setIntegrations((prev) => [created, ...prev]);
+    pushToast('Integration Connected', `${created.name} (${created.provider}) is live`, 'success');
+  };
+
+  const handleRunSecurityScan = async () => {
+    try {
+      const res = await fetch('/api/security/scan', { method: 'POST' });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    const now = new Date().toISOString();
+    const secEv = {
+      id: `sec-${Date.now()}`,
+      event_type: 'full_audit',
+      severity: 'low',
+      source_ip: '196.216.84.12',
+      target_resource: 'All 15 SQLite Tables & Netlify Sandboxes',
+      action_taken: 'VERIFIED',
+      description: 'Deep security audit passed: 0 SQLi/XSS vulnerabilities, 100% SHA-256 package hashes valid.',
+      created_at: now
+    };
+    setSecurityEvents((prev) => [secEv, ...prev]);
+    pushToast('Security Audit Passed', '99.8% Hardened • 0 Vulnerabilities Detected', 'success');
+  };
+
+  const handleSimulateThreat = async () => {
+    try {
+      const res = await fetch('/api/security/simulate-threat', { method: 'POST' });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    const now = new Date().toISOString();
+    const secEv = {
+      id: `sec-${Date.now()}`,
+      event_type: 'waf_sqli_block',
+      severity: 'critical',
+      source_ip: '185.220.101.88',
+      target_resource: 'POST /api/db/query',
+      action_taken: 'BLOCKED',
+      description: 'Cloudflare WAF rule #SQLI-09 intercepted malicious UNION SELECT payload in 0.3ms.',
+      created_at: now
+    };
+    const notif = {
+      id: `notif-${Date.now()}`,
+      channel: 'security',
+      priority: 'high',
+      title: 'Threat Mitigated • BLOCKED',
+      message: `${secEv.target_resource} protected against ${secEv.source_ip}`,
+      action_url: 'subsystems',
+      is_read: 0,
+      created_at: now
+    };
+    setSecurityEvents((prev) => [secEv, ...prev]);
+    setNotifications((prev) => [notif, ...prev]);
+    pushToast(notif.title, notif.message, 'security');
+    triggerDesktopPush(notif.title, notif.message);
+  };
+
+  const handleRotateKeys = async () => {
+    try {
+      const res = await fetch('/api/security/rotate-keys', { method: 'POST' });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    const now = new Date().toISOString();
+    const secEv = {
+      id: `sec-${Date.now()}`,
+      event_type: 'key_rotation',
+      severity: 'low',
+      source_ip: '127.0.0.1',
+      target_resource: 'Ed25519 API & Netlify Webhook Secrets',
+      action_taken: 'ROTATED',
+      description: 'Rotated all active API tokens and webhook HMAC secrets across 6 edge nodes.',
+      created_at: now
+    };
+    setSecurityEvents((prev) => [secEv, ...prev]);
+    pushToast('Keys Rotated', 'Ed25519 API & webhook signing keys rotated.', 'success');
+  };
+
+  const handleSendPushBroadcast = async (payload) => {
+    handlePlaySound('push');
+    try {
+      const res = await fetch('/api/notifications/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    const notif = {
+      id: `notif-${Date.now()}`,
+      channel: payload?.channel || 'realtime',
+      priority: payload?.priority || 'high',
+      title: payload?.title || 'NEX Real-Time Push Broadcast',
+      message:
+        payload?.message ||
+        'Live push alert dispatched across WebSocket, WebAudio, and desktop notification channels.',
+      action_url: payload?.action_url || 'subsystems',
+      is_read: 0,
+      created_at: new Date().toISOString()
+    };
+    setNotifications((prev) => [notif, ...prev]);
+    pushToast(notif.title, notif.message, 'push');
+    triggerDesktopPush(notif.title, notif.message);
+  };
+
+  const handleMarkNotificationRead = async (id = null) => {
+    try {
+      const res = await fetch('/api/notifications/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (isJsonResponse(res)) return;
+    } catch {}
+    setNotifications((prev) =>
+      prev.map((n) => (!id || n.id === id ? { ...n, is_read: 1 } : n))
+    );
   };
 
   const wishlistProducts = useMemo(
@@ -795,6 +1170,11 @@ export default function App() {
     [cart]
   );
 
+  const unreadNotificationsCount = useMemo(
+    () => notifications.filter((n) => !n.is_read).length,
+    [notifications]
+  );
+
   return (
     <div
       className={`min-h-screen transition-colors duration-300 theme-app-bg ${
@@ -803,10 +1183,13 @@ export default function App() {
           : 'bg-engineering-grid-light text-slate-900'
       }`}
     >
-      {/* Sticky Top Navbar + Multi-Theme Switcher + Real-Time Ticker */}
+      {/* Sticky Top Navbar + Multi-Theme Switcher + Sound/Push Controls + Real-Time Ticker */}
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          handlePlaySound('click');
+          setActiveTab(tab);
+        }}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         searchInputRef={searchInputRef}
@@ -815,21 +1198,42 @@ export default function App() {
         darkMode={darkMode}
         setDarkMode={setDarkMode}
         themeId={themeId}
-        setThemeId={setThemeId}
+        setThemeId={(nextTheme) => {
+          handlePlaySound('click');
+          setThemeId(nextTheme);
+        }}
         cartCount={cartCount}
         wishlistCount={wishlistProducts.length}
         compareCount={compareProducts.length}
         onOpenCart={(mode) => {
+          handlePlaySound('click');
           setCartDrawerMode(mode || 'cart');
           setCartDrawerOpen(true);
         }}
-        onOpenCompare={() => setCompareOpen(true)}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onOpenCompare={() => {
+          handlePlaySound('click');
+          setCompareOpen(true);
+        }}
+        onOpenCommandPalette={() => {
+          handlePlaySound('click');
+          setCommandPaletteOpen(true);
+        }}
         wsConnected={wsConnected}
         presence={presence}
         latestActivity={activityEvents[0]}
         onSimulateRealtime={handleSimulateRealtime}
         dbStats={dbStats}
+        soundEnabled={soundEnabled}
+        onToggleSound={() => {
+          const next = !soundEnabled;
+          setSoundEnabled(next);
+          if (next) playSound('push', { enabled: true, volume: soundVolume });
+        }}
+        unreadNotificationsCount={unreadNotificationsCount}
+        onOpenNotifications={() => {
+          handlePlaySound('click');
+          setNotificationDrawerOpen(true);
+        }}
       />
 
       {/* Main Active Workspace View */}
@@ -844,7 +1248,10 @@ export default function App() {
             setSearchQuery={setSearchQuery}
             currency={currency}
             darkMode={darkMode}
-            onSelectProduct={(p) => setSelectedProduct(p)}
+            onSelectProduct={(p) => {
+              handlePlaySound('click');
+              setSelectedProduct(p);
+            }}
             onAddToCart={handleAddToCart}
             wishlistIds={wishlistIds}
             onToggleWishlist={handleToggleWishlist}
@@ -863,6 +1270,34 @@ export default function App() {
             darkMode={darkMode}
             onDownloadApp={handleDownloadApp}
             onCreateApp={handleCreateApp}
+            onPlaySound={handlePlaySound}
+          />
+        )}
+
+        {activeTab === 'subsystems' && (
+          <SubsystemsHubView
+            serverNodes={serverNodes}
+            integrations={integrations}
+            securityEvents={securityEvents}
+            notifications={notifications}
+            wsConnected={wsConnected}
+            soundEnabled={soundEnabled}
+            setSoundEnabled={setSoundEnabled}
+            soundVolume={soundVolume}
+            setSoundVolume={setSoundVolume}
+            desktopPushStatus={desktopPushStatus}
+            onRequestDesktopPush={handleRequestDesktopPush}
+            onPlaySound={handlePlaySound}
+            onServerAction={handleServerAction}
+            onPulseServers={handlePulseServers}
+            onProvisionServer={handleProvisionServer}
+            onSyncIntegration={handleSyncIntegration}
+            onCreateIntegration={handleCreateIntegration}
+            onRunSecurityScan={handleRunSecurityScan}
+            onSimulateThreat={handleSimulateThreat}
+            onRotateKeys={handleRotateKeys}
+            onSendPushBroadcast={handleSendPushBroadcast}
+            onNavigateTab={setActiveTab}
           />
         )}
 
@@ -907,6 +1342,29 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Slide-Over Push & Real-Time Notification Center Drawer */}
+      <NotificationCenterDrawer
+        isOpen={notificationDrawerOpen}
+        onClose={() => setNotificationDrawerOpen(false)}
+        notifications={notifications}
+        onMarkRead={handleMarkNotificationRead}
+        onSendTestPush={() =>
+          handleSendPushBroadcast({
+            title: 'Live Test Push Alert',
+            message: 'WebAudio chime + WebSocket + OS Desktop Push verified operational!',
+            channel: 'realtime',
+            priority: 'high',
+            action_url: 'subsystems'
+          })
+        }
+        soundEnabled={soundEnabled}
+        setSoundEnabled={setSoundEnabled}
+        desktopPushStatus={desktopPushStatus}
+        onRequestDesktopPush={handleRequestDesktopPush}
+        onNavigateTab={setActiveTab}
+        onPlaySound={handlePlaySound}
+      />
 
       {/* Command Palette (⌘K) Modal */}
       <CommandPaletteModal
@@ -988,6 +1446,10 @@ export default function App() {
           >
             {t.type === 'success' ? (
               <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+            ) : t.type === 'security' ? (
+              <ShieldAlert className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+            ) : t.type === 'push' ? (
+              <Bell className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
             ) : (
               <Zap className="h-4 w-4 text-cyan-400 shrink-0 mt-0.5" />
             )}

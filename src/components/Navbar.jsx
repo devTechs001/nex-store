@@ -15,7 +15,11 @@ import {
   Zap,
   Command,
   Terminal,
-  Check
+  Check,
+  Server,
+  Bell,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { CURRENCIES, formatRelativeTime } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
@@ -41,20 +45,30 @@ export default function Navbar({
   presence,
   latestActivity,
   onSimulateRealtime,
-  dbStats
+  dbStats,
+  soundEnabled,
+  onToggleSound,
+  unreadNotificationsCount = 0,
+  onOpenNotifications
 }) {
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 
   const navItems = [
     { id: 'store', label: 'Hardware Store', icon: Store },
-    { id: 'apps', label: 'App Store', icon: Terminal },
+    { id: 'apps', label: 'App Store (Netlify/Devs)', icon: Terminal },
+    {
+      id: 'subsystems',
+      label: 'Subsystems & Security',
+      icon: Server,
+      badge: '6 Nodes'
+    },
     { id: 'tracker', label: 'Order Tracker', icon: Truck },
     { id: 'admin', label: 'Admin Ops', icon: ShieldCheck },
     {
       id: 'database',
       label: 'SQLite Studio',
       icon: Database,
-      badge: dbStats?.totalTables ? `${dbStats.totalTables} DB` : 'SQLite'
+      badge: dbStats?.totalTables ? `${dbStats.totalTables} DB` : '15 DB'
     }
   ];
 
@@ -296,6 +310,33 @@ export default function Navbar({
                 </>
               )}
             </div>
+
+            {/* Sound Synthesizer Mute/Unmute Toggle */}
+            <button
+              onClick={onToggleSound}
+              className="theme-input relative flex h-9 w-9 items-center justify-center rounded-xl transition cursor-pointer"
+              title={soundEnabled ? 'WebAudio Synth ON (Click to mute)' : 'WebAudio Muted (Click to enable)'}
+            >
+              {soundEnabled ? (
+                <Volume2 className="h-4 w-4 text-emerald-400" />
+              ) : (
+                <VolumeX className="h-4 w-4 text-rose-400" />
+              )}
+            </button>
+
+            {/* Push Notification Center Drawer Trigger */}
+            <button
+              onClick={onOpenNotifications}
+              className="theme-input relative flex h-9 w-9 items-center justify-center rounded-xl transition cursor-pointer"
+              title="Open Push & Real-Time Notification Center"
+            >
+              <Bell className="h-4 w-4 text-amber-400" />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 font-mono-num text-[10px] font-bold text-slate-950">
+                  {unreadNotificationsCount}
+                </span>
+              )}
+            </button>
 
             {/* Compare Drawer Trigger */}
             <button

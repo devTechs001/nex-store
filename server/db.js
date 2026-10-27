@@ -8,7 +8,11 @@ import {
   SEED_COUPONS,
   SEED_REVIEWS,
   SEED_ORDERS,
-  SEED_APPS
+  SEED_APPS,
+  SEED_SERVER_NODES,
+  SEED_INTEGRATIONS,
+  SEED_SECURITY_EVENTS,
+  SEED_NOTIFICATIONS
 } from './seedData.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -187,9 +191,87 @@ export function initSchema() {
       price TEXT NOT NULL DEFAULT 'Free',
       is_featured INTEGER NOT NULL DEFAULT 0,
       is_verified INTEGER NOT NULL DEFAULT 1,
+      source_provider TEXT DEFAULT 'NEX Official',
+      live_url TEXT DEFAULT '',
+      repo_url TEXT DEFAULT '',
+      sha256_hash TEXT DEFAULT '',
+      security_score INTEGER DEFAULT 99,
+      permissions_json TEXT DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS server_nodes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      region TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      ip_address TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'online',
+      cpu_load INTEGER NOT NULL DEFAULT 25,
+      ram_usage INTEGER NOT NULL DEFAULT 45,
+      latency_ms INTEGER NOT NULL DEFAULT 15,
+      active_connections INTEGER NOT NULL DEFAULT 120,
+      rps INTEGER NOT NULL DEFAULT 500,
+      uptime_pct REAL NOT NULL DEFAULT 99.99,
+      version TEXT NOT NULL DEFAULT 'v2.6.0-wal',
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS integrations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      category TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'connected',
+      endpoint_url TEXT NOT NULL,
+      webhook_secret_masked TEXT NOT NULL,
+      events_synced INTEGER NOT NULL DEFAULT 0,
+      latency_ms INTEGER NOT NULL DEFAULT 15,
+      last_sync_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS security_events (
+      id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'low',
+      source_ip TEXT NOT NULL,
+      target_resource TEXT NOT NULL,
+      action_taken TEXT NOT NULL,
+      description TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS push_notifications (
+      id TEXT PRIMARY KEY,
+      channel TEXT NOT NULL DEFAULT 'realtime',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      action_url TEXT DEFAULT 'store',
+      is_read INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
   `);
+
+  // Ensure existing apps table has multi-source & security columns
+  const appCols = db.prepare('PRAGMA table_info(apps)').all().map((c) => c.name);
+  const alterColumns = [
+    ['source_provider', "TEXT DEFAULT 'NEX Official'"],
+    ['live_url', "TEXT DEFAULT ''"],
+    ['repo_url', "TEXT DEFAULT ''"],
+    ['sha256_hash', "TEXT DEFAULT ''"],
+    ['security_score', 'INTEGER DEFAULT 99'],
+    ['permissions_json', "TEXT DEFAULT '[]'"]
+  ];
+  for (const [colName, colDef] of alterColumns) {
+    if (!appCols.includes(colName)) {
+      try {
+        db.exec(`ALTER TABLE apps ADD COLUMN ${colName} ${colDef}`);
+      } catch {
+        // column already exists
+      }
+    }
+  }
 }
 
 export function seedDatabase({ forceReset = false } = {}) {
@@ -207,24 +289,114 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM products;
       DELETE FROM categories;
       DELETE FROM apps;
+      DELETE FROM server_nodes;
+      DELETE FROM integrations;
+      DELETE FROM security_events;
+      DELETE FROM push_notifications;
     `);
   }
 
+  const nowApps = new Date().toISOString();
   const appCountRow = db.prepare('SELECT COUNT(*) as count FROM apps').get();
-  if (!appCountRow || appCountRow.count === 0) {
-    const nowApps = new Date().toISOString();
+  if (!appCountRow || appCountRow.count < SEED_APPS.length) {
     const insertApp = db.prepare(`
-      INSERT INTO apps (
+      INSERT OR REPLACE INTO apps (
         id, name, description, version, category, language, platforms_json,
         rating, reviews_count, downloads, size, developer, icon, license, price,
-        is_featured, is_verified, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        is_featured, is_verified, source_provider, live_url, repo_url,
+        sha256_hash, security_score, permissions_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const a of SEED_APPS) {
       insertApp.run(
-        a.id, a.name, a.description, a.version, a.category, a.language,
-        a.platforms_json, a.rating, a.reviews_count, a.downloads, a.size,
-        a.developer, a.icon, a.license, a.price, a.is_featured, a.is_verified, nowApps
+        a.id,
+        a.name,
+        a.description,
+        a.version,
+        a.category,
+        a.language,
+        a.platforms_json,
+        a.rating,
+        a.reviews_count,
+        a.downloads,
+        a.size,
+        a.developer,
+        a.icon,
+        a.license,
+        a.price,
+        a.is_featured,
+        a.is_verified,
+        a.source_provider || 'NEX Official',
+        a.live_url || '',
+        a.repo_url || '',
+        a.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
+        a.security_score || 99,
+        a.permissions_json || '[]',
+        nowApps
+      );
+    }
+  }
+
+  const srvCount = db.prepare('SELECT COUNT(*) as count FROM server_nodes').get();
+  if (!srvCount || srvCount.count === 0) {
+    const insertSrv = db.prepare(`
+      INSERT INTO server_nodes (
+        id, name, region, provider, ip_address, status, cpu_load, ram_usage,
+        latency_ms, active_connections, rps, uptime_pct, version, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const s of SEED_SERVER_NODES) {
+      insertSrv.run(
+        s.id, s.name, s.region, s.provider, s.ip_address, s.status,
+        s.cpu_load, s.ram_usage, s.latency_ms, s.active_connections,
+        s.rps, s.uptime_pct, s.version, nowApps
+      );
+    }
+  }
+
+  const intCount = db.prepare('SELECT COUNT(*) as count FROM integrations').get();
+  if (!intCount || intCount.count === 0) {
+    const insertInt = db.prepare(`
+      INSERT INTO integrations (
+        id, name, provider, category, status, endpoint_url,
+        webhook_secret_masked, events_synced, latency_ms, last_sync_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const item of SEED_INTEGRATIONS) {
+      insertInt.run(
+        item.id, item.name, item.provider, item.category, item.status,
+        item.endpoint_url, item.webhook_secret_masked, item.events_synced,
+        item.latency_ms, nowApps
+      );
+    }
+  }
+
+  const secCount = db.prepare('SELECT COUNT(*) as count FROM security_events').get();
+  if (!secCount || secCount.count === 0) {
+    const insertSec = db.prepare(`
+      INSERT INTO security_events (
+        id, event_type, severity, source_ip, target_resource, action_taken, description, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const sec of SEED_SECURITY_EVENTS) {
+      insertSec.run(
+        sec.id, sec.event_type, sec.severity, sec.source_ip,
+        sec.target_resource, sec.action_taken, sec.description, sec.created_at
+      );
+    }
+  }
+
+  const notifCount = db.prepare('SELECT COUNT(*) as count FROM push_notifications').get();
+  if (!notifCount || notifCount.count === 0) {
+    const insertNotif = db.prepare(`
+      INSERT INTO push_notifications (
+        id, channel, priority, title, message, action_url, is_read, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const n of SEED_NOTIFICATIONS) {
+      insertNotif.run(
+        n.id, n.channel, n.priority, n.title, n.message,
+        n.action_url, n.is_read, n.created_at
       );
     }
   }
@@ -435,6 +607,59 @@ export function recordActivityEvent({ event_type, title, message, meta = {} }) {
     title,
     message,
     meta,
+    created_at
+  };
+}
+
+export function recordPushNotification({
+  channel = 'realtime',
+  priority = 'normal',
+  title,
+  message,
+  action_url = 'store'
+}) {
+  const id = `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const created_at = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO push_notifications (id, channel, priority, title, message, action_url, is_read, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+  `).run(id, channel, priority, title, message, action_url, created_at);
+
+  return {
+    id,
+    channel,
+    priority,
+    title,
+    message,
+    action_url,
+    is_read: 0,
+    created_at
+  };
+}
+
+export function recordSecurityEvent({
+  event_type = 'security_audit',
+  severity = 'low',
+  source_ip = '196.216.84.12',
+  target_resource = 'System Core',
+  action_taken = 'VERIFIED',
+  description = 'Security check completed'
+}) {
+  const id = `sec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const created_at = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO security_events (id, event_type, severity, source_ip, target_resource, action_taken, description, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, event_type, severity, source_ip, target_resource, action_taken, description, created_at);
+
+  return {
+    id,
+    event_type,
+    severity,
+    source_ip,
+    target_resource,
+    action_taken,
+    description,
     created_at
   };
 }

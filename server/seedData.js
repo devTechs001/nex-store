@@ -851,7 +851,13 @@ export const SEED_APPS = [
     license: 'Enterprise',
     price: 'Free',
     is_featured: 1,
-    is_verified: 1
+    is_verified: 1,
+    source_provider: 'NEX Official',
+    live_url: 'https://dataflow-pro-telemetry.netlify.app',
+    repo_url: 'https://github.com/devTechs001/nex-store',
+    sha256_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    security_score: 99,
+    permissions_json: JSON.stringify(['WebSocket Stream', 'SQLite ReadReplica', 'Encrypted Vault'])
   },
   {
     id: 'app-codesync-ide',
@@ -860,7 +866,7 @@ export const SEED_APPS = [
     version: '5.0.0',
     category: 'desktop',
     language: 'typescript',
-    platforms_json: JSON.stringify(['windows', 'macos', 'linux']),
+    platforms_json: JSON.stringify(['windows', 'macos', 'linux', 'web']),
     rating: 4.9,
     reviews_count: 1892,
     downloads: 892100,
@@ -870,7 +876,13 @@ export const SEED_APPS = [
     license: 'Free / Pro',
     price: 'Free',
     is_featured: 1,
-    is_verified: 1
+    is_verified: 1,
+    source_provider: 'Netlify',
+    live_url: 'https://codesync-cloud-ide.netlify.app',
+    repo_url: 'https://github.com/devTechs001/nex-store',
+    sha256_hash: '8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4',
+    security_score: 98,
+    permissions_json: JSON.stringify(['Sandboxed Iframe', 'WebWorkers', 'Clipboard API'])
   },
   {
     id: 'app-cloudvault',
@@ -889,26 +901,38 @@ export const SEED_APPS = [
     license: 'MIT',
     price: 'Free',
     is_featured: 1,
-    is_verified: 1
+    is_verified: 1,
+    source_provider: 'GitHub',
+    live_url: 'https://cloudvault-zero-trust.netlify.app',
+    repo_url: 'https://github.com/devTechs001/nex-store',
+    sha256_hash: '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
+    security_score: 100,
+    permissions_json: JSON.stringify(['WebCrypto AES-GCM', 'Zero-Knowledge Keychain'])
   },
   {
     id: 'app-reactflow',
-    name: 'ReactFlow Builder',
-    description: 'Visual React component & workflow builder with drag-and-drop interface and live TypeScript code generation.',
+    name: 'ReactFlow Studio (Netlify)',
+    description: 'Visual React component & workflow builder hosted on Netlify Edge with drag-and-drop interface and live TypeScript code generation.',
     version: '1.8.2',
     category: 'web',
     language: 'javascript',
     platforms_json: JSON.stringify(['web', 'macos', 'windows']),
-    rating: 4.6,
-    reviews_count: 178,
-    downloads: 234560,
+    rating: 4.8,
+    reviews_count: 318,
+    downloads: 294560,
     size: '12.1 MB',
-    developer: 'WebBuilders Co.',
+    developer: 'WebBuilders Co. (@sarah_dev)',
     icon: '⚛️',
     license: 'Apache-2.0',
     price: 'Free',
-    is_featured: 0,
-    is_verified: 1
+    is_featured: 1,
+    is_verified: 1,
+    source_provider: 'Netlify',
+    live_url: 'https://reactflow-studio-edge.netlify.app',
+    repo_url: 'https://github.com/xyflow/xyflow',
+    sha256_hash: '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
+    security_score: 97,
+    permissions_json: JSON.stringify(['Canvas 2D', 'LocalStorage', 'Export Bundle'])
   },
   {
     id: 'app-terminal-pp',
@@ -927,7 +951,13 @@ export const SEED_APPS = [
     license: 'MIT',
     price: 'Free',
     is_featured: 1,
-    is_verified: 1
+    is_verified: 1,
+    source_provider: 'GitHub',
+    live_url: 'https://terminal-plus-wasm.netlify.app',
+    repo_url: 'https://github.com/devTechs001/nex-store',
+    sha256_hash: 'ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d',
+    security_score: 99,
+    permissions_json: JSON.stringify(['WebGL2 Shaders', 'PTY Bridge', 'SSH Key Agent'])
   },
   {
     id: 'app-gameengine',
@@ -936,7 +966,7 @@ export const SEED_APPS = [
     version: '2.0.0',
     category: 'library',
     language: 'cpp',
-    platforms_json: JSON.stringify(['windows', 'linux']),
+    platforms_json: JSON.stringify(['windows', 'linux', 'web']),
     rating: 4.7,
     reviews_count: 156,
     downloads: 89450,
@@ -946,7 +976,344 @@ export const SEED_APPS = [
     license: 'Proprietary',
     price: 'Free',
     is_featured: 0,
-    is_verified: 1
+    is_verified: 1,
+    source_provider: 'NEX Official',
+    live_url: 'https://nexus-webgpu-raytracer.netlify.app',
+    repo_url: 'https://github.com/devTechs001/nex-store',
+    sha256_hash: 'e7f6c011776e8db7cd330b54174fd76f7d0216b612387a5ffcfb81e6f0919683',
+    security_score: 96,
+    permissions_json: JSON.stringify(['WebGPU', 'WebAudio Spatial', 'Gamepad API'])
+  },
+  {
+    id: 'app-netlify-synth',
+    name: 'SynthWave DSP Audio Lab',
+    description: 'Community-built planar headphone parametric EQ, binaural spatializer, and WebAudio synthesizer deployed on Netlify.',
+    version: '3.0.4',
+    category: 'web',
+    language: 'typescript',
+    platforms_json: JSON.stringify(['web', 'macos', 'windows']),
+    rating: 5.0,
+    reviews_count: 512,
+    downloads: 184300,
+    size: '6.4 MB',
+    developer: 'Koji Tanaka (@koji_dsp)',
+    icon: '🎛️',
+    license: 'MIT',
+    price: 'Free',
+    is_featured: 1,
+    is_verified: 1,
+    source_provider: 'Netlify',
+    live_url: 'https://synthwave-dsp-lab.netlify.app',
+    repo_url: 'https://github.com/devTechs001/synthwave-dsp',
+    sha256_hash: '7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451',
+    security_score: 100,
+    permissions_json: JSON.stringify(['WebAudio API', 'MIDI Controller', 'USB-HID DAC'])
+  },
+  {
+    id: 'app-vercel-orbit',
+    name: 'Orbit SQL & Edge Visualizer',
+    description: 'Interactive SQLite & LibSQL schema explorer, query flamegraph profiler, and real-time WebSocket debugger from community devs.',
+    version: '2.1.0',
+    category: 'utility',
+    language: 'rust',
+    platforms_json: JSON.stringify(['web', 'linux', 'macos']),
+    rating: 4.9,
+    reviews_count: 389,
+    downloads: 142900,
+    size: '9.8 MB',
+    developer: 'Amara Okafor (@amara_cloud)',
+    icon: '🛰️',
+    license: 'Apache-2.0',
+    price: 'Free',
+    is_featured: 1,
+    is_verified: 1,
+    source_provider: 'Vercel',
+    live_url: 'https://orbit-sql-visualizer.vercel.app',
+    repo_url: 'https://github.com/devTechs001/orbit-sql',
+    sha256_hash: '3f39d5c348e5b79d06e842c114e6cc571583bbf44e4b0ebfda1a01ec05745d43',
+    security_score: 99,
+    permissions_json: JSON.stringify(['Read-Only SQL', 'WebSocket Inspector'])
   }
 ];
+
+export const SEED_SERVER_NODES = [
+  {
+    id: 'srv-nbo-01',
+    name: 'Nairobi Edge Primary (AF-South-1)',
+    region: 'Nairobi, KE',
+    provider: 'NEX Bare-Metal Edge',
+    ip_address: '196.216.84.12',
+    status: 'online',
+    cpu_load: 24,
+    ram_usage: 41,
+    latency_ms: 8,
+    active_connections: 148,
+    rps: 640,
+    uptime_pct: 99.99,
+    version: 'v2.6.0-wal'
+  },
+  {
+    id: 'srv-fra-01',
+    name: 'Frankfurt Core Mesh (EU-Central-1)',
+    region: 'Frankfurt, DE',
+    provider: 'Cloudflare + Hetzner NVMe',
+    ip_address: '138.201.92.44',
+    status: 'online',
+    cpu_load: 38,
+    ram_usage: 56,
+    latency_ms: 21,
+    active_connections: 312,
+    rps: 1290,
+    uptime_pct: 99.98,
+    version: 'v2.6.0-wal'
+  },
+  {
+    id: 'srv-iad-01',
+    name: 'US-East Virginia Hub (US-East-1)',
+    region: 'Ashburn, US',
+    provider: 'AWS Wavelength + Netlify Edge',
+    ip_address: '54.239.28.109',
+    status: 'online',
+    cpu_load: 45,
+    ram_usage: 62,
+    latency_ms: 34,
+    active_connections: 420,
+    rps: 1850,
+    uptime_pct: 99.97,
+    version: 'v2.6.0-wal'
+  },
+  {
+    id: 'srv-hnd-01',
+    name: 'Tokyo Low-Latency Node (AP-East-1)',
+    region: 'Tokyo, JP',
+    provider: 'Equinix Metal Gen-5',
+    ip_address: '103.4.115.88',
+    status: 'online',
+    cpu_load: 29,
+    ram_usage: 48,
+    latency_ms: 42,
+    active_connections: 265,
+    rps: 980,
+    uptime_pct: 99.99,
+    version: 'v2.6.0-wal'
+  },
+  {
+    id: 'srv-lon-01',
+    name: 'London Docklands Gateway (EU-West-2)',
+    region: 'London, UK',
+    provider: 'Vercel + Fly.io Anycast',
+    ip_address: '212.58.244.67',
+    status: 'online',
+    cpu_load: 31,
+    ram_usage: 52,
+    latency_ms: 19,
+    active_connections: 194,
+    rps: 810,
+    uptime_pct: 99.96,
+    version: 'v2.6.0-wal'
+  },
+  {
+    id: 'srv-sjc-01',
+    name: 'Silicon Valley AI Sandbox (US-West-1)',
+    region: 'San Jose, US',
+    provider: 'NVIDIA DGX Cloud Relay',
+    ip_address: '198.51.100.73',
+    status: 'online',
+    cpu_load: 52,
+    ram_usage: 68,
+    latency_ms: 49,
+    active_connections: 175,
+    rps: 740,
+    uptime_pct: 99.95,
+    version: 'v2.6.0-gpu'
+  }
+];
+
+export const SEED_INTEGRATIONS = [
+  {
+    id: 'int-netlify',
+    name: 'Netlify Deploy & App Bridge',
+    provider: 'Netlify',
+    category: 'Deployment & Hosting',
+    status: 'connected',
+    endpoint_url: 'https://api.netlify.com/api/v1/sites/nex-store.netlify.app',
+    webhook_secret_masked: 'nf_whsec_9928••••••••4a1b',
+    events_synced: 1420,
+    latency_ms: 14
+  },
+  {
+    id: 'int-github',
+    name: 'GitHub App & Release Registry',
+    provider: 'GitHub',
+    category: 'CI/CD & Open Source',
+    status: 'connected',
+    endpoint_url: 'https://api.github.com/repos/devTechs001/nex-store',
+    webhook_secret_masked: 'ghp_sec_7741••••••••c89e',
+    events_synced: 3892,
+    latency_ms: 18
+  },
+  {
+    id: 'int-vercel',
+    name: 'Vercel Edge Preview Connector',
+    provider: 'Vercel',
+    category: 'Deployment & Hosting',
+    status: 'connected',
+    endpoint_url: 'https://api.vercel.com/v9/projects/nex-store-edge',
+    webhook_secret_masked: 'vcl_tok_3310••••••••9f02',
+    events_synced: 845,
+    latency_ms: 16
+  },
+  {
+    id: 'int-cloudflare',
+    name: 'Cloudflare WAF & DDoS Shield',
+    provider: 'Cloudflare',
+    category: 'Security & CDN',
+    status: 'connected',
+    endpoint_url: 'https://api.cloudflare.com/client/v4/zones/nex-waf',
+    webhook_secret_masked: 'cf_shield_8820••••••••1d4a',
+    events_synced: 19450,
+    latency_ms: 6
+  },
+  {
+    id: 'int-stripe',
+    name: 'Stripe Global & M-Pesa Express',
+    provider: 'Stripe',
+    category: 'Payments & FinTech',
+    status: 'connected',
+    endpoint_url: 'https://api.stripe.com/v1/webhook_endpoints/nex_live',
+    webhook_secret_masked: 'whsec_live_5582••••••••7b3c',
+    events_synced: 2610,
+    latency_ms: 23
+  },
+  {
+    id: 'int-slack',
+    name: 'Slack & Discord Ops Telemetry',
+    provider: 'Slack / Discord',
+    category: 'Notifications & Alerts',
+    status: 'connected',
+    endpoint_url: 'https://hooks.slack.com/services/T00NEX/B00OPS/99x',
+    webhook_secret_masked: 'xoxb_ops_4419••••••••e210',
+    events_synced: 964,
+    latency_ms: 31
+  },
+  {
+    id: 'int-turso',
+    name: 'Turso LibSQL Edge DB Replica',
+    provider: 'Turso',
+    category: 'Database Replication',
+    status: 'connected',
+    endpoint_url: 'libsql://nexstore-replica-nbo.turso.io',
+    webhook_secret_masked: 'eyJhbGciOiJFZERTQ••••••9a8f',
+    events_synced: 15820,
+    latency_ms: 9
+  },
+  {
+    id: 'int-huggingface',
+    name: 'HuggingFace AI Concierge & Search',
+    provider: 'HuggingFace',
+    category: 'AI & Neural Search',
+    status: 'connected',
+    endpoint_url: 'https://api-inference.huggingface.co/models/nex-embed-v3',
+    webhook_secret_masked: 'hf_live_6104••••••••3c9d',
+    events_synced: 672,
+    latency_ms: 38
+  }
+];
+
+export const SEED_SECURITY_EVENTS = [
+  {
+    id: 'sec-1',
+    event_type: 'waf_block',
+    severity: 'high',
+    source_ip: '185.220.101.42',
+    target_resource: 'POST /api/db/query',
+    action_taken: 'BLOCKED',
+    description: 'Blocked automated SQL injection probe attempting stacked UNION SELECT statement via WAF rule #SQLI-04.',
+    created_at: '2026-10-27T11:42:10Z'
+  },
+  {
+    id: 'sec-2',
+    event_type: 'pkg_verify',
+    severity: 'low',
+    source_ip: '196.216.84.12',
+    target_resource: 'app-netlify-synth (SynthWave DSP Lab)',
+    action_taken: 'VERIFIED',
+    description: 'Verified SHA-256 signature and zero-vulnerability sandbox manifest for Netlify community app deployment.',
+    created_at: '2026-10-27T11:15:00Z'
+  },
+  {
+    id: 'sec-3',
+    event_type: 'rate_limit',
+    severity: 'medium',
+    source_ip: '45.155.205.19',
+    target_resource: 'POST /api/coupons/validate',
+    action_taken: 'BLOCKED',
+    description: 'Throttled brute-force coupon enumeration burst (140 req/10s) at edge gateway.',
+    created_at: '2026-10-27T10:50:22Z'
+  },
+  {
+    id: 'sec-4',
+    event_type: 'key_rotation',
+    severity: 'low',
+    source_ip: '127.0.0.1',
+    target_resource: 'Netlify & GitHub Webhook Secrets',
+    action_taken: 'ROTATED',
+    description: 'Automated 24-hour Ed25519 signing key rotation completed with zero dropped webhook frames.',
+    created_at: '2026-10-27T09:00:00Z'
+  },
+  {
+    id: 'sec-5',
+    event_type: 'csp_audit',
+    severity: 'low',
+    source_ip: '138.201.92.44',
+    target_resource: 'All Storefront & App Sandbox Routes',
+    action_taken: 'AUDITED',
+    description: 'Strict Content-Security-Policy, CORS origin validation, and SQLite WAL integrity check passed (100/100).',
+    created_at: '2026-10-27T08:30:00Z'
+  }
+];
+
+export const SEED_NOTIFICATIONS = [
+  {
+    id: 'notif-1',
+    channel: 'deployment',
+    priority: 'high',
+    title: 'Netlify App Bridge Active',
+    message: 'SynthWave DSP Audio Lab v3.0.4 deployed from Netlify and passed SHA-256 security verification.',
+    action_url: 'apps',
+    is_read: 0,
+    created_at: '2026-10-27T11:55:00Z'
+  },
+  {
+    id: 'notif-2',
+    channel: 'security',
+    priority: 'high',
+    title: 'WAF Shield Blocked SQLi Probe',
+    message: 'Edge firewall blocked an automated SQLi attempt from 185.220.101.42 in 0.4ms.',
+    action_url: 'subsystems',
+    is_read: 0,
+    created_at: '2026-10-27T11:42:10Z'
+  },
+  {
+    id: 'notif-3',
+    channel: 'realtime',
+    priority: 'normal',
+    title: '6 Global Edge Servers Online',
+    message: 'Nairobi, Frankfurt, Virginia, Tokyo, London, and San Jose nodes operating at 99.99% uptime.',
+    action_url: 'subsystems',
+    is_read: 0,
+    created_at: '2026-10-27T11:00:00Z'
+  },
+  {
+    id: 'notif-4',
+    channel: 'order',
+    priority: 'normal',
+    title: 'Order #NEX-8942 Out for Delivery',
+    message: 'Same-day courier dispatched in Nairobi for Aether Pro X1 & VoltMatrix 240W.',
+    action_url: 'tracker',
+    is_read: 1,
+    created_at: '2026-10-27T08:10:00Z'
+  }
+];
+
 
