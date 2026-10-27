@@ -5,7 +5,11 @@ import {
   SEED_APPS,
   SEED_COUPONS,
   SEED_REVIEWS,
-  SEED_ORDERS
+  SEED_ORDERS,
+  SEED_SERVER_NODES,
+  SEED_INTEGRATIONS,
+  SEED_SECURITY_EVENTS,
+  SEED_NOTIFICATIONS
 } from '../../server/seedData.js';
 
 export function getProductArtUrl(productOrId, { view = 'hero', color = null } = {}) {
@@ -55,6 +59,10 @@ export function getFallbackBootstrapData() {
   const apps = SEED_APPS.map((a) => ({ ...a, created_at: now }));
   const categories = [...SEED_CATEGORIES];
   const coupons = [...SEED_COUPONS];
+  const serverNodes = SEED_SERVER_NODES.map((s) => ({ ...s, updated_at: now }));
+  const integrations = SEED_INTEGRATIONS.map((i) => ({ ...i, last_sync_at: now }));
+  const securityEvents = [...SEED_SECURITY_EVENTS];
+  const notifications = [...SEED_NOTIFICATIONS];
   const orders = SEED_ORDERS.map((o) => ({
     ...o,
     items: (o.items || []).map((item) => ({
@@ -104,7 +112,7 @@ export function getFallbackBootstrapData() {
       sender: 'concierge',
       sender_name: 'NEX Live Concierge',
       message:
-        'Welcome to NEX Store! Ask me about specs, stock availability, promo codes (try NEX20 or WELCOME10), or live order tracking.',
+        'Welcome to NEX Store! Ask me about specs, stock availability, promo codes (try NEX20 or WELCOME10), Netlify app imports, or live order tracking.',
       created_at: now
     }
   ];
@@ -149,7 +157,11 @@ export function getFallbackBootstrapData() {
     { name: 'inventory_logs', rowCount: inventoryLogs.length, rows: inventoryLogs },
     { name: 'activity_events', rowCount: activityEvents.length, rows: activityEvents },
     { name: 'chat_messages', rowCount: chatMessages.length, rows: chatMessages },
-    { name: 'subscribers', rowCount: 1, rows: [{ id: 'sub-1', email: 'vip@nexstore.io', created_at: now }] }
+    { name: 'subscribers', rowCount: 1, rows: [{ id: 'sub-1', email: 'vip@nexstore.io', created_at: now }] },
+    { name: 'server_nodes', rowCount: serverNodes.length, rows: serverNodes },
+    { name: 'integrations', rowCount: integrations.length, rows: integrations },
+    { name: 'security_events', rowCount: securityEvents.length, rows: securityEvents },
+    { name: 'push_notifications', rowCount: notifications.length, rows: notifications }
   ].map((t) => ({
     ...t,
     columns: Object.keys(t.rows[0] || { id: '' }).map((colName, i) => ({
@@ -169,6 +181,10 @@ export function getFallbackBootstrapData() {
     inventoryLogs,
     activityEvents,
     chatMessages,
+    serverNodes,
+    integrations,
+    securityEvents,
+    notifications,
     analytics: {
       totalOrders: orders.length,
       totalRevenue,
@@ -179,15 +195,13 @@ export function getFallbackBootstrapData() {
       totalUnitsSold,
       totalReviews: reviews.length,
       avgRating: 4.9,
-      categoryBreakdown: Object.values(catMap).sort(
-        (a, b) => b.estimatedRevenue - a.estimatedRevenue
-      )
+      categoryBreakdown: Object.values(catMap)
     },
     dbStats: {
-      engine: 'SQLite 3 (WAL Mode + Client Replica)',
+      engine: 'SQLite 3 (Node.js Native DatabaseSync • WAL Mode)',
       filePath: 'data/nexstore.db',
-      sizeBytes: 65536,
-      sizeFormatted: '64.0 KB',
+      sizeBytes: 142336,
+      sizeFormatted: '139.0 KB',
       totalTables: tables.length,
       totalRows: tables.reduce((s, t) => s + t.rowCount, 0),
       tables
@@ -195,7 +209,11 @@ export function getFallbackBootstrapData() {
     presence: {
       connectedClients: 1,
       activeShoppers: 24,
-      viewersByProduct: {}
+      viewersByProduct: {
+        'prod-aether-pro': 7,
+        'prod-nova-book': 5,
+        'prod-chronos-key': 4
+      }
     }
   };
 }
