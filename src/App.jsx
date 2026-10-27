@@ -8,6 +8,7 @@ import OrderTrackerView from './components/OrderTrackerView.jsx';
 import AdminDashboardView from './components/AdminDashboardView.jsx';
 import DatabaseStudioView from './components/DatabaseStudioView.jsx';
 import LiveChatWidget from './components/LiveChatWidget.jsx';
+import CommandPaletteModal from './components/CommandPaletteModal.jsx';
 import { CheckCircle2, Zap } from 'lucide-react';
 
 export default function App() {
@@ -25,7 +26,11 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState([]);
   const [analytics, setAnalytics] = useState({});
   const [dbStats, setDbStats] = useState({});
-  const [presence, setPresence] = useState({ connectedClients: 1, activeShoppers: 21, viewersByProduct: {} });
+  const [presence, setPresence] = useState({
+    connectedClients: 1,
+    activeShoppers: 21,
+    viewersByProduct: {}
+  });
   const [wsConnected, setWsConnected] = useState(false);
 
   // Filter & Selection State
@@ -33,6 +38,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [trackedOrderNumber, setTrackedOrderNumber] = useState('NEX-8942');
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   // Cart, Wishlist & Compare State
   const [cart, setCart] = useState(() => {
@@ -257,7 +263,11 @@ export default function App() {
               setActivityEvents(payload.activityEvents || []);
               setAnalytics(payload.analytics || {});
               setDbStats(payload.dbStats || {});
-              pushToast('Database Reset Complete', 'All 10 SQLite tables restored to seed state.', 'success');
+              pushToast(
+                'Database Reset Complete',
+                'All 10 SQLite tables restored to seed state.',
+                'success'
+              );
               break;
 
             default:
@@ -296,12 +306,14 @@ export default function App() {
     }
   }, [selectedProduct?.id]);
 
-  // Cmd/Ctrl + K Shortcut to focus Search
+  // Cmd/Ctrl + K Shortcut to open Command Palette, Escape to close
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        searchInputRef.current?.focus();
+        setCommandPaletteOpen((prev) => !prev);
+      } else if (e.key === 'Escape') {
+        setCommandPaletteOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -363,8 +375,7 @@ export default function App() {
   const handleToggleWishlist = (productId) => {
     setWishlistIds((prev) => {
       const exists = prev.includes(productId);
-      const next = exists ? prev.filter((id) => id !== productId) : [...prev, productId];
-      return next;
+      return exists ? prev.filter((id) => id !== productId) : [...prev, productId];
     });
   };
 
@@ -454,7 +465,11 @@ export default function App() {
       body: JSON.stringify({ email })
     });
     if (res.ok) {
-      pushToast('Subscribed to Flash Alerts', `${email} saved to SQLite subscribers table!`, 'success');
+      pushToast(
+        'Subscribed to Flash Alerts',
+        `${email} saved to SQLite subscribers table!`,
+        'success'
+      );
     }
   };
 
@@ -479,8 +494,10 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen transition-colors ${
-        darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      className={`min-h-screen transition-colors duration-200 ${
+        darkMode
+          ? 'bg-engineering-grid-dark text-slate-100'
+          : 'bg-engineering-grid-light text-slate-900'
       }`}
     >
       {/* Sticky Top Navbar + Real-Time Ticker */}
@@ -502,6 +519,7 @@ export default function App() {
           setCartDrawerOpen(true);
         }}
         onOpenCompare={() => setCompareOpen(true)}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         wsConnected={wsConnected}
         presence={presence}
         latestActivity={activityEvents[0]}
@@ -574,6 +592,21 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Command Palette (⌘K) Modal */}
+      <CommandPaletteModal
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        products={products}
+        coupons={coupons}
+        currency={currency}
+        darkMode={darkMode}
+        setDarkMode={setDarkMode}
+        setActiveTab={setActiveTab}
+        onSelectProduct={(p) => setSelectedProduct(p)}
+        onAddToCart={handleAddToCart}
+        onSimulateRealtime={handleSimulateRealtime}
+      />
 
       {/* Product 4-Angle CAD & Spec Modal */}
       {selectedProduct && (
