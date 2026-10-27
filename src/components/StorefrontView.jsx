@@ -9,17 +9,14 @@ import {
   Layers,
   SlidersHorizontal,
   Check,
-  ShieldCheck,
-  Truck,
   Cpu,
   LayoutGrid,
   List,
   Tag,
-  Send,
-  Zap,
-  Compass
+  Send
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
+import { getProductArtUrl } from '../utils/storeEngine.js';
 
 export default function StorefrontView({
   products,
@@ -117,30 +114,35 @@ export default function StorefrontView({
 
   const heroDiscountPct =
     activeHero && activeHero.original_price > activeHero.price
-      ? Math.round(((activeHero.original_price - activeHero.price) / activeHero.original_price) * 100)
+      ? Math.round(
+          ((activeHero.original_price - activeHero.price) / activeHero.original_price) * 100
+        )
       : 0;
+
+  const heroImgSrc = activeHero
+    ? getProductArtUrl(activeHero, {
+        view: heroAngle,
+        color: activeHero.colors?.[0]?.hex || null
+      })
+    : '';
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 space-y-7">
       {/* Hero Flagship Hardware Bento Showcase */}
       {activeHero && (
-        <section className="relative overflow-hidden rounded-3xl border border-indigo-500/25 bg-gradient-to-br from-[#070b16] via-[#0b1326] to-[#131836] p-6 sm:p-8 lg:p-10 text-white shadow-2xl shadow-indigo-950/40">
-          {/* Ambient Decorative Glows */}
-          <div className="pointer-events-none absolute -left-24 -top-24 h-80 w-80 rounded-full bg-indigo-600/20 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-28 right-10 h-80 w-80 rounded-full bg-cyan-500/15 blur-3xl" />
-
+        <section className="theme-hero relative overflow-hidden rounded-3xl p-6 sm:p-8 lg:p-10">
           <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             {/* Left 7 Cols: Flagship Engineering Pitch & Live Controls */}
             <div className="lg:col-span-7 space-y-5">
               <div className="flex flex-wrap items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/20 border border-indigo-400/40 px-3 py-1 font-mono-num text-[11px] font-bold tracking-wider text-indigo-300">
-                  <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/15 border border-indigo-500/35 px-3 py-1 font-mono-num text-[11px] font-bold tracking-wider text-indigo-400">
+                  <Sparkles className="h-3.5 w-3.5" />
                   FLAGSHIP SPOTLIGHT // {activeHero.sku}
                 </span>
 
                 {activeHero.is_flash_sale && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 px-3 py-1 font-mono-num text-[11px] font-bold text-amber-300">
-                    <Flame className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/35 px-3 py-1 font-mono-num text-[11px] font-bold text-amber-400">
+                    <Flame className="h-3.5 w-3.5" />
                     FLASH DEAL ENDS {String(countdown.hrs).padStart(2, '0')}:
                     {String(countdown.mins).padStart(2, '0')}:
                     {String(countdown.secs).padStart(2, '0')}
@@ -148,17 +150,17 @@ export default function StorefrontView({
                 )}
 
                 {heroDiscountPct > 0 && (
-                  <span className="rounded-full bg-emerald-500/20 border border-emerald-400/40 px-2.5 py-1 font-mono-num text-[11px] font-bold text-emerald-300">
+                  <span className="rounded-full bg-emerald-500/15 border border-emerald-500/35 px-2.5 py-1 font-mono-num text-[11px] font-bold text-emerald-400">
                     SAVE {heroDiscountPct}%
                   </span>
                 )}
               </div>
 
               <div className="space-y-2.5">
-                <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-[1.06]">
+                <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.06]">
                   {activeHero.name}
                 </h1>
-                <p className="text-sm sm:text-base text-slate-300 max-w-2xl leading-relaxed">
+                <p className="text-sm sm:text-base opacity-80 max-w-2xl leading-relaxed">
                   {activeHero.description}
                 </p>
               </div>
@@ -170,12 +172,12 @@ export default function StorefrontView({
                   .map(([key, val]) => (
                     <div
                       key={key}
-                      className="rounded-2xl bg-white/[0.04] backdrop-blur-md border border-white/[0.09] p-3.5 transition hover:border-indigo-400/40"
+                      className="theme-subtle rounded-2xl p-3.5 transition hover:border-indigo-500/50"
                     >
-                      <div className="font-mono-num text-[10px] uppercase tracking-wider text-indigo-300">
+                      <div className="font-mono-num text-[10px] uppercase tracking-wider font-bold text-indigo-400">
                         {key}
                       </div>
-                      <div className="mt-1 text-xs font-semibold text-white truncate" title={val}>
+                      <div className="mt-1 text-xs font-semibold truncate" title={val}>
                         {val}
                       </div>
                     </div>
@@ -183,19 +185,19 @@ export default function StorefrontView({
               </div>
 
               {/* Price & Primary CTAs */}
-              <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-white/[0.08]">
+              <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-slate-500/20">
                 <div>
                   <div className="flex items-baseline gap-3">
-                    <span className="font-mono-num text-3xl sm:text-4xl font-bold text-white">
+                    <span className="font-mono-num text-3xl sm:text-4xl font-bold">
                       {formatPrice(activeHero.price, currency)}
                     </span>
                     {activeHero.original_price > activeHero.price && (
-                      <span className="font-mono-num text-sm text-slate-400 line-through">
+                      <span className="font-mono-num text-sm opacity-60 line-through">
                         {formatPrice(activeHero.original_price, currency)}
                       </span>
                     )}
                   </div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-emerald-400 font-mono-num">
+                  <div className="mt-1 flex items-center gap-2 text-xs text-emerald-400 font-mono-num font-semibold">
                     <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                     <span>
                       {activeHero.stock} units serialized & ready for instant dispatch
@@ -206,7 +208,10 @@ export default function StorefrontView({
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     onClick={() => onAddToCart(activeHero)}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-cyan-500 px-6 py-3.5 text-sm font-semibold text-white shadow-xl shadow-indigo-600/35 ring-1 ring-white/20 transition cursor-pointer"
+                    style={{
+                      background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`
+                    }}
+                    className="inline-flex items-center gap-2 rounded-2xl px-6 py-3.5 text-sm font-semibold text-white shadow-xl transition cursor-pointer"
                   >
                     <ShoppingBag className="h-4 w-4" />
                     <span>Add to Build</span>
@@ -214,7 +219,7 @@ export default function StorefrontView({
 
                   <button
                     onClick={() => onSelectProduct(activeHero)}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-white/[0.07] hover:bg-white/[0.12] border border-white/[0.14] px-5 py-3.5 text-sm font-semibold text-white transition cursor-pointer"
+                    className="theme-subtle inline-flex items-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold hover:border-indigo-500 transition cursor-pointer"
                   >
                     <Eye className="h-4 w-4 text-cyan-400" />
                     <span>4-Angle CAD & Specs</span>
@@ -224,7 +229,7 @@ export default function StorefrontView({
 
               {/* Featured Hardware Carousel Switcher */}
               <div className="flex flex-wrap items-center gap-2 pt-1">
-                <span className="font-mono-num text-[10px] uppercase tracking-wider text-slate-400 mr-1">
+                <span className="font-mono-num text-[10px] uppercase tracking-wider opacity-60 mr-1">
                   Flagships:
                 </span>
                 {featuredProducts.map((fp, idx) => {
@@ -238,8 +243,8 @@ export default function StorefrontView({
                       }}
                       className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
                         isCurrent
-                          ? 'bg-indigo-500/30 text-white border border-indigo-400/60 shadow-sm'
-                          : 'bg-white/[0.04] text-slate-400 hover:text-white border border-white/[0.08]'
+                          ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/50 shadow-xs'
+                          : 'theme-subtle opacity-75 hover:opacity-100'
                       }`}
                     >
                       {fp.name.split(' ').slice(0, 2).join(' ')}
@@ -253,20 +258,20 @@ export default function StorefrontView({
             <div className="lg:col-span-5 space-y-3">
               <div
                 onClick={() => onSelectProduct(activeHero)}
-                className="group relative overflow-hidden rounded-3xl border border-white/[0.12] bg-slate-950/90 shadow-2xl cursor-pointer"
+                className="group relative overflow-hidden rounded-3xl border border-indigo-500/25 bg-slate-950 shadow-2xl cursor-pointer"
               >
                 <img
-                  src={`${activeHero.image_url}?view=${encodeURIComponent(heroAngle)}`}
+                  src={heroImgSrc}
                   alt={activeHero.name}
                   className="w-full h-72 sm:h-80 object-cover transition duration-500 group-hover:scale-[1.03]"
                 />
-                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between rounded-2xl bg-slate-950/85 backdrop-blur-md border border-white/[0.1] px-4 py-2.5 text-xs">
+                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between rounded-2xl bg-slate-950/85 backdrop-blur-md border border-white/10 px-4 py-2.5 text-xs text-white">
                   <div className="flex items-center gap-2">
                     <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                    <span className="font-mono-num font-bold text-white">{activeHero.rating}</span>
-                    <span className="text-slate-400">({activeHero.review_count} verified)</span>
+                    <span className="font-mono-num font-bold">{activeHero.rating}</span>
+                    <span className="text-slate-300">({activeHero.review_count} verified)</span>
                   </div>
-                  <span className="text-cyan-400 font-semibold group-hover:underline">
+                  <span className="text-cyan-300 font-semibold group-hover:underline">
                     Full Telemetry Modal →
                   </span>
                 </div>
@@ -285,8 +290,8 @@ export default function StorefrontView({
                     onClick={() => setHeroAngle(ang.id)}
                     className={`rounded-xl border py-2 px-2 text-center font-mono-num text-[11px] font-semibold transition cursor-pointer ${
                       heroAngle === ang.id
-                        ? 'border-cyan-400/60 bg-cyan-500/20 text-cyan-200'
-                        : 'border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-white'
+                        ? 'border-indigo-500 bg-indigo-500/20 text-indigo-400'
+                        : 'theme-subtle opacity-75 hover:opacity-100'
                     }`}
                   >
                     {ang.label}
@@ -307,9 +312,7 @@ export default function StorefrontView({
             <div
               key={coup.id}
               onClick={() => handleCopyCoupon(coup.code)}
-              className={`group flex items-center justify-between rounded-2xl p-4 transition-all duration-200 cursor-pointer ${
-                darkMode ? 'surface-card-dark' : 'surface-card-light'
-              }`}
+              className="theme-card group flex items-center justify-between rounded-2xl p-4 cursor-pointer"
             >
               <div className="min-w-0 pr-2">
                 <div className="flex items-center gap-2">
@@ -323,13 +326,7 @@ export default function StorefrontView({
                       : `$${coup.discount_value} OFF`}
                   </span>
                 </div>
-                <p
-                  className={`mt-1 truncate text-xs ${
-                    darkMode ? 'text-slate-400' : 'text-slate-600'
-                  }`}
-                >
-                  {coup.description}
-                </p>
+                <p className="mt-1 truncate text-xs opacity-75">{coup.description}</p>
               </div>
               <span
                 className={`shrink-0 rounded-xl px-2.5 py-1.5 font-mono-num text-[10px] font-bold transition ${
@@ -345,21 +342,21 @@ export default function StorefrontView({
       </section>
 
       {/* Category & Multi-Facet Filter Control Deck */}
-      <section
-        className={`rounded-3xl p-5 space-y-4 ${
-          darkMode ? 'surface-card-dark' : 'surface-card-light'
-        }`}
-      >
+      <section className="theme-card rounded-3xl p-5 space-y-4">
         {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           <button
             onClick={() => setSelectedCategory('all')}
-            className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition cursor-pointer ${
+            style={
               selectedCategory === 'all'
-                ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-500/25'
-                : darkMode
-                ? 'bg-slate-950/80 text-slate-300 hover:text-white border border-white/[0.07]'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80 border border-slate-200'
+                ? {
+                    background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`,
+                    color: '#ffffff'
+                  }
+                : undefined
+            }
+            className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition cursor-pointer ${
+              selectedCategory === 'all' ? 'shadow-md' : 'theme-subtle opacity-85 hover:opacity-100'
             }`}
           >
             <span>All Hardware</span>
@@ -374,12 +371,16 @@ export default function StorefrontView({
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.slug)}
-                className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition cursor-pointer ${
+                style={
                   active
-                    ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-500/25'
-                    : darkMode
-                    ? 'bg-slate-950/80 text-slate-300 hover:text-white border border-white/[0.07]'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80 border border-slate-200'
+                    ? {
+                        background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`,
+                        color: '#ffffff'
+                      }
+                    : undefined
+                }
+                className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition cursor-pointer ${
+                  active ? 'shadow-md' : 'theme-subtle opacity-85 hover:opacity-100'
                 }`}
               >
                 <span>{cat.name}</span>
@@ -392,11 +393,7 @@ export default function StorefrontView({
         </div>
 
         {/* Filter Controls Row */}
-        <div
-          className={`flex flex-wrap items-center justify-between gap-3 pt-3 border-t ${
-            darkMode ? 'border-white/[0.07]' : 'border-slate-200'
-          }`}
-        >
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-500/20">
           <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-400">
               <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -409,9 +406,7 @@ export default function StorefrontView({
               className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
                 onlyInStock
                   ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-400'
-                  : darkMode
-                  ? 'border-white/[0.08] bg-slate-950/80 text-slate-300 hover:text-white'
-                  : 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  : 'theme-subtle opacity-85 hover:opacity-100'
               }`}
             >
               {onlyInStock && <Check className="h-3.5 w-3.5" />}
@@ -424,9 +419,7 @@ export default function StorefrontView({
               className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
                 onlyFlashSale
                   ? 'border-amber-500/50 bg-amber-500/15 text-amber-400'
-                  : darkMode
-                  ? 'border-white/[0.08] bg-slate-950/80 text-slate-300 hover:text-white'
-                  : 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  : 'theme-subtle opacity-85 hover:opacity-100'
               }`}
             >
               <Flame className="h-3.5 w-3.5 text-amber-400" />
@@ -434,14 +427,8 @@ export default function StorefrontView({
             </button>
 
             {/* Max Price Slider */}
-            <div
-              className={`flex items-center gap-2.5 rounded-xl border px-3 py-1.5 ${
-                darkMode
-                  ? 'border-white/[0.08] bg-slate-950/80'
-                  : 'border-slate-300 bg-slate-100'
-              }`}
-            >
-              <span className="text-xs text-slate-400">Max Price:</span>
+            <div className="theme-subtle flex items-center gap-2.5 rounded-xl px-3 py-1.5">
+              <span className="text-xs opacity-75">Max Price:</span>
               <input
                 type="range"
                 min="150"
@@ -458,19 +445,15 @@ export default function StorefrontView({
           </div>
 
           <div className="flex items-center gap-2.5">
-            <span className="font-mono-num text-xs text-slate-400">
-              Showing <strong className={darkMode ? 'text-white' : 'text-slate-900'}>{filteredProducts.length}</strong> of {products.length}
+            <span className="font-mono-num text-xs opacity-75">
+              Showing <strong>{filteredProducts.length}</strong> of {products.length}
             </span>
 
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
               aria-label="Sort products"
-              className={`rounded-xl border px-3 py-1.5 text-xs font-semibold cursor-pointer ${
-                darkMode
-                  ? 'bg-slate-950 border-white/[0.08] text-slate-200'
-                  : 'bg-slate-100 border-slate-300 text-slate-800'
-              }`}
+              className="theme-input rounded-xl px-3 py-1.5 text-xs font-semibold cursor-pointer"
             >
               <option value="featured">Sort: Featured & Flagship</option>
               <option value="popular">Sort: Best Selling</option>
@@ -479,17 +462,13 @@ export default function StorefrontView({
               <option value="price-desc">Sort: Price High → Low</option>
             </select>
 
-            <div
-              className={`flex items-center rounded-xl border p-0.5 ${
-                darkMode ? 'border-white/[0.08] bg-slate-950' : 'border-slate-300 bg-slate-100'
-              }`}
-            >
+            <div className="theme-subtle flex items-center rounded-xl p-0.5">
               <button
                 onClick={() => setViewMode('grid')}
                 className={`rounded-lg p-1.5 cursor-pointer ${
                   viewMode === 'grid'
                     ? 'bg-indigo-600 text-white'
-                    : 'text-slate-400 hover:text-indigo-400'
+                    : 'opacity-70 hover:text-indigo-400'
                 }`}
                 title="Grid View"
               >
@@ -500,7 +479,7 @@ export default function StorefrontView({
                 className={`rounded-lg p-1.5 cursor-pointer ${
                   viewMode === 'list'
                     ? 'bg-indigo-600 text-white'
-                    : 'text-slate-400 hover:text-indigo-400'
+                    : 'opacity-70 hover:text-indigo-400'
                 }`}
                 title="Compact List View"
               >
@@ -513,15 +492,11 @@ export default function StorefrontView({
 
       {/* Product Catalog Grid / List */}
       {filteredProducts.length === 0 ? (
-        <div
-          className={`rounded-3xl p-12 text-center space-y-4 ${
-            darkMode ? 'surface-card-dark' : 'surface-card-light'
-          }`}
-        >
+        <div className="theme-card rounded-3xl p-12 text-center space-y-4">
           <p className="font-display text-lg font-bold">
             No hardware models match your current filter criteria
           </p>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs opacity-75">
             Try clearing your search query or increasing the maximum price ceiling.
           </p>
           <button
@@ -551,9 +526,10 @@ export default function StorefrontView({
             const activeColor =
               selectedCardColors[product.id] ||
               product.colors?.[0] || { name: 'Standard', hex: '' };
-            const imgSrc = activeColor.hex
-              ? `${product.image_url}?color=${encodeURIComponent(activeColor.hex)}`
-              : product.image_url;
+            const imgSrc = getProductArtUrl(product, {
+              view: 'hero',
+              color: activeColor.hex || null
+            });
             const isLowStock =
               product.stock > 0 && product.stock <= product.low_stock_threshold;
             const liveViewers =
@@ -570,9 +546,9 @@ export default function StorefrontView({
             return (
               <article
                 key={product.id}
-                className={`group relative flex flex-col justify-between overflow-hidden rounded-3xl transition-all duration-300 hover:-translate-y-1 ${
+                className={`theme-card group relative flex flex-col justify-between overflow-hidden rounded-3xl transition-all duration-300 hover:-translate-y-1 ${
                   viewMode === 'list' ? 'sm:flex-row sm:items-center gap-6 p-4' : ''
-                } ${darkMode ? 'surface-card-dark' : 'surface-card-light'}`}
+                }`}
               >
                 {/* Top Visual Studio Render Area */}
                 <div className={viewMode === 'list' ? 'sm:w-72 shrink-0' : ''}>
@@ -612,7 +588,7 @@ export default function StorefrontView({
                     <div className="absolute right-3.5 top-3.5 flex flex-col gap-1.5">
                       <button
                         onClick={() => onToggleWishlist(product.id)}
-                        className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-950/80 backdrop-blur-md border border-white/15 text-slate-300 hover:text-rose-400 transition cursor-pointer"
+                        className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-950/80 backdrop-blur-md border border-white/15 text-slate-200 hover:text-rose-400 transition cursor-pointer"
                         title={isWishlisted ? 'Remove from Wishlist' : 'Save to Wishlist'}
                       >
                         <Heart
@@ -626,8 +602,8 @@ export default function StorefrontView({
                         onClick={() => onToggleCompare(product.id)}
                         className={`flex h-8 w-8 items-center justify-center rounded-full backdrop-blur-md border transition cursor-pointer ${
                           isCompared
-                            ? 'bg-cyan-400 text-slate-950 border-cyan-300 shadow-md shadow-cyan-500/30'
-                            : 'bg-slate-950/80 border-white/15 text-slate-300 hover:text-cyan-400'
+                            ? 'bg-cyan-400 text-slate-950 border-cyan-300 shadow-md'
+                            : 'bg-slate-950/80 border-white/15 text-slate-200 hover:text-cyan-400'
                         }`}
                         title="Compare Hardware"
                       >
@@ -637,7 +613,7 @@ export default function StorefrontView({
 
                     {/* Bottom Overlay Bar: Live Viewers + SKU */}
                     <div className="absolute bottom-2.5 left-3.5 right-3.5 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 rounded-full bg-slate-950/85 backdrop-blur-md border border-white/10 px-2.5 py-0.5 font-mono-num text-[10px] text-slate-200">
+                      <div className="flex items-center gap-1.5 rounded-full bg-slate-950/85 backdrop-blur-md border border-white/10 px-2.5 py-0.5 font-mono-num text-[10px] text-white">
                         <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
                         <span>{liveViewers} inspecting</span>
                       </div>
@@ -658,7 +634,7 @@ export default function StorefrontView({
                       <div className="flex items-center gap-1">
                         <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                         <span className="font-mono-num font-bold">{product.rating}</span>
-                        <span className="text-slate-400">({product.review_count})</span>
+                        <span className="opacity-65">({product.review_count})</span>
                       </div>
                     </div>
 
@@ -669,11 +645,7 @@ export default function StorefrontView({
                       {product.name}
                     </h3>
 
-                    <p
-                      className={`text-xs line-clamp-2 leading-relaxed ${
-                        darkMode ? 'text-slate-400' : 'text-slate-600'
-                      }`}
-                    >
+                    <p className="text-xs opacity-75 line-clamp-2 leading-relaxed">
                       {product.tagline}
                     </p>
 
@@ -683,14 +655,10 @@ export default function StorefrontView({
                         {topSpecEntries.map(([k, v]) => (
                           <div
                             key={k}
-                            className={`rounded-xl border px-2.5 py-1.5 text-[11px] truncate ${
-                              darkMode
-                                ? 'bg-slate-950/60 border-white/[0.06] text-slate-300'
-                                : 'bg-slate-100/80 border-slate-200/80 text-slate-700'
-                            }`}
+                            className="theme-subtle rounded-xl px-2.5 py-1.5 text-[11px] truncate"
                             title={`${k}: ${v}`}
                           >
-                            <span className="font-mono-num text-[9px] uppercase text-indigo-400 block">
+                            <span className="font-mono-num text-[9px] uppercase font-bold text-indigo-400 block">
                               {k}
                             </span>
                             <span className="font-semibold truncate block">{v}</span>
@@ -713,15 +681,15 @@ export default function StorefrontView({
                                 }))
                               }
                               title={`Finish: ${c.name}`}
-                              className={`h-4 w-4 rounded-full border border-white/25 transition cursor-pointer ${
+                              className={`h-4 w-4 rounded-full border border-slate-400/40 transition cursor-pointer ${
                                 activeColor.name === c.name
-                                  ? 'ring-2 ring-indigo-500 ring-offset-1 ring-offset-slate-950 scale-110'
+                                  ? 'ring-2 ring-indigo-500 scale-110'
                                   : 'opacity-75 hover:opacity-100'
                               }`}
                               style={{ backgroundColor: c.hex }}
                             />
                           ))}
-                          <span className="ml-1 text-[11px] text-slate-400 truncate max-w-[115px]">
+                          <span className="ml-1 text-[11px] opacity-75 truncate max-w-[115px]">
                             {activeColor.name}
                           </span>
                         </div>
@@ -744,11 +712,7 @@ export default function StorefrontView({
                       </div>
 
                       {/* Subtle Stock Meter Bar */}
-                      <div
-                        className={`h-1 w-full overflow-hidden rounded-full ${
-                          darkMode ? 'bg-slate-800' : 'bg-slate-200'
-                        }`}
-                      >
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-slate-500/20">
                         <div
                           className={`h-full rounded-full transition-all duration-500 ${
                             product.stock === 0
@@ -764,23 +728,19 @@ export default function StorefrontView({
                   </div>
 
                   {/* Price & Action Footer */}
-                  <div
-                    className={`flex items-center justify-between gap-3 pt-3 border-t ${
-                      darkMode ? 'border-white/[0.07]' : 'border-slate-200'
-                    }`}
-                  >
+                  <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-500/20">
                     <div>
                       <div className="flex items-baseline gap-2">
                         <span className="font-mono-num text-xl font-bold">
                           {formatPrice(product.price, currency)}
                         </span>
                         {product.original_price > product.price && (
-                          <span className="font-mono-num text-xs text-slate-400 line-through">
+                          <span className="font-mono-num text-xs opacity-60 line-through">
                             {formatPrice(product.original_price, currency)}
                           </span>
                         )}
                       </div>
-                      <span className="font-mono-num text-[10px] text-slate-400">
+                      <span className="font-mono-num text-[10px] opacity-65">
                         {product.sold_count} deployed • Express Air
                       </span>
                     </div>
@@ -788,11 +748,7 @@ export default function StorefrontView({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => onSelectProduct(product)}
-                        className={`rounded-xl border px-3 py-2 text-xs font-semibold transition cursor-pointer ${
-                          darkMode
-                            ? 'border-white/[0.08] bg-slate-950/90 text-slate-300 hover:bg-slate-800 hover:text-white'
-                            : 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
+                        className="theme-subtle rounded-xl px-3 py-2 text-xs font-semibold hover:border-indigo-500 transition cursor-pointer"
                       >
                         CAD / Specs
                       </button>
@@ -800,10 +756,17 @@ export default function StorefrontView({
                       <button
                         disabled={product.stock === 0}
                         onClick={() => onAddToCart(product, activeColor.name)}
+                        style={
+                          product.stock > 0
+                            ? {
+                                background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`
+                              }
+                            : undefined
+                        }
                         className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold transition cursor-pointer ${
                           product.stock === 0
                             ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white shadow-md shadow-indigo-500/25'
+                            : 'text-white shadow-md'
                         }`}
                       >
                         <ShoppingBag className="h-3.5 w-3.5" />
@@ -819,11 +782,7 @@ export default function StorefrontView({
       )}
 
       {/* Platform Architecture & Newsletter Footer Banner */}
-      <section
-        className={`rounded-3xl p-6 md:p-8 ${
-          darkMode ? 'surface-card-dark' : 'surface-card-light'
-        }`}
-      >
+      <section className="theme-card rounded-3xl p-6 md:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
           <div className="lg:col-span-7 space-y-2">
             <div className="inline-flex items-center gap-2 text-xs font-mono-num font-bold text-cyan-400">
@@ -833,8 +792,8 @@ export default function StorefrontView({
             <h2 className="font-display text-2xl font-bold">
               Real-Time Inventory, Instant Order Tracking & SQLite Studio
             </h2>
-            <p className={`text-xs sm:text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-              Every order, stock change, review, and promotion is persisted in our 10-table SQLite
+            <p className="text-xs sm:text-sm opacity-80">
+              Every order, stock change, review, and promotion is persisted in our 11-table SQLite
               database and pushed live to all connected browsers over WebSockets. Explore the{' '}
               <button
                 onClick={() => onNavigateTab('database')}
@@ -869,15 +828,14 @@ export default function StorefrontView({
               value={newsletterEmail}
               onChange={(e) => setNewsletterEmail(e.target.value)}
               placeholder="Enter email for Flash Deal alerts..."
-              className={`flex-1 rounded-xl border px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                darkMode
-                  ? 'bg-slate-950 border-white/[0.08] text-slate-100'
-                  : 'bg-slate-100 border-slate-300 text-slate-900'
-              }`}
+              className="theme-input flex-1 rounded-xl px-4 py-3 text-xs"
             />
             <button
               type="submit"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 px-5 py-3 text-xs font-semibold text-white shadow-md shadow-indigo-500/25 transition cursor-pointer"
+              style={{
+                background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl px-5 py-3 text-xs font-semibold text-white shadow-md transition cursor-pointer"
             >
               <Send className="h-3.5 w-3.5" />
               <span>Subscribe</span>

@@ -48,9 +48,29 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
     setLoadingTable(true);
     try {
       const res = await fetch(`/api/db/table/${tableName}?limit=100`);
-      const data = await res.json();
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
         setTableData(data);
+        return;
+      }
+      // Static fallback when hosted on Netlify without Node backend
+      const localTable = dbStats?.tables?.find((t) => t.name === tableName);
+      if (localTable) {
+        setTableData({
+          columns: localTable.columns || [],
+          rows: localTable.rows || [],
+          rowCount: (localTable.rows || []).length
+        });
+      }
+    } catch {
+      const localTable = dbStats?.tables?.find((t) => t.name === tableName);
+      if (localTable) {
+        setTableData({
+          columns: localTable.columns || [],
+          rows: localTable.rows || [],
+          rowCount: (localTable.rows || []).length
+        });
       }
     } finally {
       setLoadingTable(false);

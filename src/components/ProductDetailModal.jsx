@@ -15,6 +15,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
+import { getProductArtUrl } from '../utils/storeEngine.js';
 
 export default function ProductDetailModal({
   product,
@@ -74,9 +75,10 @@ export default function ProductDetailModal({
           { label: 'Telemetry Spec', view: 'spec' }
         ];
 
-  const imgUrl = `${product.image_url}?view=${encodeURIComponent(selectedView)}${
-    selectedColor?.hex ? `&color=${encodeURIComponent(selectedColor.hex)}` : ''
-  }`;
+  const imgUrl = getProductArtUrl(product, {
+    view: selectedView,
+    color: selectedColor?.hex || null
+  });
 
   const handleSubmitReview = async (e) => {
     e.preventDefault();

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ShoppingBag,
   Search,
@@ -7,17 +7,18 @@ import {
   ShieldCheck,
   Truck,
   Sparkles,
-  Sun,
-  Moon,
+  Palette,
   Heart,
   Layers,
   Store,
   Radio,
   Zap,
   Command,
-  Terminal
+  Terminal,
+  Check
 } from 'lucide-react';
 import { CURRENCIES, formatRelativeTime } from '../utils/currency.js';
+import { THEMES } from '../utils/themes.js';
 
 export default function Navbar({
   activeTab,
@@ -27,8 +28,9 @@ export default function Navbar({
   searchInputRef,
   currency,
   setCurrency,
+  themeId,
+  setThemeId,
   darkMode,
-  setDarkMode,
   cartCount,
   wishlistCount,
   compareCount,
@@ -41,6 +43,8 @@ export default function Navbar({
   onSimulateRealtime,
   dbStats
 }) {
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+
   const navItems = [
     { id: 'store', label: 'Hardware Store', icon: Store },
     { id: 'apps', label: 'App Store', icon: Terminal },
@@ -54,48 +58,43 @@ export default function Navbar({
     }
   ];
 
+  const activeTheme = THEMES[themeId] || THEMES.obsidian;
+
   return (
-    <header
-      className={`sticky top-0 z-40 border-b backdrop-blur-2xl transition-colors duration-200 ${
-        darkMode
-          ? 'bg-slate-950/85 border-white/[0.08] text-slate-100'
-          : 'bg-white/90 border-slate-200/90 text-slate-900 shadow-xs'
-      }`}
-    >
+    <header className="theme-header sticky top-0 z-40 border-b backdrop-blur-2xl transition-colors duration-200">
       {/* Top Real-Time Telemetry & Activity Ticker Bar */}
       <div
         className={`border-b px-4 py-1.5 text-xs transition-colors ${
           darkMode
-            ? 'bg-gradient-to-r from-slate-950 via-indigo-950/35 to-slate-950 border-white/[0.06] text-slate-300'
-            : 'bg-slate-900 border-slate-800 text-slate-200'
+            ? 'bg-slate-950/75 border-white/[0.07] text-slate-300'
+            : 'bg-slate-200/75 border-slate-300/80 text-slate-700'
         }`}
       >
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3 overflow-hidden">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 font-mono-num text-[10px] font-semibold tracking-wider text-emerald-400 border border-emerald-500/30">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 font-mono-num text-[10px] font-bold tracking-wider text-emerald-400 border border-emerald-500/30">
               <span
                 className={`h-2 w-2 rounded-full ${
-                  wsConnected ? 'bg-emerald-400 animate-pulse-glow' : 'bg-amber-400'
+                  wsConnected ? 'bg-emerald-400 animate-pulse-glow' : 'bg-cyan-400'
                 }`}
               />
-              {wsConnected ? 'WS / SQLITE SYNCED' : 'RECONNECTING'}
+              {wsConnected ? 'WS / SQLITE SYNCED' : 'LIVE STORE ACTIVE'}
             </span>
 
-            <span className="hidden sm:inline-flex items-center gap-1.5 font-mono-num text-[11px] text-slate-400">
+            <span className="hidden sm:inline-flex items-center gap-1.5 font-mono-num text-[11px]">
               <Radio className="h-3 w-3 text-indigo-400" />
-              <strong className="text-slate-200">{presence?.activeShoppers || 21}</strong> live
-              engineers online
+              <strong>{presence?.activeShoppers || 24}</strong> live engineers online
             </span>
 
             {latestActivity && (
-              <div className="flex items-center gap-2 truncate text-slate-300">
-                <span className="text-slate-600">•</span>
+              <div className="flex items-center gap-2 truncate">
+                <span className="opacity-40">•</span>
                 <Activity className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
-                <span className="truncate font-semibold text-white">{latestActivity.title}:</span>
-                <span className="truncate text-slate-300 max-w-xs md:max-w-md">
+                <span className="truncate font-bold">{latestActivity.title}:</span>
+                <span className="truncate opacity-85 max-w-xs md:max-w-md">
                   {latestActivity.message}
                 </span>
-                <span className="hidden lg:inline font-mono-num text-[10px] text-slate-400">
+                <span className="hidden lg:inline font-mono-num text-[10px] opacity-65">
                   ({formatRelativeTime(latestActivity.created_at)})
                 </span>
               </div>
@@ -105,13 +104,13 @@ export default function Navbar({
           <div className="flex items-center gap-2.5">
             <button
               onClick={onSimulateRealtime}
-              className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-500/20 to-cyan-500/20 hover:from-indigo-500/35 hover:to-cyan-500/35 border border-indigo-400/35 px-3 py-0.5 text-[11px] font-semibold text-indigo-200 transition cursor-pointer"
-              title="Broadcast a live simulated shopper event via WebSockets"
+              className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/35 px-3 py-0.5 text-[11px] font-semibold text-indigo-400 transition cursor-pointer"
+              title="Broadcast a live simulated shopper event"
             >
               <Zap className="h-3 w-3 text-amber-400" />
               <span>Pulse Live Event</span>
             </button>
-            <span className="hidden md:inline font-mono-num text-[11px] text-slate-400">
+            <span className="hidden md:inline font-mono-num text-[11px]">
               VIP Code: <strong className="text-cyan-400">NEX20</strong>
             </span>
           </div>
@@ -127,7 +126,12 @@ export default function Navbar({
               onClick={() => setActiveTab('store')}
               className="group flex items-center gap-3 text-left cursor-pointer"
             >
-              <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-500 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/25 transition duration-300 group-hover:scale-105">
+              <div
+                className="relative flex h-10 w-10 items-center justify-center rounded-2xl text-white shadow-lg ring-1 ring-white/25 transition duration-300 group-hover:scale-105"
+                style={{
+                  background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`
+                }}
+              >
                 <Sparkles className="h-5 w-5" />
               </div>
               <div>
@@ -137,24 +141,14 @@ export default function Navbar({
                     GEN-5
                   </span>
                 </div>
-                <p
-                  className={`text-[11px] font-medium ${
-                    darkMode ? 'text-slate-400' : 'text-slate-500'
-                  }`}
-                >
-                  Flagship Hardware & Telemetry
+                <p className="text-[11px] font-medium opacity-70">
+                  Flagship Hardware & App Ecosystem
                 </p>
               </div>
             </button>
 
             {/* Primary Navigation Tabs */}
-            <nav
-              className={`hidden xl:flex items-center gap-1 rounded-2xl p-1 border ${
-                darkMode
-                  ? 'bg-slate-900/75 border-white/[0.07]'
-                  : 'bg-slate-100/90 border-slate-200/90'
-              }`}
-            >
+            <nav className="theme-subtle hidden xl:flex items-center gap-1 rounded-2xl p-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
@@ -162,12 +156,16 @@ export default function Navbar({
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                    style={
                       isActive
-                        ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-500/30'
-                        : darkMode
-                        ? 'text-slate-300 hover:text-white hover:bg-slate-800/70'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                        ? {
+                            background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`,
+                            color: '#ffffff'
+                          }
+                        : undefined
+                    }
+                    className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                      isActive ? 'shadow-md' : 'opacity-80 hover:opacity-100'
                     }`}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -177,9 +175,7 @@ export default function Navbar({
                         className={`rounded-md px-1.5 py-0.2 font-mono-num text-[10px] font-bold ${
                           isActive
                             ? 'bg-white/20 text-white'
-                            : darkMode
-                            ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-                            : 'bg-indigo-100 text-indigo-700'
+                            : 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
                         }`}
                       >
                         {item.badge}
@@ -191,10 +187,10 @@ export default function Navbar({
             </nav>
           </div>
 
-          {/* Search + Command Palette + Action Controls */}
+          {/* Search + Theme Switcher + Action Controls */}
           <div className="flex flex-1 items-center justify-end gap-2 max-w-xl">
             <div className="relative flex-1 max-w-xs">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 opacity-50" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -204,16 +200,12 @@ export default function Navbar({
                   if (activeTab !== 'store') setActiveTab('store');
                 }}
                 placeholder="Filter catalog or press ⌘K..."
-                className={`w-full rounded-xl border pl-9 pr-14 py-2 text-xs transition focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                  darkMode
-                    ? 'bg-slate-900/90 border-white/[0.08] text-slate-100 placeholder-slate-500'
-                    : 'bg-slate-100/90 border-slate-300 text-slate-900 placeholder-slate-500'
-                }`}
+                className="theme-input w-full rounded-xl pl-9 pr-14 py-2 text-xs transition"
               />
               {searchQuery ? (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-medium text-slate-400 hover:text-indigo-400 cursor-pointer"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-medium text-indigo-400 cursor-pointer"
                 >
                   Clear
                 </button>
@@ -222,11 +214,7 @@ export default function Navbar({
                   type="button"
                   onClick={onOpenCommandPalette}
                   title="Open Command Palette (⌘K)"
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 font-mono-num text-[10px] font-semibold transition cursor-pointer ${
-                    darkMode
-                      ? 'border-slate-700 bg-slate-800/90 text-slate-300 hover:border-indigo-500 hover:text-indigo-300'
-                      : 'border-slate-300 bg-white text-slate-600 hover:border-indigo-400'
-                  }`}
+                  className="theme-subtle absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-mono-num text-[10px] font-semibold hover:border-indigo-500 cursor-pointer"
                 >
                   <Command className="h-2.5 w-2.5" />
                   <span>K</span>
@@ -239,11 +227,7 @@ export default function Navbar({
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
               aria-label="Select currency"
-              className={`rounded-xl border px-2.5 py-2 font-mono-num text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
-                darkMode
-                  ? 'bg-slate-900/90 border-white/[0.08] text-slate-200 hover:border-slate-700'
-                  : 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200/70'
-              }`}
+              className="theme-input rounded-xl px-2.5 py-2 font-mono-num text-xs font-semibold cursor-pointer"
             >
               {Object.values(CURRENCIES).map((c) => (
                 <option key={c.code} value={c.code}>
@@ -252,27 +236,71 @@ export default function Navbar({
               ))}
             </select>
 
-            {/* Theme Toggle */}
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className={`flex h-9 w-9 items-center justify-center rounded-xl border transition cursor-pointer ${
-                darkMode
-                  ? 'border-white/[0.08] bg-slate-900/90 text-amber-400 hover:bg-slate-800'
-                  : 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-              title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            >
-              {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
+            {/* 6-Theme Palette Switcher Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setThemeMenuOpen((o) => !o)}
+                className="theme-input flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold transition cursor-pointer"
+                title="Switch UI Theme Palette"
+              >
+                <Palette className="h-4 w-4 text-indigo-400" />
+                <span className="hidden md:inline">{activeTheme.name.split(' ')[0]}</span>
+                <span
+                  className="h-3 w-3 rounded-full border border-white/30"
+                  style={{ backgroundColor: activeTheme.swatch[0] }}
+                />
+              </button>
+
+              {themeMenuOpen && (
+                <>
+                  <div
+                    onClick={() => setThemeMenuOpen(false)}
+                    className="fixed inset-0 z-40"
+                  />
+                  <div className="theme-card absolute right-0 mt-2 z-50 w-56 rounded-2xl p-2 shadow-2xl space-y-1">
+                    <div className="px-2.5 py-1 font-mono-num text-[10px] font-bold uppercase tracking-wider opacity-60">
+                      Select Theme Palette (6)
+                    </div>
+                    {Object.values(THEMES).map((t) => {
+                      const isCurrent = t.id === themeId;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => {
+                            setThemeId(t.id);
+                            setThemeMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition cursor-pointer ${
+                            isCurrent
+                              ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/40'
+                              : 'hover:bg-indigo-500/10'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex -space-x-1">
+                              {t.swatch.map((hex, i) => (
+                                <span
+                                  key={i}
+                                  className="h-3.5 w-3.5 rounded-full border border-white/30"
+                                  style={{ backgroundColor: hex }}
+                                />
+                              ))}
+                            </div>
+                            <span>{t.name}</span>
+                          </div>
+                          {isCurrent && <Check className="h-3.5 w-3.5 text-indigo-400" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Compare Drawer Trigger */}
             <button
               onClick={onOpenCompare}
-              className={`relative flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold transition cursor-pointer ${
-                darkMode
-                  ? 'border-white/[0.08] bg-slate-900/90 text-slate-200 hover:bg-slate-800'
-                  : 'border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200'
-              }`}
+              className="theme-input relative flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold transition cursor-pointer"
               title="Compare Hardware Specs"
             >
               <Layers className="h-4 w-4 text-cyan-400" />
@@ -287,11 +315,7 @@ export default function Navbar({
             {/* Wishlist Trigger */}
             <button
               onClick={() => onOpenCart('wishlist')}
-              className={`relative flex h-9 w-9 items-center justify-center rounded-xl border transition cursor-pointer ${
-                darkMode
-                  ? 'border-white/[0.08] bg-slate-900/90 text-slate-200 hover:bg-slate-800'
-                  : 'border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-200'
-              }`}
+              className="theme-input relative flex h-9 w-9 items-center justify-center rounded-xl transition cursor-pointer"
               title="Saved Wishlist"
             >
               <Heart className={`h-4 w-4 ${wishlistCount > 0 ? 'fill-rose-500 text-rose-500' : ''}`} />
@@ -305,7 +329,10 @@ export default function Navbar({
             {/* Cart Trigger */}
             <button
               onClick={() => onOpenCart('cart')}
-              className="relative flex h-9 items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 px-3.5 text-xs font-semibold text-white shadow-md shadow-indigo-500/25 ring-1 ring-white/15 transition cursor-pointer"
+              style={{
+                background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`
+              }}
+              className="relative flex h-9 items-center gap-2 rounded-xl px-3.5 text-xs font-semibold text-white shadow-md ring-1 ring-white/15 transition cursor-pointer"
             >
               <ShoppingBag className="h-4 w-4" />
               <span className="hidden sm:inline">Build Cart</span>
@@ -325,12 +352,16 @@ export default function Navbar({
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                style={
                   isActive
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : darkMode
-                    ? 'bg-slate-900 text-slate-300 border border-white/[0.08]'
-                    : 'bg-slate-100 text-slate-700 border border-slate-200'
+                    ? {
+                        background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`,
+                        color: '#ffffff'
+                      }
+                    : undefined
+                }
+                className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                  isActive ? 'shadow-xs' : 'theme-subtle'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />

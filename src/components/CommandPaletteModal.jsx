@@ -15,6 +15,7 @@ import {
   Command
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
+import { getProductArtUrl } from '../utils/storeEngine.js';
 
 export default function CommandPaletteModal({
   isOpen,
@@ -195,7 +196,7 @@ export default function CommandPaletteModal({
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <img
-                        src={prod.image_url}
+                        src={getProductArtUrl(prod)}
                         alt={prod.name}
                         className="h-11 w-14 rounded-xl object-cover bg-slate-950 border border-slate-800 shrink-0"
                       />
