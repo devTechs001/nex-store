@@ -14,6 +14,7 @@ import SubsystemsHubView from './components/SubsystemsHubView.jsx';
 import NotificationCenterDrawer from './components/NotificationCenterDrawer.jsx';
 import InteractiveTerminalModal from './components/InteractiveTerminalModal.jsx';
 import HardwareBuilderModal from './components/HardwareBuilderModal.jsx';
+import DocumentationView from './components/DocumentationView.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
 import { getFallbackBootstrapData, getProductArtUrl } from './utils/storeEngine.js';
 import {
@@ -117,6 +118,7 @@ export default function App() {
   const [securityEvents, setSecurityEvents] = useState(initialSeed.securityEvents);
   const [notifications, setNotifications] = useState(initialSeed.notifications);
   const [terminalLogs, setTerminalLogs] = useState(initialSeed.terminalLogs || []);
+  const [terminalScripts, setTerminalScripts] = useState(initialSeed.terminalScripts || []);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [hardwareBuilderOpen, setHardwareBuilderOpen] = useState(false);
   const [analytics, setAnalytics] = useState(initialSeed.analytics);
@@ -201,6 +203,7 @@ export default function App() {
       if (Array.isArray(data.securityEvents) && data.securityEvents.length > 0) setSecurityEvents(data.securityEvents);
       if (Array.isArray(data.notifications) && data.notifications.length > 0) setNotifications(data.notifications);
       if (Array.isArray(data.terminalLogs) && data.terminalLogs.length > 0) setTerminalLogs(data.terminalLogs);
+      if (Array.isArray(data.terminalScripts) && data.terminalScripts.length > 0) setTerminalScripts(data.terminalScripts);
       if (data.analytics && Object.keys(data.analytics).length > 0) setAnalytics(data.analytics);
       if (data.dbStats && Object.keys(data.dbStats).length > 0) setDbStats(data.dbStats);
       if (data.presence) setPresence(data.presence);
@@ -447,7 +450,19 @@ export default function App() {
                 break;
 
               case 'terminal:executed':
+              case 'terminal:log':
                 if (payload.terminalLogs) setTerminalLogs(payload.terminalLogs);
+                if (payload.entry) {
+                  setTerminalLogs((prev) => [
+                    payload.entry,
+                    ...prev.filter((l) => l.id !== payload.entry.id)
+                  ]);
+                }
+                if (payload.dbStats) setDbStats(payload.dbStats);
+                break;
+
+              case 'terminal:scripts_updated':
+                if (payload.terminalScripts) setTerminalScripts(payload.terminalScripts);
                 if (payload.dbStats) setDbStats(payload.dbStats);
                 break;
 
@@ -463,11 +478,12 @@ export default function App() {
                 if (payload.integrations) setIntegrations(payload.integrations);
                 if (payload.securityEvents) setSecurityEvents(payload.securityEvents);
                 if (payload.notifications) setNotifications(payload.notifications);
+                if (payload.terminalScripts) setTerminalScripts(payload.terminalScripts);
                 setAnalytics(payload.analytics || {});
                 setDbStats(payload.dbStats || {});
                 pushToast(
                   'Database Reset Complete',
-                  'All 16 SQLite tables restored to seed state.',
+                  'All 17 SQLite tables restored to seed state.',
                   'success'
                 );
                 break;
@@ -1352,6 +1368,43 @@ export default function App() {
     };
   };
 
+  const handleSaveTerminalScript = async (scriptPayload) => {
+    try {
+      const res = await fetch('/api/terminal/scripts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(scriptPayload)
+      });
+      if (isJsonResponse(res)) {
+        const data = await res.json();
+        if (Array.isArray(data.terminalScripts)) {
+          setTerminalScripts(data.terminalScripts);
+        }
+        pushToast('Playbook Saved', `Saved ${scriptPayload.name} to SQLite terminal_scripts.`, 'success');
+        return data.script;
+      }
+    } catch {
+      // Static fallback below
+    }
+
+    const fallbackScript = {
+      id: scriptPayload.id || `SCRIPT-LOCAL-${Date.now()}`,
+      name: scriptPayload.name,
+      category: scriptPayload.category || 'DevOps',
+      description: scriptPayload.description || 'Custom .nexsh automation playbook',
+      code: scriptPayload.code,
+      run_count: 0,
+      last_run_at: new Date().toISOString(),
+      created_at: new Date().toISOString()
+    };
+    setTerminalScripts((prev) => [
+      fallbackScript,
+      ...prev.filter((s) => s.id !== fallbackScript.id && s.name !== fallbackScript.name)
+    ]);
+    pushToast('Playbook Saved', `Saved ${fallbackScript.name} to local playbook registry.`, 'success');
+    return fallbackScript;
+  };
+
   const wishlistProducts = useMemo(
     () => products.filter((p) => wishlistIds.includes(p.id)),
     [products, wishlistIds]
@@ -1546,6 +1599,28 @@ export default function App() {
             onResetDatabase={handleResetDatabase}
           />
         )}
+
+        {activeTab === 'docs' && (
+          <div className="mx-auto max-w-7xl px-4 py-8">
+            <DocumentationView
+              tables={dbStats?.tables || initialSeed.tables || []}
+              terminalScripts={terminalScripts}
+              onOpenTerminal={() => {
+                handlePlaySound('click');
+                setTerminalOpen(true);
+              }}
+              onRunCommandInTerminal={async (cmd) => {
+                handlePlaySound('click');
+                setTerminalOpen(true);
+                await handleExecuteTerminalCommand(cmd);
+              }}
+              onOpenRigBuilder={() => {
+                handlePlaySound('click');
+                setHardwareBuilderOpen(true);
+              }}
+            />
+          </div>
+        )}
       </main>
 
       {/* Slide-Over Push & Real-Time Notification Center Drawer */}
@@ -1581,14 +1656,23 @@ export default function App() {
         onPlaySound={handlePlaySound}
       />
 
-      {/* Interactive NEX-SH Cloud CLI & Terminal Emulator Modal (⌘J) */}
+      {/* Interactive NEX-SH v3.0 Cloud CLI, Pipe Engine & .nexsh Script Studio Modal (⌘J) */}
       <InteractiveTerminalModal
         isOpen={terminalOpen}
         onClose={() => setTerminalOpen(false)}
         terminalLogs={terminalLogs}
+        terminalScripts={terminalScripts}
+        serverNodes={serverNodes}
+        securityEvents={securityEvents}
+        integrations={integrations}
+        products={products}
+        apps={apps}
         onExecuteCommand={handleExecuteTerminalCommand}
+        onExecuteTerminalCommand={handleExecuteTerminalCommand}
+        onSaveTerminalScript={handleSaveTerminalScript}
         wsConnected={wsConnected}
         onPlaySound={handlePlaySound}
+        soundEnabled={soundEnabled}
       />
 
       {/* Command Palette (⌘K) Modal */}

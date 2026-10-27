@@ -13,7 +13,8 @@ import {
   SEED_INTEGRATIONS,
   SEED_SECURITY_EVENTS,
   SEED_NOTIFICATIONS,
-  SEED_TERMINAL_LOGS
+  SEED_TERMINAL_LOGS,
+  SEED_TERMINAL_SCRIPTS
 } from './seedData.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -262,6 +263,19 @@ export function initSchema() {
       duration_ms REAL NOT NULL DEFAULT 1.2,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS terminal_scripts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'Automation',
+      description TEXT NOT NULL,
+      author TEXT NOT NULL DEFAULT 'root@nex-edge',
+      script_body TEXT NOT NULL,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      last_status TEXT NOT NULL DEFAULT 'READY',
+      updated_at TEXT NOT NULL
+    );
   `);
 
   // Ensure existing apps table has multi-source & security columns
@@ -305,6 +319,7 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM security_events;
       DELETE FROM push_notifications;
       DELETE FROM terminal_logs;
+      DELETE FROM terminal_scripts;
     `);
   }
 
@@ -423,6 +438,21 @@ export function seedDatabase({ forceReset = false } = {}) {
     for (const t of SEED_TERMINAL_LOGS) {
       insertTerm.run(
         t.id, t.command, t.output, t.exit_code, t.actor, t.duration_ms, t.created_at
+      );
+    }
+  }
+
+  const scriptCount = db.prepare('SELECT COUNT(*) as count FROM terminal_scripts').get();
+  if (!scriptCount || scriptCount.count === 0) {
+    const insertScript = db.prepare(`
+      INSERT INTO terminal_scripts (
+        id, name, title, category, description, author, script_body, run_count, last_status, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const s of SEED_TERMINAL_SCRIPTS) {
+      insertScript.run(
+        s.id, s.name, s.title, s.category, s.description,
+        s.author, s.script_body, s.run_count, s.last_status, s.updated_at
       );
     }
   }

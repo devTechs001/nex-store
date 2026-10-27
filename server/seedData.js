@@ -1338,13 +1338,90 @@ export const SEED_TERMINAL_LOGS = [
   {
     id: 'term-3',
     command: 'nex security scan --deep',
-    output: 'PASS: 0 SQLi/XSS vulnerabilities • 16/16 SQLite tables verified • Ed25519 keys active • Strict CSP sandbox enforced',
+    output: 'PASS: 0 SQLi/XSS vulnerabilities • 17/17 SQLite tables verified • Ed25519 keys active • Strict CSP sandbox enforced',
     exit_code: 0,
     actor: 'secops@nex-edge',
     duration_ms: 4.8,
     created_at: '2026-10-27T11:58:00Z'
   }
 ];
+
+export const SEED_TERMINAL_SCRIPTS = [
+  {
+    id: 'scr-secops-audit',
+    name: 'nightly-secops-audit.nexsh',
+    title: 'Zero-Trust Security Audit & Key Rotation',
+    category: 'Security & WAF',
+    description: 'Runs a deep vulnerability audit across all 17 SQLite tables, rotates Ed25519 signing keys, verifies edge servers, and dispatches a SecOps push alert.',
+    author: 'secops@nex-edge',
+    script_body: [
+      '# NEX-SH v3.0 Automated Security & WAF Hardening Playbook',
+      'echo "Starting Zero-Trust Security Audit across 17 SQLite tables..."',
+      'nex status',
+      'nex security scan',
+      'nex servers | grep ONLINE',
+      'nex notify Security Audit & SHA-256 Verification Passed (99.8% Hardened)'
+    ].join('\n'),
+    run_count: 42,
+    last_status: 'SUCCESS',
+    updated_at: '2026-10-27T12:00:00Z'
+  },
+  {
+    id: 'scr-warehouse-restock',
+    name: 'warehouse-auto-replenish.nexsh',
+    title: 'Low-Stock Inventory Replenishment (+15 Units)',
+    category: 'Warehouse & Ops',
+    description: 'Inspects hardware SKU stock levels, triggers automated +15 unit replenishment on low-stock items, and broadcasts inventory telemetry.',
+    author: 'ops@nex-warehouse',
+    script_body: [
+      '# Automated Warehouse Low-Stock Replenishment Script',
+      'echo "Checking current warehouse inventory levels..."',
+      'nex products | head 6',
+      'nex restock',
+      'nex sql SELECT sku, name, stock FROM products ORDER BY stock ASC LIMIT 5'
+    ].join('\n'),
+    run_count: 29,
+    last_status: 'SUCCESS',
+    updated_at: '2026-10-27T11:30:00Z'
+  },
+  {
+    id: 'scr-netlify-sync',
+    name: 'netlify-ecosystem-sync.nexsh',
+    title: 'Netlify & Community App Ecosystem Sync',
+    category: 'Deployments & Apps',
+    description: 'Audits all Netlify, Vercel, and GitHub community apps, verifies SHA-256 package signatures, and benchmarks global edge node latency.',
+    author: 'dev@nex-cloud',
+    script_body: [
+      '# Multi-Source App Store & Netlify Deployment Verification',
+      'echo "Auditing Netlify & GitHub community app packages..."',
+      'nex apps | grep Netlify',
+      'nex ping',
+      'nex benchmark'
+    ].join('\n'),
+    run_count: 64,
+    last_status: 'SUCCESS',
+    updated_at: '2026-10-27T11:45:00Z'
+  },
+  {
+    id: 'scr-cluster-health',
+    name: 'edge-cluster-healthcheck.nexsh',
+    title: 'Global 6-Node Edge Mesh & SQLite WAL Diagnostic',
+    category: 'Infrastructure',
+    description: 'Runs full diagnostics across Nairobi, Frankfurt, Virginia, Tokyo, London, and San Jose edge nodes plus SQLite WAL integrity check.',
+    author: 'sre@nex-edge-nbo',
+    script_body: [
+      '# Global Anycast Edge Cluster Healthcheck',
+      'uname -a',
+      'nex servers',
+      'top',
+      'nex sql SELECT name, region, latency_ms, rps, uptime_pct FROM server_nodes ORDER BY latency_ms ASC'
+    ].join('\n'),
+    run_count: 118,
+    last_status: 'SUCCESS',
+    updated_at: '2026-10-27T12:05:00Z'
+  }
+];
+
 
 
 

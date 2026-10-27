@@ -20,7 +20,8 @@ import {
   Bell,
   Volume2,
   VolumeX,
-  Sliders
+  Sliders,
+  BookOpen
 } from 'lucide-react';
 import { CURRENCIES, formatRelativeTime } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
@@ -71,8 +72,9 @@ export default function Navbar({
       id: 'database',
       label: 'SQLite Studio',
       icon: Database,
-      badge: dbStats?.totalTables ? `${dbStats.totalTables} DB` : '15 DB'
-    }
+      badge: dbStats?.totalTables ? `${dbStats.totalTables} DB` : '17 DB'
+    },
+    { id: 'docs', label: 'Docs & CLI Guide', icon: BookOpen }
   ];
 
   const activeTheme = THEMES[themeId] || THEMES.obsidian;
