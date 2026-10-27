@@ -66,7 +66,10 @@ export function getFallbackBootstrapData() {
   const securityEvents = [...SEED_SECURITY_EVENTS];
   const notifications = [...SEED_NOTIFICATIONS];
   const terminalLogs = [...SEED_TERMINAL_LOGS];
-  const terminalScripts = [...SEED_TERMINAL_SCRIPTS];
+  const terminalScripts = SEED_TERMINAL_SCRIPTS.map((s) => ({
+    ...s,
+    code: s.code || s.script_body
+  }));
   const orders = SEED_ORDERS.map((o) => ({
     ...o,
     items: (o.items || []).map((item) => ({

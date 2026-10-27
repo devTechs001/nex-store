@@ -6,7 +6,7 @@
   "main": "server/index.js",
   "scripts": {
     "build": "vite build",
-    "start": "node server/index.js",
+    "start": "[ -d node_modules/express ] || npm install --no-audit --no-fund; [ -f dist/index.html ] || ./node_modules/.bin/vite build; node server/index.js",
     "dev": "vite build && node server/index.js",
     "test": "node server/verify.js"
   },

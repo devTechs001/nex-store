@@ -254,7 +254,10 @@ app.get('/api/bootstrap', (_req, res) => {
   const securityEvents = db.prepare('SELECT * FROM security_events ORDER BY created_at DESC LIMIT 35').all();
   const notifications = db.prepare('SELECT * FROM push_notifications ORDER BY created_at DESC LIMIT 40').all();
   const terminalLogs = db.prepare('SELECT * FROM terminal_logs ORDER BY created_at DESC LIMIT 40').all();
-  const terminalScripts = db.prepare('SELECT * FROM terminal_scripts ORDER BY run_count DESC').all();
+  const terminalScripts = db
+    .prepare('SELECT * FROM terminal_scripts ORDER BY run_count DESC')
+    .all()
+    .map((s) => ({ ...s, code: s.code || s.script_body }));
 
   res.json({
     categories,
@@ -2241,13 +2244,16 @@ app.post('/api/terminal/scripts', (req, res) => {
   const {
     id,
     name = 'custom-playbook.nexsh',
-    title = 'Custom Automation Script',
+    title,
     category = 'Custom Ops',
     description = 'User-defined NEX-SH automation playbook',
-    script_body = 'nex status\nnex servers'
+    code,
+    script_body
   } = req.body || {};
 
+  const resolvedBody = code || script_body || 'nex status\nnex servers';
   const cleanName = name.trim().endsWith('.nexsh') ? name.trim() : `${name.trim()}.nexsh`;
+  const resolvedTitle = (title || description || cleanName).trim();
   const scriptId = id || `scr-${Date.now().toString(36)}`;
   const now = new Date().toISOString();
 
@@ -2255,26 +2261,34 @@ app.post('/api/terminal/scripts', (req, res) => {
     INSERT OR REPLACE INTO terminal_scripts (
       id, name, title, category, description, author, script_body, run_count, last_status, updated_at
     ) VALUES (?, ?, ?, ?, ?, 'root@nex-edge-nbo', ?, COALESCE((SELECT run_count FROM terminal_scripts WHERE id = ?), 0), 'READY', ?)
-  `).run(scriptId, cleanName, title.trim(), category.trim(), description.trim(), script_body, scriptId, now);
+  `).run(scriptId, cleanName, resolvedTitle, category.trim(), description.trim(), resolvedBody, scriptId, now);
 
-  const terminalScripts = db.prepare('SELECT * FROM terminal_scripts ORDER BY run_count DESC').all();
+  const rawScripts = db.prepare('SELECT * FROM terminal_scripts ORDER BY run_count DESC').all();
+  const terminalScripts = rawScripts.map((s) => ({
+    ...s,
+    code: s.code || s.script_body
+  }));
+  const savedScript = terminalScripts.find((s) => s.id === scriptId) || terminalScripts[0];
+
   broadcast('terminal:scripts_updated', {
     terminalScripts,
     dbStats: getDatabaseStats()
   });
 
-  res.status(201).json({ terminalScripts });
+  res.status(201).json({ script: savedScript, terminalScripts });
 });
 
-// Serve frontend build or attach Vite middleware
+// Always serve frontend build from dist/
 const distPath = path.resolve(__dirname, '../dist');
-if (fs.existsSync(path.join(distPath, 'index.html'))) {
-  app.use(express.static(distPath));
-  app.use((req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-}
+app.use(express.static(distPath));
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
+  const indexHtmlPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexHtmlPath)) {
+    return res.sendFile(indexHtmlPath);
+  }
+  return next();
+});
 
 const PORT = Number(process.env.PORT) || 3000;
 server.listen(PORT, '0.0.0.0', () => {
