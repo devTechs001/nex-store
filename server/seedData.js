@@ -1316,4 +1316,35 @@ export const SEED_NOTIFICATIONS = [
   }
 ];
 
+export const SEED_TERMINAL_LOGS = [
+  {
+    id: 'term-1',
+    command: 'nex status',
+    output: 'NEX-SH v2.7 • 16 SQLite WAL Tables • 6/6 Edge Servers Online (Avg 8ms Nairobi Edge) • WAF Shield 99.8% Hardened',
+    exit_code: 0,
+    actor: 'root@nex-edge-nbo',
+    duration_ms: 1.4,
+    created_at: '2026-10-27T11:50:00Z'
+  },
+  {
+    id: 'term-2',
+    command: 'nex apps list --source=Netlify',
+    output: 'Found 3 verified Netlify packages: CodeSync IDE, ReactFlow Studio, SynthWave DSP Audio Lab (All SHA-256 Verified)',
+    exit_code: 0,
+    actor: 'dev@nex-cloud',
+    duration_ms: 2.1,
+    created_at: '2026-10-27T11:54:00Z'
+  },
+  {
+    id: 'term-3',
+    command: 'nex security scan --deep',
+    output: 'PASS: 0 SQLi/XSS vulnerabilities • 16/16 SQLite tables verified • Ed25519 keys active • Strict CSP sandbox enforced',
+    exit_code: 0,
+    actor: 'secops@nex-edge',
+    duration_ms: 4.8,
+    created_at: '2026-10-27T11:58:00Z'
+  }
+];
+
+
 

@@ -9,7 +9,8 @@ import {
   SEED_SERVER_NODES,
   SEED_INTEGRATIONS,
   SEED_SECURITY_EVENTS,
-  SEED_NOTIFICATIONS
+  SEED_NOTIFICATIONS,
+  SEED_TERMINAL_LOGS
 } from '../../server/seedData.js';
 
 export function getProductArtUrl(productOrId, { view = 'hero', color = null } = {}) {
@@ -63,6 +64,7 @@ export function getFallbackBootstrapData() {
   const integrations = SEED_INTEGRATIONS.map((i) => ({ ...i, last_sync_at: now }));
   const securityEvents = [...SEED_SECURITY_EVENTS];
   const notifications = [...SEED_NOTIFICATIONS];
+  const terminalLogs = [...SEED_TERMINAL_LOGS];
   const orders = SEED_ORDERS.map((o) => ({
     ...o,
     items: (o.items || []).map((item) => ({
@@ -161,7 +163,8 @@ export function getFallbackBootstrapData() {
     { name: 'server_nodes', rowCount: serverNodes.length, rows: serverNodes },
     { name: 'integrations', rowCount: integrations.length, rows: integrations },
     { name: 'security_events', rowCount: securityEvents.length, rows: securityEvents },
-    { name: 'push_notifications', rowCount: notifications.length, rows: notifications }
+    { name: 'push_notifications', rowCount: notifications.length, rows: notifications },
+    { name: 'terminal_logs', rowCount: terminalLogs.length, rows: terminalLogs }
   ].map((t) => ({
     ...t,
     columns: Object.keys(t.rows[0] || { id: '' }).map((colName, i) => ({
@@ -185,6 +188,7 @@ export function getFallbackBootstrapData() {
     integrations,
     securityEvents,
     notifications,
+    terminalLogs,
     analytics: {
       totalOrders: orders.length,
       totalRevenue,

@@ -12,7 +12,8 @@ import {
   SEED_SERVER_NODES,
   SEED_INTEGRATIONS,
   SEED_SECURITY_EVENTS,
-  SEED_NOTIFICATIONS
+  SEED_NOTIFICATIONS,
+  SEED_TERMINAL_LOGS
 } from './seedData.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -251,6 +252,16 @@ export function initSchema() {
       is_read INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS terminal_logs (
+      id TEXT PRIMARY KEY,
+      command TEXT NOT NULL,
+      output TEXT NOT NULL,
+      exit_code INTEGER NOT NULL DEFAULT 0,
+      actor TEXT NOT NULL DEFAULT 'root@nex-edge',
+      duration_ms REAL NOT NULL DEFAULT 1.2,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Ensure existing apps table has multi-source & security columns
@@ -293,6 +304,7 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM integrations;
       DELETE FROM security_events;
       DELETE FROM push_notifications;
+      DELETE FROM terminal_logs;
     `);
   }
 
@@ -397,6 +409,20 @@ export function seedDatabase({ forceReset = false } = {}) {
       insertNotif.run(
         n.id, n.channel, n.priority, n.title, n.message,
         n.action_url, n.is_read, n.created_at
+      );
+    }
+  }
+
+  const termCount = db.prepare('SELECT COUNT(*) as count FROM terminal_logs').get();
+  if (!termCount || termCount.count === 0) {
+    const insertTerm = db.prepare(`
+      INSERT INTO terminal_logs (
+        id, command, output, exit_code, actor, duration_ms, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const t of SEED_TERMINAL_LOGS) {
+      insertTerm.run(
+        t.id, t.command, t.output, t.exit_code, t.actor, t.duration_ms, t.created_at
       );
     }
   }
@@ -660,6 +686,31 @@ export function recordSecurityEvent({
     target_resource,
     action_taken,
     description,
+    created_at
+  };
+}
+
+export function recordTerminalLog({
+  command,
+  output,
+  exit_code = 0,
+  actor = 'root@nex-edge-nbo',
+  duration_ms = 1.2
+}) {
+  const id = `term-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const created_at = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO terminal_logs (id, command, output, exit_code, actor, duration_ms, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, command, output, exit_code, actor, duration_ms, created_at);
+
+  return {
+    id,
+    command,
+    output,
+    exit_code,
+    actor,
+    duration_ms,
     created_at
   };
 }
