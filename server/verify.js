@@ -17,6 +17,7 @@ const tables = db
 const expectedTables = [
   'categories',
   'products',
+  'apps',
   'reviews',
   'coupons',
   'orders',
@@ -38,4 +39,4 @@ assert.ok(sampleProd.id && sampleProd.sku && Array.isArray(sampleProd.colors));
 const svgOutput = renderProductSvg(sampleProd.id, { view: 'blueprint' }, sampleProd);
 assert.ok(svgOutput.includes('<svg') && svgOutput.includes(sampleProd.sku));
 
-console.log('✅ All 10 SQLite tables, seed records, and CAD SVG renders verified!');
+console.log('✅ All 11 SQLite tables, seed records, and CAD SVG renders verified!');
