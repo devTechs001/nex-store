@@ -338,6 +338,79 @@ export default function AppStoreView({
         </div>
       </div>
 
+      {/* Verified Community Developers & Live CI/CD Pipeline Strip */}
+      <div className="rounded-3xl p-4 theme-card space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-cyan-400" />
+            <span className="font-display text-xs font-bold">
+              Featured Independent Developers & Netlify Publishers
+            </span>
+          </div>
+          <span className="font-mono-num text-[11px] text-emerald-400">
+            CI/CD Pipeline: Git Fetch → AST Audit → Vite/WASM Build → SHA-256 Sign → Edge Live
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+          {[
+            {
+              handle: '@koji_dsp',
+              name: 'Koji Tanaka',
+              specialty: 'WebAudio & DSP Synths',
+              platform: 'Netlify Edge',
+              badge: 'Ed25519 Verified'
+            },
+            {
+              handle: '@amara_cloud',
+              name: 'Amara Okafor',
+              specialty: 'Rust SQL & Edge Tooling',
+              platform: 'Vercel / GitHub',
+              badge: 'Ed25519 Verified'
+            },
+            {
+              handle: '@sarah_dev',
+              name: 'Sarah Jenkins',
+              specialty: 'Visual React Builders',
+              platform: 'Netlify Edge',
+              badge: 'Ed25519 Verified'
+            },
+            {
+              handle: 'DevTools Inc.',
+              name: 'NEX Core Team',
+              specialty: 'Cloud IDEs & Multiplexers',
+              platform: 'NEX Official',
+              badge: 'Core Maintainer'
+            }
+          ].map((dev) => (
+            <button
+              key={dev.handle}
+              type="button"
+              onClick={() => {
+                onPlaySound?.('click');
+                setQuery((prev) => (prev === dev.handle ? '' : dev.handle));
+              }}
+              className={`flex items-center justify-between rounded-2xl p-3 text-left transition cursor-pointer ${
+                query === dev.handle
+                  ? 'border border-cyan-400 bg-cyan-500/15'
+                  : 'theme-subtle hover:border-indigo-400/50'
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="text-xs font-bold truncate">{dev.name}</div>
+                <div className="font-mono-num text-[10px] text-cyan-400 truncate">
+                  {dev.handle} • {dev.platform}
+                </div>
+                <div className="text-[11px] theme-text-muted truncate">{dev.specialty}</div>
+              </div>
+              <span className="rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono-num text-[9px] font-bold text-emerald-400 shrink-0 ml-2">
+                {dev.badge}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Multi-Source Provider Filter Strip */}
       <div className="rounded-3xl p-4 space-y-3 theme-card">
         <div className="flex flex-wrap items-center justify-between gap-3">

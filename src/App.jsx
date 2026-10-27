@@ -13,6 +13,7 @@ import AppStoreView from './components/AppStoreView.jsx';
 import SubsystemsHubView from './components/SubsystemsHubView.jsx';
 import NotificationCenterDrawer from './components/NotificationCenterDrawer.jsx';
 import InteractiveTerminalModal from './components/InteractiveTerminalModal.jsx';
+import HardwareBuilderModal from './components/HardwareBuilderModal.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
 import { getFallbackBootstrapData, getProductArtUrl } from './utils/storeEngine.js';
 import {
@@ -117,6 +118,7 @@ export default function App() {
   const [notifications, setNotifications] = useState(initialSeed.notifications);
   const [terminalLogs, setTerminalLogs] = useState(initialSeed.terminalLogs || []);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [hardwareBuilderOpen, setHardwareBuilderOpen] = useState(false);
   const [analytics, setAnalytics] = useState(initialSeed.analytics);
   const [dbStats, setDbStats] = useState(initialSeed.dbStats);
   const [presence, setPresence] = useState(initialSeed.presence);
@@ -558,6 +560,42 @@ export default function App() {
       ];
     });
     pushToast('Added to Build Cart', `${qty}x ${product.name} (${selectedColor})`, 'success');
+  };
+
+  const handleAddRigToCart = (rigProducts = [], customFinishLabel = 'Custom BTO Finish') => {
+    setCart((prev) => {
+      let next = [...prev];
+      for (const product of rigProducts) {
+        const idx = next.findIndex(
+          (item) => item.id === product.id && item.selectedColor === customFinishLabel
+        );
+        if (idx > -1) {
+          next[idx] = {
+            ...next[idx],
+            quantity: Math.min(product.stock, next[idx].quantity + 1)
+          };
+        } else {
+          next.push({
+            id: product.id,
+            sku: product.sku,
+            name: product.name,
+            price: Math.round(product.price * 0.88),
+            image_url: getProductArtUrl(product),
+            selectedColor: customFinishLabel,
+            quantity: 1,
+            maxStock: product.stock
+          });
+        }
+      }
+      return next;
+    });
+    pushToast(
+      'Custom BTO Rig Added (-12% Bundle)',
+      `Added ${rigProducts.length} custom-calibrated hardware modules to Cart!`,
+      'success'
+    );
+    setCartDrawerMode('cart');
+    setCartDrawerOpen(true);
   };
 
   const handleUpdateCartQty = (id, selectedColor, newQty) => {
@@ -1397,6 +1435,10 @@ export default function App() {
           handlePlaySound('click');
           setTerminalOpen(true);
         }}
+        onOpenHardwareBuilder={() => {
+          handlePlaySound('click');
+          setHardwareBuilderOpen(true);
+        }}
       />
 
       {/* Main Active Workspace View */}
@@ -1526,6 +1568,16 @@ export default function App() {
         desktopPushStatus={desktopPushStatus}
         onRequestDesktopPush={handleRequestDesktopPush}
         onNavigateTab={setActiveTab}
+        onPlaySound={handlePlaySound}
+      />
+
+      {/* Custom 5-Slot Hardware Build-to-Order (BTO) Studio Modal */}
+      <HardwareBuilderModal
+        isOpen={hardwareBuilderOpen}
+        onClose={() => setHardwareBuilderOpen(false)}
+        products={products}
+        currency={currency}
+        onAddRigToCart={handleAddRigToCart}
         onPlaySound={handlePlaySound}
       />
 

@@ -19,7 +19,8 @@ import {
   Server,
   Bell,
   Volume2,
-  VolumeX
+  VolumeX,
+  Sliders
 } from 'lucide-react';
 import { CURRENCIES, formatRelativeTime } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
@@ -50,7 +51,8 @@ export default function Navbar({
   onToggleSound,
   unreadNotificationsCount = 0,
   onOpenNotifications,
-  onOpenTerminal
+  onOpenTerminal,
+  onOpenHardwareBuilder
 }) {
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 
@@ -311,6 +313,16 @@ export default function Navbar({
                 </>
               )}
             </div>
+
+            {/* Custom Hardware BTO Rig Builder Trigger */}
+            <button
+              onClick={onOpenHardwareBuilder}
+              className="theme-input relative flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold text-indigo-400 transition cursor-pointer"
+              title="Open Custom 5-Slot Hardware Build-to-Order Studio"
+            >
+              <Sliders className="h-3.5 w-3.5 text-indigo-400" />
+              <span className="hidden lg:inline">Rig BTO</span>
+            </button>
 
             {/* Interactive NEX-SH Cloud Terminal Trigger */}
             <button
