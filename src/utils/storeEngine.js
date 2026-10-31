@@ -75,6 +75,18 @@ export function getFallbackBootstrapData() {
     ...b,
     slots: typeof b.slots_json === 'string' ? JSON.parse(b.slots_json) : b.slots || {}
   }));
+  const appInstalls = apps.slice(0, 3).map((a) => ({
+    id: `inst-${a.id}`,
+    app_id: a.id,
+    app_name: a.name,
+    version: a.version,
+    source_provider: a.source_provider || 'NEX Official',
+    install_path: `/opt/nex-apps/${a.id}`,
+    sandbox_url: `/api/sandbox/${a.id}`,
+    sha256_verified: a.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
+    status: 'INSTALLED',
+    installed_at: new Date().toISOString()
+  }));
   const orders = SEED_ORDERS.map((o) => ({
     ...o,
     items: (o.items || []).map((item) => ({
@@ -176,7 +188,8 @@ export function getFallbackBootstrapData() {
     { name: 'push_notifications', rowCount: notifications.length, rows: notifications },
     { name: 'terminal_logs', rowCount: terminalLogs.length, rows: terminalLogs },
     { name: 'terminal_scripts', rowCount: terminalScripts.length, rows: terminalScripts },
-    { name: 'bto_configs', rowCount: btoConfigs.length, rows: btoConfigs }
+    { name: 'bto_configs', rowCount: btoConfigs.length, rows: btoConfigs },
+    { name: 'app_installs', rowCount: appInstalls.length, rows: appInstalls }
   ].map((t) => ({
     ...t,
     columns: Object.keys(t.rows[0] || { id: '' }).map((colName, i) => ({
@@ -203,6 +216,7 @@ export function getFallbackBootstrapData() {
     terminalLogs,
     terminalScripts,
     btoConfigs,
+    appInstalls,
     analytics: {
       totalOrders: orders.length,
       totalRevenue,

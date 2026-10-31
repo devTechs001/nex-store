@@ -123,6 +123,7 @@ export default function App() {
   const [terminalLogs, setTerminalLogs] = useState(initialSeed.terminalLogs || []);
   const [terminalScripts, setTerminalScripts] = useState(initialSeed.terminalScripts || []);
   const [btoConfigs, setBtoConfigs] = useState(initialSeed.btoConfigs || []);
+  const [appInstalls, setAppInstalls] = useState(initialSeed.appInstalls || []);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [hardwareBuilderOpen, setHardwareBuilderOpen] = useState(false);
   const [sideNavCollapsed, setSideNavCollapsed] = useState(false);
@@ -214,6 +215,7 @@ export default function App() {
       if (Array.isArray(data.terminalLogs) && data.terminalLogs.length > 0) setTerminalLogs(data.terminalLogs);
       if (Array.isArray(data.terminalScripts) && data.terminalScripts.length > 0) setTerminalScripts(data.terminalScripts);
       if (Array.isArray(data.btoConfigs) && data.btoConfigs.length > 0) setBtoConfigs(data.btoConfigs);
+      if (Array.isArray(data.appInstalls)) setAppInstalls(data.appInstalls);
       if (data.analytics && Object.keys(data.analytics).length > 0) setAnalytics(data.analytics);
       if (data.dbStats && Object.keys(data.dbStats).length > 0) setDbStats(data.dbStats);
       if (data.presence) setPresence(data.presence);
@@ -393,12 +395,25 @@ export default function App() {
                 break;
 
               case 'app:downloaded':
-                setApps((prev) =>
-                  prev.map((a) => (a.id === payload.app.id ? payload.app : a))
-                );
+              case 'app:installed':
+                if (payload.app) {
+                  setApps((prev) =>
+                    prev.map((a) => (a.id === payload.app.id ? payload.app : a))
+                  );
+                }
+                if (Array.isArray(payload.appInstalls)) {
+                  setAppInstalls(payload.appInstalls);
+                }
                 if (payload.activity) {
                   setActivityEvents((prev) => [payload.activity, ...prev]);
                   pushToast(payload.activity.title, payload.activity.message, 'realtime');
+                }
+                if (payload.dbStats) setDbStats(payload.dbStats);
+                break;
+
+              case 'app:uninstalled':
+                if (Array.isArray(payload.appInstalls)) {
+                  setAppInstalls(payload.appInstalls);
                 }
                 if (payload.dbStats) setDbStats(payload.dbStats);
                 break;
@@ -943,20 +958,62 @@ export default function App() {
 
   const handleDownloadApp = async (appId) => {
     try {
-      const res = await fetch(`/api/apps/${appId}/download`, { method: 'POST' });
-      if (isJsonResponse(res)) return;
+      const res = await fetch(`/api/apps/${appId}/install`, { method: 'POST' });
+      if (isJsonResponse(res)) {
+        const data = await res.json();
+        if (data.app) {
+          setApps((prev) => prev.map((a) => (a.id === data.app.id ? data.app : a)));
+        }
+        if (Array.isArray(data.appInstalls)) {
+          setAppInstalls(data.appInstalls);
+        }
+        return data;
+      }
     } catch {}
+    const target = apps.find((a) => a.id === appId);
     setApps((prev) =>
       prev.map((a) =>
         a.id === appId ? { ...a, downloads: (a.downloads || 0) + 1 } : a
       )
     );
-    const target = apps.find((a) => a.id === appId);
+    const fallbackInstall = {
+      id: `inst-${appId}`,
+      app_id: appId,
+      app_name: target?.name || appId,
+      version: target?.version || '1.0.0',
+      source_provider: target?.source_provider || 'Netlify',
+      install_path: `/opt/nex-apps/${appId}`,
+      sandbox_url: `/api/sandbox/${appId}`,
+      sha256_verified: target?.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
+      status: 'INSTALLED',
+      installed_at: new Date().toISOString()
+    };
+    setAppInstalls((prev) => [
+      fallbackInstall,
+      ...prev.filter((i) => i.app_id !== appId)
+    ]);
     pushToast(
-      'Package Installed & Verified',
-      `Installed ${target?.name || 'NEX App'} (${target?.source_provider || 'Netlify'})`,
+      'Package Installed & Mounted',
+      `Mounted ${target?.name || 'NEX App'} at /opt/nex-apps/${appId}`,
       'success'
     );
+    return { installRecord: fallbackInstall };
+  };
+
+  const handleUninstallApp = async (appId) => {
+    try {
+      const res = await fetch(`/api/apps/${appId}/uninstall`, { method: 'DELETE' });
+      if (isJsonResponse(res)) {
+        const data = await res.json();
+        if (Array.isArray(data.appInstalls)) {
+          setAppInstalls(data.appInstalls);
+        }
+        pushToast('App Uninstalled', `Unmounted /opt/nex-apps/${appId} from workstation.`, 'info');
+        return;
+      }
+    } catch {}
+    setAppInstalls((prev) => prev.filter((i) => i.app_id !== appId));
+    pushToast('App Uninstalled', `Unmounted /opt/nex-apps/${appId} from workstation.`, 'info');
   };
 
   const handleCreateApp = async (appPayload) => {
@@ -1680,8 +1737,10 @@ export default function App() {
         {activeTab === 'apps' && (
           <AppStoreView
             apps={apps}
+            appInstalls={appInstalls}
             darkMode={darkMode}
             onDownloadApp={handleDownloadApp}
+            onUninstallApp={handleUninstallApp}
             onCreateApp={handleCreateApp}
             onPlaySound={handlePlaySound}
           />

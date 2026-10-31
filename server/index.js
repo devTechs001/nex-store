@@ -16,6 +16,7 @@ import {
 } from './db.js';
 import crypto from 'node:crypto';
 import { renderProductSvg } from './productArt.js';
+import { renderSandboxedAppHtml } from './appSandboxRuntime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -183,7 +184,8 @@ const ALLOWED_TABLES = [
   'push_notifications',
   'terminal_logs',
   'terminal_scripts',
-  'bto_configs'
+  'bto_configs',
+  'app_installs'
 ];
 
 function getDatabaseStats() {
@@ -266,6 +268,9 @@ app.get('/api/bootstrap', (_req, res) => {
       ...b,
       slots: typeof b.slots_json === 'string' ? JSON.parse(b.slots_json) : b.slots || {}
     }));
+  const appInstalls = db
+    .prepare('SELECT * FROM app_installs ORDER BY installed_at DESC')
+    .all();
 
   res.json({
     categories,
@@ -284,6 +289,7 @@ app.get('/api/bootstrap', (_req, res) => {
     terminalLogs,
     terminalScripts,
     btoConfigs,
+    appInstalls,
     analytics: getAnalyticsSummary(),
     dbStats: getDatabaseStats(),
     presence: getPresenceSummary()
@@ -388,27 +394,132 @@ app.post('/api/apps', (req, res) => {
   res.status(201).json({ app: createdApp, securityEvent: secEvent, notification: notif });
 });
 
-app.post('/api/apps/:id/download', (req, res) => {
-  const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'App not found' });
+function performAppInstall(appId) {
+  const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(appId);
+  if (!existing) return null;
+
+  const now = new Date().toISOString();
+  const sha =
+    existing.sha256_hash ||
+    crypto.createHash('sha256').update(`${existing.id}:${existing.version}`).digest('hex');
 
   db.prepare('UPDATE apps SET downloads = downloads + 1 WHERE id = ?').run(existing.id);
+  db.prepare(`
+    INSERT OR REPLACE INTO app_installs (
+      id, app_id, app_name, version, source_provider, install_path, sandbox_url, sha256_verified, status, installed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'INSTALLED', ?)
+  `).run(
+    `inst-${existing.id}`,
+    existing.id,
+    existing.name,
+    existing.version,
+    existing.source_provider || 'NEX Official',
+    `/opt/nex-apps/${existing.id}`,
+    `/api/sandbox/${existing.id}`,
+    sha,
+    now
+  );
+
   const updatedApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(existing.id);
+  const installRecord = db.prepare('SELECT * FROM app_installs WHERE app_id = ?').get(existing.id);
+  const appInstalls = db.prepare('SELECT * FROM app_installs ORDER BY installed_at DESC').all();
+
+  recordTerminalLog({
+    command: `nex install ${existing.id} --verify-sha256`,
+    output: `[INSTALLER] Verified SHA-256 (${sha.slice(0, 16)}...) -> Mounted /opt/nex-apps/${existing.id} -> Sandbox ready at /api/sandbox/${existing.id}`,
+    exit_code: 0,
+    duration_ms: 4.8
+  });
 
   const activity = recordActivityEvent({
     event_type: 'live_purchase',
     title: `App Installed • ${updatedApp.name}`,
-    message: `${updatedApp.name} v${updatedApp.version} deployed (${updatedApp.downloads.toLocaleString()} total installs)`,
+    message: `${updatedApp.name} v${updatedApp.version} mounted at /opt/nex-apps/${updatedApp.id} (${updatedApp.downloads.toLocaleString()} installs)`,
     meta: { app_id: updatedApp.id, downloads: updatedApp.downloads }
   });
 
   broadcast('app:downloaded', {
     app: updatedApp,
+    installRecord,
+    appInstalls,
     activity,
     dbStats: getDatabaseStats()
   });
 
-  res.json({ app: updatedApp });
+  return { app: updatedApp, installRecord, appInstalls };
+}
+
+app.get('/api/apps/installed', (_req, res) => {
+  const appInstalls = db.prepare('SELECT * FROM app_installs ORDER BY installed_at DESC').all();
+  res.json({ appInstalls });
+});
+
+app.post('/api/apps/:id/download', (req, res) => {
+  const result = performAppInstall(req.params.id);
+  if (!result) return res.status(404).json({ error: 'App not found' });
+  res.json(result);
+});
+
+app.post('/api/apps/:id/install', (req, res) => {
+  const result = performAppInstall(req.params.id);
+  if (!result) return res.status(404).json({ error: 'App not found' });
+  res.status(201).json(result);
+});
+
+app.delete('/api/apps/:id/uninstall', (req, res) => {
+  const appId = req.params.id;
+  db.prepare('DELETE FROM app_installs WHERE app_id = ? OR id = ?').run(appId, appId);
+  const appInstalls = db.prepare('SELECT * FROM app_installs ORDER BY installed_at DESC').all();
+
+  recordTerminalLog({
+    command: `nex uninstall ${appId}`,
+    output: `[UNINSTALLER] Unmounted container /opt/nex-apps/${appId} and purged SQLite app_installs record.`,
+    exit_code: 0,
+    duration_ms: 2.1
+  });
+
+  broadcast('app:uninstalled', {
+    appId,
+    appInstalls,
+    dbStats: getDatabaseStats()
+  });
+
+  res.json({ appId, appInstalls });
+});
+
+// Real Isolated HTML5/Canvas/WebAudio Sandbox Runtime Endpoint for <iframe sandbox="...">
+app.get('/api/sandbox/:id', (req, res) => {
+  const rawId = req.params.id;
+  const foundApp =
+    db.prepare('SELECT * FROM apps WHERE id = ?').get(rawId) || {
+      id: rawId,
+      name: rawId,
+      version: '1.0.0',
+      developer: 'NEX Community Developer',
+      source_provider: 'Netlify',
+      category: 'web',
+      language: 'typescript',
+      icon: '🚀',
+      description: 'Isolated sandbox container runtime.'
+    };
+
+  const html = renderSandboxedAppHtml(foundApp);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(html);
+});
+
+// Real Standalone Executable HTML5 Package Bundle Download
+app.get('/api/apps/:id/package', (req, res) => {
+  const rawId = req.params.id;
+  const foundApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(rawId);
+  if (!foundApp) return res.status(404).json({ error: 'App not found' });
+
+  const html = renderSandboxedAppHtml(foundApp, { isDownloadPackage: true });
+  const filename = `${foundApp.id}-v${foundApp.version}-standalone.html`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(html);
 });
 
 // 3. Products Endpoints

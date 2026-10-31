@@ -291,6 +291,19 @@ export function initSchema() {
       notes TEXT DEFAULT '',
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS app_installs (
+      id TEXT PRIMARY KEY,
+      app_id TEXT UNIQUE NOT NULL,
+      app_name TEXT NOT NULL,
+      version TEXT NOT NULL,
+      source_provider TEXT NOT NULL DEFAULT 'NEX Official',
+      install_path TEXT NOT NULL,
+      sandbox_url TEXT NOT NULL,
+      sha256_verified TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'INSTALLED',
+      installed_at TEXT NOT NULL
+    );
   `);
 
   // Ensure existing apps table has multi-source & security columns
@@ -336,6 +349,7 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM terminal_logs;
       DELETE FROM terminal_scripts;
       DELETE FROM bto_configs;
+      DELETE FROM app_installs;
     `);
   }
 
@@ -375,6 +389,28 @@ export function seedDatabase({ forceReset = false } = {}) {
         a.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
         a.security_score || 99,
         a.permissions_json || '[]',
+        nowApps
+      );
+    }
+  }
+
+  const installsCountRow = db.prepare('SELECT COUNT(*) as count FROM app_installs').get();
+  if (!installsCountRow || installsCountRow.count === 0) {
+    const insertInstall = db.prepare(`
+      INSERT OR REPLACE INTO app_installs (
+        id, app_id, app_name, version, source_provider, install_path, sandbox_url, sha256_verified, status, installed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'INSTALLED', ?)
+    `);
+    for (const a of SEED_APPS.slice(0, 3)) {
+      insertInstall.run(
+        `inst-${a.id}`,
+        a.id,
+        a.name,
+        a.version,
+        a.source_provider || 'NEX Official',
+        `/opt/nex-apps/${a.id}`,
+        `/api/sandbox/${a.id}`,
+        a.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
         nowApps
       );
     }

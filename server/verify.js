@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, seedDatabase, formatProductRow } from './db.js';
 import { renderProductSvg } from './productArt.js';
+import { renderSandboxedAppHtml } from './appSandboxRuntime.js';
 import { THEMES } from '../src/utils/themes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,14 +40,15 @@ const expectedTables = [
   'push_notifications',
   'terminal_logs',
   'terminal_scripts',
-  'bto_configs'
+  'bto_configs',
+  'app_installs'
 ];
 
 for (const tbl of expectedTables) {
   assert.ok(tables.includes(tbl), `Missing SQLite table: ${tbl}`);
 }
 
-// 3. Verify Multi-Source Apps, Server Nodes, Integrations, Security Events, Terminal Logs, Playbooks & BTO Rigs
+// 3. Verify Multi-Source Apps, Server Nodes, Integrations, Security Events, Terminal Logs, Playbooks, BTO Rigs & App Installs
 const appCount = db.prepare('SELECT COUNT(*) as c FROM apps').get().c;
 const srvCount = db.prepare('SELECT COUNT(*) as c FROM server_nodes').get().c;
 const intCount = db.prepare('SELECT COUNT(*) as c FROM integrations').get().c;
@@ -54,6 +56,7 @@ const secCount = db.prepare('SELECT COUNT(*) as c FROM security_events').get().c
 const termCount = db.prepare('SELECT COUNT(*) as c FROM terminal_logs').get().c;
 const scriptCount = db.prepare('SELECT COUNT(*) as c FROM terminal_scripts').get().c;
 const btoCount = db.prepare('SELECT COUNT(*) as c FROM bto_configs').get().c;
+const installsCount = db.prepare('SELECT COUNT(*) as c FROM app_installs').get().c;
 assert.ok(appCount >= 8, 'Expected at least 8 seeded multi-source apps');
 assert.ok(srvCount >= 6, 'Expected at least 6 seeded edge server nodes');
 assert.ok(intCount >= 8, 'Expected at least 8 seeded platform integrations');
@@ -61,6 +64,15 @@ assert.ok(secCount >= 5, 'Expected at least 5 seeded security events');
 assert.ok(termCount >= 3, 'Expected at least 3 seeded terminal logs');
 assert.ok(scriptCount >= 4, 'Expected at least 4 seeded .nexsh automation playbooks');
 assert.ok(btoCount >= 3, 'Expected at least 3 seeded BTO hardware rig configurations');
+assert.ok(installsCount >= 3, 'Expected at least 3 seeded installed workstation apps in app_installs');
+
+// 3b. Verify Real Sandboxed App HTML5 Runtime Engine
+const sampleApp = db.prepare('SELECT * FROM apps LIMIT 1').get();
+const sandboxHtml = renderSandboxedAppHtml(sampleApp);
+assert.ok(
+  sandboxHtml.includes('<canvas id="sandbox-canvas"') && sandboxHtml.includes('nex-sandbox:telemetry'),
+  'Expected real interactive HTML5 Canvas & postMessage IPC sandbox runtime'
+);
 
 // 4. Verify Product Formatting & SVG Studio Render
 const sampleProd = formatProductRow(db.prepare('SELECT * FROM products LIMIT 1').get());
@@ -89,4 +101,4 @@ const appCssSource = fs.readFileSync(path.resolve(__dirname, '../src/App.css'), 
 assert.ok(appCssSource.includes('.bg-engineering-grid-dark') && appCssSource.includes('.no-scrollbar'), 'Missing App.css engineering grid or scrollbar utility rules');
 assert.ok(appCssSource.includes('.nex-desktop-sidenav') && appCssSource.includes('.nex-mobile-bottomnav'), 'Missing desktop side nav or mobile bottom nav CSS rules');
 
-console.log('✅ All 18 SQLite tables, Desktop SideNav, Mobile BottomNav, text-selection prevention, real REST endpoints, NEX-SH v3.0 .nexsh playbooks, documentation suite, cross-browser CSS rules, 6 themes, and CAD SVG renders verified!');
+console.log('✅ All 19 SQLite tables (including app_installs & bto_configs), real HTML5/Canvas/WebAudio App Sandbox Runtime, Desktop SideNav, Mobile BottomNav, text-selection prevention, real REST endpoints, NEX-SH v3.0 .nexsh playbooks, documentation suite, cross-browser CSS rules, 6 themes, and CAD SVG renders verified!');
