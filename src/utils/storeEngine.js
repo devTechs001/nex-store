@@ -15,10 +15,44 @@ import {
   SEED_BTO_CONFIGS
 } from '../../server/seedData.js';
 
-export function getProductArtUrl(productOrId, { view = 'hero', color = null } = {}) {
+export function isCustomProductImage(url) {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('/api/product-art/')) return false;
+  if (trimmed.startsWith('data:image/svg+xml;charset=utf-8,') && trimmed.includes('NEX%20HARDWARE')) {
+    return false;
+  }
+  return (
+    trimmed.startsWith('data:image/') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('/api/app-art/') ||
+    trimmed.startsWith('blob:')
+  );
+}
+
+export function getProductArtUrl(productOrId, { view = 'hero', color = null, preferCad = false } = {}) {
   const id = typeof productOrId === 'string' ? productOrId : productOrId?.id || 'prod-aether-pro';
   const prodObj = typeof productOrId === 'object' ? productOrId : null;
-  const svgString = renderProductSvg(id, { view, color }, prodObj);
+
+  // If view itself is a direct image URL (e.g. from custom gallery item)
+  if (typeof view === 'string' && isCustomProductImage(view)) {
+    return view;
+  }
+
+  // If product has a custom uploaded image or URL and user is viewing 'hero' or 'custom'
+  if (
+    !preferCad &&
+    prodObj &&
+    (view === 'hero' || view === 'custom') &&
+    isCustomProductImage(prodObj.custom_image_url || prodObj.image_url)
+  ) {
+    return prodObj.custom_image_url || prodObj.image_url;
+  }
+
+  const resolvedView = view === 'cad-hero' || view === 'custom' ? 'hero' : view;
+  const svgString = renderProductSvg(id, { view: resolvedView, color }, prodObj);
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgString)}`;
 }
 

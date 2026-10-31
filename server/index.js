@@ -38,7 +38,7 @@ seedDatabase();
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '15mb' }));
 
 // Active IP Blocklist Firewall, XSS Prevention & RBAC Context Middleware
 app.use('/api', (req, res, next) => {
@@ -1899,6 +1899,10 @@ app.post('/api/products', (req, res) => {
       badge = 'NEW RELEASE',
       is_flash_sale = false,
       featured = false,
+      image_url = '',
+      custom_image_url = '',
+      gallery: customGalleryInput = null,
+      custom_gallery_images = [],
       specs = {},
       colors = [{ name: 'Obsidian Black', hex: '#18181b' }],
       tags = ['nex', 'hardware']
@@ -1911,17 +1915,47 @@ app.post('/api/products', (req, res) => {
     const id = `prod-${Date.now().toString(36)}`;
     const cleanSku = (sku || `NEX-${Math.floor(100 + Math.random() * 900)}`).toUpperCase();
     const now = new Date().toISOString();
-    const imageUrl = `/api/product-art/${id}.svg`;
+    const providedCustomImg = String(custom_image_url || image_url || '').trim();
+    const imageUrl = providedCustomImg || `/api/product-art/${id}.svg`;
     const numPrice = Number(price);
     const numOrig = original_price ? Number(original_price) : Math.round(numPrice * 1.15);
     const numStock = Math.max(0, parseInt(stock, 10) || 0);
 
-    const gallery = [
-      { label: 'Studio Hero', view: 'hero' },
+    const extraGalleryItems = [];
+    if (providedCustomImg && !providedCustomImg.startsWith('/api/product-art/')) {
+      extraGalleryItems.push({
+        label: 'Custom Photo',
+        view: providedCustomImg,
+        url: providedCustomImg
+      });
+    }
+    if (Array.isArray(custom_gallery_images)) {
+      custom_gallery_images.forEach((imgEntry, idx) => {
+        const urlStr = typeof imgEntry === 'string' ? imgEntry.trim() : String(imgEntry?.url || imgEntry?.view || '').trim();
+        const labelStr = typeof imgEntry === 'object' && imgEntry?.label ? imgEntry.label : `Photo ${idx + 2}`;
+        if (urlStr && urlStr !== providedCustomImg) {
+          extraGalleryItems.push({ label: labelStr, view: urlStr, url: urlStr });
+        }
+      });
+    }
+
+    const defaultCadGallery = [
+      { label: 'Studio Hero', view: 'cad-hero' },
       { label: 'Detail Cutaway', view: 'detail' },
       { label: 'CAD Blueprint', view: 'blueprint' },
       { label: 'Telemetry Spec', view: 'spec' }
     ];
+
+    const gallery = Array.isArray(customGalleryInput) && customGalleryInput.length > 0
+      ? customGalleryInput
+      : extraGalleryItems.length > 0
+      ? [...extraGalleryItems, ...defaultCadGallery]
+      : [
+          { label: 'Studio Hero', view: 'hero' },
+          { label: 'Detail Cutaway', view: 'detail' },
+          { label: 'CAD Blueprint', view: 'blueprint' },
+          { label: 'Telemetry Spec', view: 'spec' }
+        ];
 
     db.prepare(`
       INSERT INTO products (
@@ -2021,6 +2055,9 @@ app.patch('/api/products/:id', (req, res) => {
       badge = existing.badge,
       featured = existing.featured,
       is_flash_sale = existing.is_flash_sale,
+      image_url,
+      gallery,
+      add_gallery_image,
       stockReason = 'Admin Inventory Adjustment'
     } = req.body;
 
@@ -2028,10 +2065,49 @@ app.patch('/api/products/:id', (req, res) => {
     const newStock = Math.max(0, parseInt(stock, 10));
     const newPrice = Number(price);
 
+    let nextImageUrl = image_url !== undefined ? String(image_url).trim() : existing.image_url;
+    let currentGallery = [];
+    try {
+      currentGallery = JSON.parse(existing.gallery_json || '[]');
+    } catch {
+      currentGallery = [];
+    }
+
+    if (Array.isArray(gallery)) {
+      currentGallery = gallery;
+    }
+    if (add_gallery_image) {
+      const urlStr =
+        typeof add_gallery_image === 'string'
+          ? add_gallery_image.trim()
+          : String(add_gallery_image?.url || add_gallery_image?.view || '').trim();
+      const labelStr =
+        typeof add_gallery_image === 'object' && add_gallery_image?.label
+          ? add_gallery_image.label
+          : 'Custom Photo';
+      if (urlStr) {
+        currentGallery = [
+          { label: labelStr, view: urlStr, url: urlStr },
+          ...currentGallery.filter((g) => g.view !== urlStr && g.url !== urlStr)
+        ];
+        if (!image_url) {
+          nextImageUrl = urlStr;
+        }
+      }
+    } else if (image_url && !String(image_url).startsWith('/api/product-art/')) {
+      const cleanUrl = String(image_url).trim();
+      if (!currentGallery.some((g) => g.view === cleanUrl || g.url === cleanUrl)) {
+        currentGallery = [
+          { label: 'Custom Photo', view: cleanUrl, url: cleanUrl },
+          ...currentGallery
+        ];
+      }
+    }
+
     db.prepare(`
       UPDATE products
       SET name = ?, tagline = ?, description = ?, price = ?, original_price = ?,
-          stock = ?, badge = ?, featured = ?, is_flash_sale = ?, updated_at = ?
+          stock = ?, badge = ?, featured = ?, is_flash_sale = ?, image_url = ?, gallery_json = ?, updated_at = ?
       WHERE id = ?
     `).run(
       name,
@@ -2043,6 +2119,8 @@ app.patch('/api/products/:id', (req, res) => {
       badge,
       featured ? 1 : 0,
       is_flash_sale ? 1 : 0,
+      nextImageUrl,
+      JSON.stringify(currentGallery),
       now,
       existing.id
     );

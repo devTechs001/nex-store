@@ -15,7 +15,10 @@ import {
   Tag,
   Send,
   Plus,
-  X
+  X,
+  Upload,
+  Image as ImageIcon,
+  Trash2
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
 import { getProductArtUrl } from '../utils/storeEngine.js';
@@ -151,6 +154,60 @@ export default function StorefrontView({
   const [newProdColorName, setNewProdColorName] = useState('Cyber Indigo');
   const [newProdColorHex, setNewProdColorHex] = useState('#6366f1');
   const [modalCadView, setModalCadView] = useState('hero');
+  const [newProdImageUrl, setNewProdImageUrl] = useState('');
+  const [newProdGalleryImages, setNewProdGalleryImages] = useState([]);
+  const [imageUrlDraft, setImageUrlDraft] = useState('');
+  const [imageLabelDraft, setImageLabelDraft] = useState('Studio Photo');
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
+
+  const handleProductImageFiles = (fileList) => {
+    const files = Array.from(fileList || []).filter((f) => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+
+    files.forEach((file, idx) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        if (!dataUrl) return;
+        const cleanLabel = file.name.replace(/\.[^.]+$/, '').slice(0, 24) || `Photo ${idx + 1}`;
+        setNewProdImageUrl((prev) => prev || dataUrl);
+        setNewProdGalleryImages((prev) => [
+          ...prev.filter((item) => item.url !== dataUrl),
+          { label: cleanLabel, url: dataUrl }
+        ]);
+        setModalCadView(dataUrl);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleAddImageUrlToModal = () => {
+    const cleanUrl = imageUrlDraft.trim();
+    if (!cleanUrl) return;
+    const label = imageLabelDraft.trim() || `Photo ${newProdGalleryImages.length + 1}`;
+    if (!newProdImageUrl) {
+      setNewProdImageUrl(cleanUrl);
+    }
+    setNewProdGalleryImages((prev) => [
+      ...prev.filter((item) => item.url !== cleanUrl),
+      { label, url: cleanUrl }
+    ]);
+    setModalCadView(cleanUrl);
+    setImageUrlDraft('');
+  };
+
+  const handleRemoveGalleryImage = (urlToRemove) => {
+    setNewProdGalleryImages((prev) => {
+      const next = prev.filter((item) => item.url !== urlToRemove);
+      if (newProdImageUrl === urlToRemove) {
+        setNewProdImageUrl(next[0]?.url || '');
+      }
+      if (modalCadView === urlToRemove) {
+        setModalCadView(next[0]?.url || 'hero');
+      }
+      return next;
+    });
+  };
 
   const handleApplyHardwarePreset = (preset) => {
     setNewProdName(preset.name);
@@ -185,6 +242,8 @@ export default function StorefrontView({
       badge: newProdBadge || 'NEW LAUNCH',
       is_flash_sale: Boolean(newProdFlash),
       featured: true,
+      image_url: newProdImageUrl || '',
+      custom_gallery_images: newProdGalleryImages,
       tagline: newProdTagline.trim(),
       description: newProdDesc.trim(),
       specs: {
@@ -199,6 +258,9 @@ export default function StorefrontView({
     setShowAddProductModal(false);
     setHeroIndex(0);
     setNewProdName('');
+    setNewProdImageUrl('');
+    setNewProdGalleryImages([]);
+    setModalCadView('hero');
   };
 
   // Live Flash Sale Countdown Timer
@@ -1324,25 +1386,176 @@ export default function StorefrontView({
                     </div>
                   </div>
                 </div>
+
+                {/* Product Image & Multi-Photo Gallery Uploader */}
+                <div className="rounded-2xl p-3.5 theme-subtle border border-indigo-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                      <ImageIcon className="h-3.5 w-3.5" />
+                      Product Image &amp; Gallery Studio (Upload File or Paste URL)
+                    </span>
+                    <span className="font-mono-num text-[10px] text-emerald-400">
+                      {newProdGalleryImages.length} custom photo(s) + 4 CAD angles
+                    </span>
+                  </div>
+
+                  {/* Drag & Drop / File Upload Zone */}
+                  <label
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDraggingImage(true);
+                    }}
+                    onDragLeave={() => setIsDraggingImage(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDraggingImage(false);
+                      handleProductImageFiles(e.dataTransfer.files);
+                    }}
+                    className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed px-3.5 py-2.5 text-xs cursor-pointer transition ${
+                      isDraggingImage
+                        ? 'border-emerald-400 bg-emerald-500/15'
+                        : 'border-indigo-500/40 hover:border-cyan-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Upload className="h-4 w-4 text-cyan-400 shrink-0" />
+                      <div>
+                        <span className="font-bold">Upload Product Image(s) from Device</span>
+                        <span className="block text-[10px] theme-text-muted">
+                          Drag &amp; drop or click to select PNG, JPG, WEBP, SVG or GIF (Multiple supported)
+                        </span>
+                      </div>
+                    </div>
+                    <span className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-indigo-300">
+                      Browse Files
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => handleProductImageFiles(e.target.files)}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {/* Paste Custom Image URL Input */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={imageLabelDraft}
+                      onChange={(e) => setImageLabelDraft(e.target.value)}
+                      placeholder="Photo Label (e.g. Front View)"
+                      className="w-32 rounded-xl px-2.5 py-1.5 text-xs theme-input"
+                    />
+                    <input
+                      type="text"
+                      value={imageUrlDraft}
+                      onChange={(e) => setImageUrlDraft(e.target.value)}
+                      placeholder="Or paste image URL (https://... or data:image/...)"
+                      className="flex-1 rounded-xl px-2.5 py-1.5 text-xs font-mono-num theme-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddImageUrlToModal}
+                      className="inline-flex items-center gap-1 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 px-3 py-1.5 text-xs font-bold text-cyan-300 cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Add Image</span>
+                    </button>
+                  </div>
+
+                  {/* Added Custom Gallery Thumbnails */}
+                  {newProdGalleryImages.length > 0 && (
+                    <div className="flex items-center gap-2 overflow-x-auto pt-1">
+                      {newProdGalleryImages.map((imgItem, idx) => {
+                        const isPrimary = newProdImageUrl === imgItem.url;
+                        return (
+                          <div
+                            key={`${imgItem.label}-${idx}`}
+                            className={`relative group flex items-center gap-2 rounded-xl border p-1.5 pr-2.5 text-xs shrink-0 ${
+                              modalCadView === imgItem.url
+                                ? 'border-emerald-400 bg-emerald-500/15'
+                                : 'border-white/[0.1] theme-card'
+                            }`}
+                          >
+                            <img
+                              src={imgItem.url}
+                              alt={imgItem.label}
+                              onClick={() => {
+                                setNewProdImageUrl(imgItem.url);
+                                setModalCadView(imgItem.url);
+                              }}
+                              className="h-9 w-12 rounded-lg object-cover cursor-pointer"
+                            />
+                            <div
+                              onClick={() => {
+                                setNewProdImageUrl(imgItem.url);
+                                setModalCadView(imgItem.url);
+                              }}
+                              className="cursor-pointer"
+                            >
+                              <div className="font-bold text-[11px] truncate max-w-[90px]">
+                                {imgItem.label}
+                              </div>
+                              <div className="font-mono-num text-[9px] text-emerald-400">
+                                {isPrimary ? '★ Primary Cover' : 'Click for Cover'}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveGalleryImage(imgItem.url)}
+                              className="rounded-md p-1 text-rose-400 hover:bg-rose-500/20 cursor-pointer"
+                              title="Remove image"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Right 5 Cols: Live 4-Angle Procedural CAD Preview */}
+              {/* Right 5 Cols: Live Custom Image + 4-Angle Procedural CAD Preview */}
               <div className="lg:col-span-5 flex flex-col justify-between space-y-2.5">
                 <div className="space-y-2">
-                  <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
-                    Live 4-Angle Procedural CAD Vector Preview
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                      Live Image &amp; 4-Angle CAD Preview
+                    </span>
+                    {newProdImageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setModalCadView(newProdImageUrl)}
+                        className={`rounded-lg px-2 py-0.5 font-mono-num text-[10px] font-bold cursor-pointer ${
+                          modalCadView === newProdImageUrl
+                            ? 'bg-emerald-500 text-slate-950'
+                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        }`}
+                      >
+                        ★ Custom Photo Active
+                      </button>
+                    )}
                   </div>
                   <div className="overflow-hidden rounded-2xl border border-indigo-500/35 bg-slate-950">
                     <img
-                      src={`/api/product-art/preview.svg?name=${encodeURIComponent(
-                        newProdName || 'NEX CUSTOM HARDWARE'
-                      )}&sku=${encodeURIComponent(newProdSku || 'NEX-901')}&category=${encodeURIComponent(
-                        newProdCategory
-                      )}&view=${encodeURIComponent(modalCadView)}&color=${encodeURIComponent(
-                        newProdColorHex
-                      )}`}
-                      alt="Live CAD Preview"
-                      className="w-full h-52 object-cover"
+                      src={
+                        modalCadView &&
+                        (modalCadView.startsWith('data:image/') ||
+                          modalCadView.startsWith('http://') ||
+                          modalCadView.startsWith('https://'))
+                          ? modalCadView
+                          : `/api/product-art/preview.svg?name=${encodeURIComponent(
+                              newProdName || 'NEX CUSTOM HARDWARE'
+                            )}&sku=${encodeURIComponent(newProdSku || 'NEX-901')}&category=${encodeURIComponent(
+                              newProdCategory
+                            )}&view=${encodeURIComponent(modalCadView)}&color=${encodeURIComponent(
+                              newProdColorHex
+                            )}`
+                      }
+                      alt="Live Product Preview"
+                      className="w-full h-56 object-cover"
                     />
                   </div>
                   <div className="grid grid-cols-4 gap-1.5">

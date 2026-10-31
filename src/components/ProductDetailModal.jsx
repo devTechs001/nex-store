@@ -12,7 +12,10 @@ import {
   ShieldCheck,
   Truck,
   Radio,
-  Sparkles
+  Sparkles,
+  Upload,
+  Plus,
+  Image as ImageIcon
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
 import { getProductArtUrl } from '../utils/storeEngine.js';
@@ -29,6 +32,7 @@ export default function ProductDetailModal({
   onToggleCompare,
   onReviewSubmitted,
   onHelpfulReview,
+  onProductUpdated,
   presence
 }) {
   const [selectedView, setSelectedView] = useState('hero');
@@ -38,6 +42,13 @@ export default function ProductDetailModal({
   const [quantity, setQuantity] = useState(1);
   const [reviews, setReviews] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
+
+  // Add / Upload Product Image State inside ProductDetailModal
+  const [showImageAdder, setShowImageAdder] = useState(false);
+  const [customGallery, setCustomGallery] = useState([]);
+  const [newImgUrlInput, setNewImgUrlInput] = useState('');
+  const [newImgLabelInput, setNewImgLabelInput] = useState('Studio Photo');
+  const [savingImage, setSavingImage] = useState(false);
 
   // Review Form State
   const [authorName, setAuthorName] = useState('');
@@ -50,7 +61,17 @@ export default function ProductDetailModal({
   useEffect(() => {
     if (!product) return;
     setSelectedColor(product.colors?.[0] || { name: 'Standard Finish', hex: '' });
-    setSelectedView('hero');
+    const initialGal =
+      product.gallery && product.gallery.length > 0
+        ? product.gallery
+        : [
+            { label: 'Studio Hero', view: 'hero' },
+            { label: 'Detail Cutaway', view: 'detail' },
+            { label: 'CAD Blueprint', view: 'blueprint' },
+            { label: 'Telemetry Spec', view: 'spec' }
+          ];
+    setCustomGallery(initialGal);
+    setSelectedView(initialGal[0]?.view || 'hero');
     setQuantity(1);
 
     setLoadingReviews(true);
@@ -58,6 +79,9 @@ export default function ProductDetailModal({
       .then((r) => r.json())
       .then((data) => {
         if (data.reviews) setReviews(data.reviews);
+        if (data.product?.gallery?.length) {
+          setCustomGallery(data.product.gallery);
+        }
       })
       .catch(() => {})
       .finally(() => setLoadingReviews(false));
@@ -66,7 +90,9 @@ export default function ProductDetailModal({
   if (!product) return null;
 
   const galleryViews =
-    product.gallery && product.gallery.length > 0
+    customGallery && customGallery.length > 0
+      ? customGallery
+      : product.gallery && product.gallery.length > 0
       ? product.gallery
       : [
           { label: 'Studio Hero', view: 'hero' },
@@ -74,6 +100,64 @@ export default function ProductDetailModal({
           { label: 'CAD Blueprint', view: 'blueprint' },
           { label: 'Telemetry Spec', view: 'spec' }
         ];
+
+  const handleSaveNewProductImage = async (rawUrl, rawLabel) => {
+    const cleanUrl = String(rawUrl || '').trim();
+    if (!cleanUrl) return;
+    const cleanLabel = String(rawLabel || newImgLabelInput || 'Studio Photo').trim();
+    setSavingImage(true);
+    try {
+      const res = await fetch(`/api/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_url: cleanUrl,
+          add_gallery_image: { label: cleanLabel, url: cleanUrl }
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.product) {
+          setCustomGallery(data.product.gallery || []);
+          setSelectedView(cleanUrl);
+          onProductUpdated?.(data.product);
+        }
+      } else {
+        const nextGal = [
+          { label: cleanLabel, view: cleanUrl, url: cleanUrl },
+          ...galleryViews.filter((g) => g.view !== cleanUrl)
+        ];
+        setCustomGallery(nextGal);
+        setSelectedView(cleanUrl);
+      }
+      setNewImgUrlInput('');
+      setShowImageAdder(false);
+    } catch {
+      const nextGal = [
+        { label: cleanLabel, view: cleanUrl, url: cleanUrl },
+        ...galleryViews.filter((g) => g.view !== cleanUrl)
+      ];
+      setCustomGallery(nextGal);
+      setSelectedView(cleanUrl);
+      setShowImageAdder(false);
+    } finally {
+      setSavingImage(false);
+    }
+  };
+
+  const handleUploadModalImageFile = (fileList) => {
+    const file = Array.from(fileList || []).find((f) => f.type.startsWith('image/'));
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (dataUrl) {
+        const label = file.name.replace(/\.[^.]+$/, '').slice(0, 22) || 'Uploaded Photo';
+        handleSaveNewProductImage(dataUrl, label);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const imgUrl = getProductArtUrl(product, {
     view: selectedView,
@@ -179,26 +263,107 @@ export default function ProductDetailModal({
                 )}
               </div>
 
-              {/* 4-Angle Studio Switcher */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {galleryViews.map((g) => (
+              {/* 4-Angle & Custom Photo Studio Switcher */}
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono-num text-[10px] uppercase tracking-wider text-slate-400">
+                    GALLERY &amp; 4-ANGLE CAD VIEWS ({galleryViews.length})
+                  </span>
                   <button
-                    key={g.view}
-                    onClick={() => setSelectedView(g.view)}
-                    className={`rounded-2xl border px-3.5 py-2.5 text-left transition cursor-pointer ${
-                      selectedView === g.view
-                        ? 'border-indigo-500 bg-indigo-500/15 text-indigo-400 shadow-sm'
-                        : darkMode
-                        ? 'border-white/[0.08] bg-slate-950/70 text-slate-400 hover:text-white'
-                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                    }`}
+                    type="button"
+                    onClick={() => setShowImageAdder((prev) => !prev)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 px-3 py-1.5 font-mono-num text-xs font-bold text-emerald-300 cursor-pointer transition"
                   >
-                    <div className="font-mono-num text-[10px] uppercase text-slate-400">
-                      ANGLE // {g.view}
-                    </div>
-                    <div className="mt-0.5 text-xs font-bold">{g.label}</div>
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>{showImageAdder ? 'Close Image Studio' : '+ Add / Upload Product Image'}</span>
                   </button>
-                ))}
+                </div>
+
+                {showImageAdder && (
+                  <div className="rounded-2xl p-3.5 theme-subtle border border-emerald-500/40 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 font-mono-num text-[10px] font-bold uppercase text-emerald-400">
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        Add Custom Photo or Studio Render to {product.name}
+                      </span>
+                      <span className="font-mono-num text-[10px] text-cyan-400">
+                        Persists to SQLite products
+                      </span>
+                    </div>
+
+                    <label className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-indigo-500/40 hover:border-emerald-400 px-3 py-2 text-xs cursor-pointer transition">
+                      <div className="flex items-center gap-2">
+                        <Upload className="h-4 w-4 text-emerald-400 shrink-0" />
+                        <div>
+                          <span className="font-bold">Upload Image File from Device</span>
+                          <span className="block text-[10px] theme-text-muted">
+                            PNG, JPG, WEBP, SVG or GIF — saves immediately to product gallery
+                          </span>
+                        </div>
+                      </div>
+                      <span className="rounded-lg bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-emerald-300">
+                        Choose File
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleUploadModalImageFile(e.target.files)}
+                        className="hidden"
+                      />
+                    </label>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="text"
+                        value={newImgLabelInput}
+                        onChange={(e) => setNewImgLabelInput(e.target.value)}
+                        placeholder="Photo Label"
+                        className="w-32 rounded-xl px-2.5 py-1.5 text-xs theme-input"
+                      />
+                      <input
+                        type="text"
+                        value={newImgUrlInput}
+                        onChange={(e) => setNewImgUrlInput(e.target.value)}
+                        placeholder="Or paste image URL (https://... or data:image/...)"
+                        className="flex-1 rounded-xl px-2.5 py-1.5 text-xs font-mono-num theme-input"
+                      />
+                      <button
+                        type="button"
+                        disabled={savingImage || !newImgUrlInput.trim()}
+                        onClick={() => handleSaveNewProductImage(newImgUrlInput, newImgLabelInput)}
+                        className="rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 px-3.5 py-1.5 text-xs font-extrabold text-slate-950 cursor-pointer"
+                      >
+                        {savingImage ? 'Saving...' : 'Save Image'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {galleryViews.map((g, idx) => {
+                    const isCustomUrl =
+                      typeof g.view === 'string' &&
+                      (g.view.startsWith('data:image/') ||
+                        g.view.startsWith('http://') ||
+                        g.view.startsWith('https://'));
+                    return (
+                      <button
+                        key={`${g.view}-${idx}`}
+                        onClick={() => setSelectedView(g.view)}
+                        className={`rounded-2xl border px-3.5 py-2.5 text-left transition cursor-pointer ${
+                          selectedView === g.view
+                            ? 'border-indigo-500 bg-indigo-500/15 text-indigo-400 shadow-sm'
+                            : 'theme-subtle hover:border-indigo-400/50'
+                        }`}
+                      >
+                        <div className="font-mono-num text-[10px] uppercase text-slate-400 truncate">
+                          {isCustomUrl ? 'CUSTOM PHOTO' : `ANGLE // ${g.view}`}
+                        </div>
+                        <div className="mt-0.5 text-xs font-bold truncate">{g.label}</div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
