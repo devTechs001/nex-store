@@ -18,6 +18,7 @@ import DocumentationView from './components/DocumentationView.jsx';
 import DesktopSideNav from './components/DesktopSideNav.jsx';
 import MobileBottomNav from './components/MobileBottomNav.jsx';
 import MobileAndSubscriptionsView from './components/MobileAndSubscriptionsView.jsx';
+import SplashScreen from './components/SplashScreen.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
 import { getFallbackBootstrapData, getProductArtUrl } from './utils/storeEngine.js';
 import {
@@ -1615,6 +1616,8 @@ export default function App() {
     [cart]
   );
 
+  const [showSplash, setShowSplash] = useState(true);
+
   const unreadNotificationsCount = useMemo(
     () => notifications.filter((n) => !n.is_read).length,
     [notifications]
@@ -1628,6 +1631,8 @@ export default function App() {
           : 'bg-engineering-grid-light text-slate-900'
       }`}
     >
+      {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
+
       {/* Sticky Top Navbar + Multi-Theme Switcher + Sound/Push Controls + Real-Time Ticker */}
       <Navbar
         activeTab={activeTab}
@@ -1760,6 +1765,7 @@ export default function App() {
               setSelectedProduct(p);
             }}
             onAddToCart={handleAddToCart}
+            onCreateProduct={handleCreateProduct}
             wishlistIds={wishlistIds}
             onToggleWishlist={handleToggleWishlist}
             compareIds={compareIds}
@@ -1891,9 +1897,18 @@ export default function App() {
             <span className="text-amber-300 font-bold">
               🔒 © 2026 NEX STORE &amp; DEVTECHS001 LABS. ALL RIGHTS RESERVED.
             </span>
-            <span className="text-emerald-300">
-              STRICTLY PROPRIETARY &amp; DRM LOCKED — NEVER SHARE, REDISTRIBUTE, OR PIRATE THIS CODE
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-emerald-300">
+                STRICTLY PROPRIETARY &amp; DRM LOCKED — NEVER SHARE, REDISTRIBUTE, OR PIRATE THIS CODE
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowSplash(true)}
+                className="rounded-lg border border-indigo-500/40 bg-indigo-500/15 hover:bg-indigo-500/30 px-2.5 py-1 text-[10px] font-bold text-indigo-300 cursor-pointer"
+              >
+                Replay Boot Splash
+              </button>
+            </div>
           </div>
         </footer>
       </main>
