@@ -124,6 +124,7 @@ export default function App() {
   const [terminalScripts, setTerminalScripts] = useState(initialSeed.terminalScripts || []);
   const [btoConfigs, setBtoConfigs] = useState(initialSeed.btoConfigs || []);
   const [appInstalls, setAppInstalls] = useState(initialSeed.appInstalls || []);
+  const [polyglotAutomations, setPolyglotAutomations] = useState(initialSeed.polyglotAutomations || []);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [hardwareBuilderOpen, setHardwareBuilderOpen] = useState(false);
   const [sideNavCollapsed, setSideNavCollapsed] = useState(false);
@@ -216,6 +217,9 @@ export default function App() {
       if (Array.isArray(data.terminalScripts) && data.terminalScripts.length > 0) setTerminalScripts(data.terminalScripts);
       if (Array.isArray(data.btoConfigs) && data.btoConfigs.length > 0) setBtoConfigs(data.btoConfigs);
       if (Array.isArray(data.appInstalls)) setAppInstalls(data.appInstalls);
+      if (Array.isArray(data.polyglotAutomations) && data.polyglotAutomations.length > 0) {
+        setPolyglotAutomations(data.polyglotAutomations);
+      }
       if (data.analytics && Object.keys(data.analytics).length > 0) setAnalytics(data.analytics);
       if (data.dbStats && Object.keys(data.dbStats).length > 0) setDbStats(data.dbStats);
       if (data.presence) setPresence(data.presence);
@@ -1738,6 +1742,7 @@ export default function App() {
           <AppStoreView
             apps={apps}
             appInstalls={appInstalls}
+            polyglotAutomations={polyglotAutomations}
             darkMode={darkMode}
             onDownloadApp={handleDownloadApp}
             onUninstallApp={handleUninstallApp}
@@ -1835,6 +1840,18 @@ export default function App() {
             />
           </div>
         )}
+
+        {/* Global Copyright & Anti-Piracy DRM Protection Footer */}
+        <footer className="mx-auto max-w-7xl px-4 pt-6 pb-4">
+          <div className="rounded-2xl border border-amber-500/30 bg-slate-950/60 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono-num">
+            <span className="text-amber-300 font-bold">
+              🔒 © 2026 NEX STORE &amp; DEVTECHS001 LABS. ALL RIGHTS RESERVED.
+            </span>
+            <span className="text-emerald-300">
+              STRICTLY PROPRIETARY &amp; DRM LOCKED — NEVER SHARE, REDISTRIBUTE, OR PIRATE THIS CODE
+            </span>
+          </div>
+        </footer>
       </main>
       </div>
 
