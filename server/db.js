@@ -14,7 +14,8 @@ import {
   SEED_SECURITY_EVENTS,
   SEED_NOTIFICATIONS,
   SEED_TERMINAL_LOGS,
-  SEED_TERMINAL_SCRIPTS
+  SEED_TERMINAL_SCRIPTS,
+  SEED_BTO_CONFIGS
 } from './seedData.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -276,6 +277,33 @@ export function initSchema() {
       last_status TEXT NOT NULL DEFAULT 'READY',
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS bto_configs (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      engineer TEXT NOT NULL DEFAULT 'NEX Hardware Lab',
+      slots_json TEXT NOT NULL,
+      total_wattage INTEGER NOT NULL DEFAULT 0,
+      psu_capacity INTEGER NOT NULL DEFAULT 1250,
+      subtotal REAL NOT NULL DEFAULT 0,
+      discount_amount REAL NOT NULL DEFAULT 0,
+      final_price REAL NOT NULL DEFAULT 0,
+      notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_installs (
+      id TEXT PRIMARY KEY,
+      app_id TEXT UNIQUE NOT NULL,
+      app_name TEXT NOT NULL,
+      version TEXT NOT NULL,
+      source_provider TEXT NOT NULL DEFAULT 'NEX Official',
+      install_path TEXT NOT NULL,
+      sandbox_url TEXT NOT NULL,
+      sha256_verified TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'INSTALLED',
+      installed_at TEXT NOT NULL
+    );
   `);
 
   // Ensure existing apps table has multi-source & security columns
@@ -320,6 +348,8 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM push_notifications;
       DELETE FROM terminal_logs;
       DELETE FROM terminal_scripts;
+      DELETE FROM bto_configs;
+      DELETE FROM app_installs;
     `);
   }
 
@@ -359,6 +389,28 @@ export function seedDatabase({ forceReset = false } = {}) {
         a.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
         a.security_score || 99,
         a.permissions_json || '[]',
+        nowApps
+      );
+    }
+  }
+
+  const installsCountRow = db.prepare('SELECT COUNT(*) as count FROM app_installs').get();
+  if (!installsCountRow || installsCountRow.count === 0) {
+    const insertInstall = db.prepare(`
+      INSERT OR REPLACE INTO app_installs (
+        id, app_id, app_name, version, source_provider, install_path, sandbox_url, sha256_verified, status, installed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'INSTALLED', ?)
+    `);
+    for (const a of SEED_APPS.slice(0, 3)) {
+      insertInstall.run(
+        `inst-${a.id}`,
+        a.id,
+        a.name,
+        a.version,
+        a.source_provider || 'NEX Official',
+        `/opt/nex-apps/${a.id}`,
+        `/api/sandbox/${a.id}`,
+        a.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
         nowApps
       );
     }
@@ -453,6 +505,30 @@ export function seedDatabase({ forceReset = false } = {}) {
       insertScript.run(
         s.id, s.name, s.title, s.category, s.description,
         s.author, s.script_body, s.run_count, s.last_status, s.updated_at
+      );
+    }
+  }
+
+  const btoCount = db.prepare('SELECT COUNT(*) as count FROM bto_configs').get();
+  if (!btoCount || btoCount.count === 0) {
+    const insertBto = db.prepare(`
+      INSERT INTO bto_configs (
+        id, name, engineer, slots_json, total_wattage, psu_capacity, subtotal, discount_amount, final_price, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const b of SEED_BTO_CONFIGS) {
+      insertBto.run(
+        b.id,
+        b.name,
+        b.engineer,
+        b.slots_json,
+        b.total_wattage,
+        b.psu_capacity,
+        b.subtotal,
+        b.discount_amount,
+        b.final_price,
+        b.notes,
+        b.created_at
       );
     }
   }

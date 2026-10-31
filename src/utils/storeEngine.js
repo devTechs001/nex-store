@@ -11,7 +11,8 @@ import {
   SEED_SECURITY_EVENTS,
   SEED_NOTIFICATIONS,
   SEED_TERMINAL_LOGS,
-  SEED_TERMINAL_SCRIPTS
+  SEED_TERMINAL_SCRIPTS,
+  SEED_BTO_CONFIGS
 } from '../../server/seedData.js';
 
 export function getProductArtUrl(productOrId, { view = 'hero', color = null } = {}) {
@@ -69,6 +70,22 @@ export function getFallbackBootstrapData() {
   const terminalScripts = SEED_TERMINAL_SCRIPTS.map((s) => ({
     ...s,
     code: s.code || s.script_body
+  }));
+  const btoConfigs = SEED_BTO_CONFIGS.map((b) => ({
+    ...b,
+    slots: typeof b.slots_json === 'string' ? JSON.parse(b.slots_json) : b.slots || {}
+  }));
+  const appInstalls = apps.slice(0, 3).map((a) => ({
+    id: `inst-${a.id}`,
+    app_id: a.id,
+    app_name: a.name,
+    version: a.version,
+    source_provider: a.source_provider || 'NEX Official',
+    install_path: `/opt/nex-apps/${a.id}`,
+    sandbox_url: `/api/sandbox/${a.id}`,
+    sha256_verified: a.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
+    status: 'INSTALLED',
+    installed_at: new Date().toISOString()
   }));
   const orders = SEED_ORDERS.map((o) => ({
     ...o,
@@ -170,7 +187,9 @@ export function getFallbackBootstrapData() {
     { name: 'security_events', rowCount: securityEvents.length, rows: securityEvents },
     { name: 'push_notifications', rowCount: notifications.length, rows: notifications },
     { name: 'terminal_logs', rowCount: terminalLogs.length, rows: terminalLogs },
-    { name: 'terminal_scripts', rowCount: terminalScripts.length, rows: terminalScripts }
+    { name: 'terminal_scripts', rowCount: terminalScripts.length, rows: terminalScripts },
+    { name: 'bto_configs', rowCount: btoConfigs.length, rows: btoConfigs },
+    { name: 'app_installs', rowCount: appInstalls.length, rows: appInstalls }
   ].map((t) => ({
     ...t,
     columns: Object.keys(t.rows[0] || { id: '' }).map((colName, i) => ({
@@ -196,6 +215,8 @@ export function getFallbackBootstrapData() {
     notifications,
     terminalLogs,
     terminalScripts,
+    btoConfigs,
+    appInstalls,
     analytics: {
       totalOrders: orders.length,
       totalRevenue,

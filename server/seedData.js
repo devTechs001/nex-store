@@ -1422,6 +1422,67 @@ export const SEED_TERMINAL_SCRIPTS = [
   }
 ];
 
+export const SEED_BTO_CONFIGS = [
+  {
+    id: 'bto-omega-ai',
+    name: 'NEX-RIG-OMEGA-AI // Neural Training Workstation',
+    engineer: 'Dr. Elena Rostova (AI Systems Lead)',
+    slots_json: JSON.stringify({
+      compute: 'prod-nova-book',
+      neural: 'prod-axon-npu',
+      display: 'prod-lumina-oled',
+      networking: 'prod-vortex-router',
+      peripherals: 'prod-chronos-key'
+    }),
+    total_wattage: 745,
+    psu_capacity: 1250,
+    subtotal: 7195,
+    discount_amount: 359.75,
+    final_price: 6835.25,
+    notes: 'Full 5-slot PCIe 5.0 / Thunderbolt 5 validated rig for LLM fine-tuning & low-latency inference.',
+    created_at: '2026-10-27T09:15:00Z'
+  },
+  {
+    id: 'bto-quantum-sec',
+    name: 'NEX-RIG-ZERO-TRUST // SecOps Command Pod',
+    engineer: 'Marcus Vance (Principal SecOps)',
+    slots_json: JSON.stringify({
+      compute: 'prod-nova-book',
+      neural: 'prod-pulse-dac',
+      display: 'prod-lumina-oled',
+      networking: 'prod-titan-ssd',
+      peripherals: 'prod-chronos-key'
+    }),
+    total_wattage: 560,
+    psu_capacity: 1250,
+    subtotal: 5845,
+    discount_amount: 292.25,
+    final_price: 5552.75,
+    notes: 'Hardened multi-monitor SecOps rig with hardware-encrypted NVMe array.',
+    created_at: '2026-10-27T10:40:00Z'
+  },
+  {
+    id: 'bto-edge-creator',
+    name: 'NEX-RIG-SPATIAL-PRO // 8K CAD & Photonics Rig',
+    engineer: 'Kenji Takahashi (Industrial CAD Lab)',
+    slots_json: JSON.stringify({
+      compute: 'prod-nova-book',
+      neural: 'prod-axon-npu',
+      display: 'prod-spectre-ar',
+      networking: 'prod-titan-ssd',
+      peripherals: 'prod-gravity-mouse'
+    }),
+    total_wattage: 635,
+    psu_capacity: 1250,
+    subtotal: 6195,
+    discount_amount: 309.75,
+    final_price: 5885.25,
+    notes: 'Optimized for 4-angle real-time CAD rendering and spatial AR telemetry.',
+    created_at: '2026-10-27T11:55:00Z'
+  }
+];
+
+
 
 
 

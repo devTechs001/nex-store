@@ -11,7 +11,10 @@ import {
   X,
   Sliders,
   Zap,
-  ShieldCheck
+  ShieldCheck,
+  Save,
+  Database,
+  Trash2
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
 import { getProductArtUrl } from '../utils/storeEngine.js';
@@ -35,14 +38,19 @@ export default function HardwareBuilderModal({
   isOpen,
   onClose,
   products = [],
+  btoConfigs = [],
   currency,
   onAddRigToCart,
+  onSaveBtoRig,
+  onDeleteBtoRig,
   onPlaySound
 }) {
   const [selectedBySlot, setSelectedBySlot] = useState({});
   const [selectedFinish, setSelectedFinish] = useState(FINISH_OPTIONS[0]);
   const [engraving, setEngraving] = useState('NEX-LABS // 001');
   const [calibrationTier, setCalibrationTier] = useState('standard');
+  const [rigName, setRigName] = useState('NEX-RIG-CUSTOM-PRO');
+  const [isSavingRig, setIsSavingRig] = useState(false);
 
   const slotOptions = useMemo(() => {
     const map = {};
@@ -90,6 +98,54 @@ export default function HardwareBuilderModal({
     onClose();
   };
 
+  const handleSaveToSqlite = async () => {
+    if (!onSaveBtoRig || chosenProducts.length === 0) return;
+    setIsSavingRig(true);
+    onPlaySound?.('success');
+    const slotsPayload = {};
+    for (const s of BUILD_SLOTS) {
+      if (activeSelection[s.id]?.id) {
+        slotsPayload[s.id] = activeSelection[s.id].id;
+      }
+    }
+    try {
+      await onSaveBtoRig({
+        name: rigName.trim() || `NEX-RIG-${Date.now().toString(36).toUpperCase()}`,
+        engineer: engraving.trim() || 'NEX Studio Architect',
+        slots: slotsPayload,
+        total_wattage: estimatedWatts,
+        psu_capacity: 1250,
+        subtotal: rawSubtotal,
+        discount_amount: discountAmount,
+        final_price: finalRigPrice,
+        notes: `${selectedFinish.name} finish • ${calibrationTier.toUpperCase()} calibration`
+      });
+    } finally {
+      setIsSavingRig(false);
+    }
+  };
+
+  const handleLoadPresetRig = (rig) => {
+    onPlaySound?.('click');
+    const parsedSlots =
+      typeof rig.slots === 'object' && rig.slots !== null
+        ? rig.slots
+        : typeof rig.slots_json === 'string'
+        ? JSON.parse(rig.slots_json)
+        : {};
+    const nextMap = {};
+    const values = Object.values(parsedSlots);
+    BUILD_SLOTS.forEach((slot, idx) => {
+      if (parsedSlots[slot.id]) {
+        nextMap[slot.id] = parsedSlots[slot.id];
+      } else if (values[idx]) {
+        nextMap[slot.id] = values[idx];
+      }
+    });
+    setSelectedBySlot(nextMap);
+    if (rig.name) setRigName(rig.name);
+  };
+
   return (
     <div
       onClick={onClose}
@@ -118,6 +174,48 @@ export default function HardwareBuilderModal({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Saved SQLite BTO Rig Presets Strip (`GET /api/bto/configs`) */}
+        {btoConfigs.length > 0 && (
+          <div className="rounded-2xl p-3.5 theme-subtle space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5 font-mono-num text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+                <Database className="h-3.5 w-3.5" />
+                Saved SQLite Rig Blueprints (`bto_configs` • {btoConfigs.length})
+              </span>
+              <span className="text-[11px] theme-text-muted">Click any blueprint to load slots</span>
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
+              {btoConfigs.map((rig) => (
+                <div
+                  key={rig.id}
+                  className="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 theme-card hover:border-cyan-400/50 shrink-0 text-xs"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleLoadPresetRig(rig)}
+                    className="text-left cursor-pointer"
+                  >
+                    <div className="font-bold text-cyan-300 truncate max-w-[190px]">{rig.name}</div>
+                    <div className="font-mono-num text-[10px] theme-text-muted">
+                      {rig.total_wattage}W • {formatPrice(rig.final_price || rig.subtotal || 5800, currency)}
+                    </div>
+                  </button>
+                  {onDeleteBtoRig && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteBtoRig(rig.id)}
+                      title="Delete saved rig from SQLite"
+                      className="p-1 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left 2 Columns: 5 Hardware Slots */}
@@ -301,15 +399,38 @@ export default function HardwareBuilderModal({
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleDeployRig}
-                disabled={chosenProducts.length === 0}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 py-3 text-xs font-bold text-white shadow-lg cursor-pointer"
-              >
-                <ShoppingBag className="h-4 w-4" />
-                <span>Add Complete Custom Rig ({chosenProducts.length} SKUs) to Cart</span>
-              </button>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={rigName}
+                    onChange={(e) => setRigName(e.target.value)}
+                    placeholder="NEX-RIG-CUSTOM-PRO"
+                    className="flex-1 rounded-xl px-3 py-2 font-mono-num text-xs theme-input"
+                  />
+                  {onSaveBtoRig && (
+                    <button
+                      type="button"
+                      onClick={handleSaveToSqlite}
+                      disabled={isSavingRig || chosenProducts.length === 0}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 px-3 py-2 text-xs font-mono-num font-bold text-emerald-300 cursor-pointer shrink-0"
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      <span>{isSavingRig ? 'Saving...' : 'Save to SQLite'}</span>
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDeployRig}
+                  disabled={chosenProducts.length === 0}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 py-3 text-xs font-bold text-white shadow-lg cursor-pointer"
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                  <span>Add Complete Custom Rig ({chosenProducts.length} SKUs) to Cart</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

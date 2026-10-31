@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Download,
   Upload,
@@ -16,8 +16,14 @@ import {
   GitBranch,
   Cpu,
   X,
-  RefreshCw
+  RefreshCw,
+  Trash2,
+  HardDrive,
+  Activity,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
+import { renderSandboxedAppHtml } from '../../server/appSandboxRuntime.js';
 
 const COMMUNITY_NETLIFY_PRESETS = [
   {
@@ -92,8 +98,10 @@ function safeParseArray(val, fallback = []) {
 
 export default function AppStoreView({
   apps = [],
+  appInstalls = [],
   darkMode,
   onDownloadApp,
+  onUninstallApp,
   onCreateApp,
   onPlaySound
 }) {
@@ -102,11 +110,31 @@ export default function AppStoreView({
   const [selectedCat, setSelectedCat] = useState('all');
   const [query, setQuery] = useState('');
   const [installingIds, setInstallingIds] = useState({});
-  const [installedIds, setInstalledIds] = useState([]);
+  const [installStageById, setInstallStageById] = useState({});
+  const [localInstalledIds, setLocalInstalledIds] = useState([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [previewApp, setPreviewApp] = useState(null);
+  const [sandboxMode, setSandboxMode] = useState('container'); // 'container' | 'external'
+  const [sandboxReloadKey, setSandboxReloadKey] = useState(0);
+  const [isSandboxExpanded, setIsSandboxExpanded] = useState(false);
+  const [sandboxTelemetry, setSandboxTelemetry] = useState(null);
   const [scanningId, setScanningId] = useState(null);
   const [verifiedScanIds, setVerifiedScanIds] = useState({});
+
+  const installedIds = useMemo(() => {
+    const fromDb = (appInstalls || []).map((i) => i.app_id);
+    return Array.from(new Set([...fromDb, ...localInstalledIds]));
+  }, [appInstalls, localInstalledIds]);
+
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event?.data && event.data.type === 'nex-sandbox:telemetry') {
+        setSandboxTelemetry(event.data);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   // Multi-Source Import / Upload Form
   const [appName, setAppName] = useState('');
@@ -151,9 +179,26 @@ export default function AppStoreView({
   const handleInstall = async (app) => {
     if (installingIds[app.id]) return;
     onPlaySound?.('click');
-    setInstallingIds((prev) => ({ ...prev, [app.id]: 20 }));
-    setTimeout(() => setInstallingIds((prev) => ({ ...prev, [app.id]: 70 })), 220);
+    setInstallingIds((prev) => ({ ...prev, [app.id]: 22 }));
+    setInstallStageById((prev) => ({
+      ...prev,
+      [app.id]: '1/3 Fetching package manifest & verifying SHA-256...'
+    }));
+
+    setTimeout(() => {
+      setInstallingIds((prev) => ({ ...prev, [app.id]: 64 }));
+      setInstallStageById((prev) => ({
+        ...prev,
+        [app.id]: `2/3 Mounting isolated container /opt/nex-apps/${app.id}...`
+      }));
+    }, 240);
+
     setTimeout(async () => {
+      setInstallingIds((prev) => ({ ...prev, [app.id]: 92 }));
+      setInstallStageById((prev) => ({
+        ...prev,
+        [app.id]: `3/3 Registering SQLite app_installs & /api/sandbox/${app.id}...`
+      }));
       await onDownloadApp(app.id);
       onPlaySound?.('success');
       setInstallingIds((prev) => {
@@ -161,8 +206,30 @@ export default function AppStoreView({
         delete copy[app.id];
         return copy;
       });
-      setInstalledIds((prev) => (prev.includes(app.id) ? prev : [...prev, app.id]));
-    }, 520);
+      setLocalInstalledIds((prev) => (prev.includes(app.id) ? prev : [...prev, app.id]));
+    }, 560);
+  };
+
+  const handleUninstall = async (appId) => {
+    onPlaySound?.('click');
+    setLocalInstalledIds((prev) => prev.filter((id) => id !== appId));
+    if (onUninstallApp) {
+      await onUninstallApp(appId);
+    }
+  };
+
+  const handleDownloadStandalonePackage = (app) => {
+    onPlaySound?.('success');
+    const htmlContent = renderSandboxedAppHtml(app, { isDownloadPackage: true });
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${app.id}-v${app.version}-standalone.html`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleAutoInspectUrl = () => {
@@ -337,6 +404,92 @@ export default function AppStoreView({
           </button>
         </div>
       </div>
+
+      {/* Installed Workstation Packages Dock (`/opt/nex-apps/*` • SQLite `app_installs`) */}
+      {installedIds.length > 0 && (
+        <div className="rounded-3xl p-4 sm:p-5 theme-card space-y-3 border border-emerald-500/30">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <HardDrive className="h-4 w-4 text-emerald-400" />
+              <span className="font-mono-num text-xs font-bold uppercase tracking-wider text-emerald-400">
+                Installed Workstation Packages (/opt/nex-apps/* • {installedIds.length} Mounted in SQLite)
+              </span>
+            </div>
+            <span className="font-mono-num text-[11px] theme-text-muted">
+              Click <strong>Launch Sandbox</strong> to run the isolated HTML5/Canvas/WebAudio container
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {installedIds.map((instAppId) => {
+              const found = apps.find((a) => a.id === instAppId);
+              const rec = (appInstalls || []).find((i) => i.app_id === instAppId);
+              if (!found && !rec) return null;
+              const title = found?.name || rec?.app_name || instAppId;
+              const ver = found?.version || rec?.version || '1.0.0';
+              const mountPath = rec?.install_path || `/opt/nex-apps/${instAppId}`;
+              const appObj = found || {
+                id: instAppId,
+                name: title,
+                version: ver,
+                source_provider: rec?.source_provider || 'NEX Official',
+                developer: 'Workstation Package',
+                icon: '📦',
+                description: 'Mounted workstation package in SQLite app_installs.'
+              };
+
+              return (
+                <div
+                  key={instAppId}
+                  className="flex items-center justify-between gap-2 rounded-2xl p-3 theme-subtle border border-emerald-500/25"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-xl shrink-0">{appObj.icon || '📦'}</span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold truncate">{title}</div>
+                      <div className="font-mono-num text-[10px] text-emerald-400 truncate">
+                        {mountPath} • v{ver}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onPlaySound?.('click');
+                        setSandboxMode('container');
+                        setPreviewApp(appObj);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 px-2.5 py-1.5 text-[11px] font-bold text-emerald-300 cursor-pointer"
+                      title="Launch Real Isolated Sandbox Container"
+                    >
+                      <Play className="h-3 w-3" />
+                      <span>Run</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadStandalonePackage(appObj)}
+                      className="rounded-xl p-1.5 theme-card hover:border-cyan-400/50 text-cyan-400 cursor-pointer"
+                      title="Download Standalone Executable .html Package"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUninstall(instAppId)}
+                      className="rounded-xl p-1.5 theme-card hover:border-rose-400/50 text-rose-400 cursor-pointer"
+                      title="Uninstall & Unmount from SQLite app_installs"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Verified Community Developers & Live CI/CD Pipeline Strip */}
       <div className="rounded-3xl p-4 theme-card space-y-3">
@@ -590,7 +743,7 @@ export default function AppStoreView({
               {progress !== undefined ? (
                 <div className="space-y-1.5 pt-2">
                   <div className="flex justify-between font-mono-num text-[10px] text-cyan-400">
-                    <span>VERIFYING SHA-256 & INSTALLING...</span>
+                    <span className="truncate">{installStageById[app.id] || 'VERIFYING SHA-256 & MOUNTING...'}</span>
                     <span>{progress}%</span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
@@ -604,12 +757,23 @@ export default function AppStoreView({
                 <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/[0.07]">
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => setPreviewApp(app)}
+                      onClick={() => {
+                        onPlaySound?.('click');
+                        setSandboxMode('container');
+                        setPreviewApp(app);
+                      }}
                       className="inline-flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold theme-subtle hover:border-cyan-400/50 cursor-pointer"
-                      title="Open Live Sandbox & Security Inspector"
+                      title="Open Real Isolated HTML5/Canvas/WebAudio Sandbox"
                     >
                       <Play className="h-3.5 w-3.5 text-cyan-400" />
                       <span>Sandbox</span>
+                    </button>
+                    <button
+                      onClick={() => handleDownloadStandalonePackage(app)}
+                      className="inline-flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold theme-subtle hover:border-indigo-400/50 cursor-pointer"
+                      title="Download Standalone Executable .html Package"
+                    >
+                      <Download className="h-3.5 w-3.5 text-indigo-400" />
                     </button>
                     <button
                       onClick={() => handleRunSecurityScan(app)}
@@ -625,17 +789,36 @@ export default function AppStoreView({
                     </button>
                   </div>
 
-                  <button
-                    onClick={() => handleInstall(app)}
-                    className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold transition cursor-pointer ${
-                      isInstalled
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-500/25'
-                    }`}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    <span>{isInstalled ? 'Installed ✓' : 'Install App'}</span>
-                  </button>
+                  {isInstalled ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          onPlaySound?.('click');
+                          setSandboxMode('container');
+                          setPreviewApp(app);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 px-3 py-2 text-xs font-bold text-emerald-400 cursor-pointer"
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                        <span>Launch</span>
+                      </button>
+                      <button
+                        onClick={() => handleUninstall(app.id)}
+                        title="Uninstall from Workstation"
+                        className="rounded-xl p-2 theme-subtle hover:border-rose-400/50 text-rose-400 cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleInstall(app)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-500/25 transition cursor-pointer"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Install App</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -643,24 +826,29 @@ export default function AppStoreView({
         })}
       </div>
 
-      {/* Live App Sandbox & Security Inspector Modal */}
+      {/* Real Isolated App Sandbox (<iframe sandbox="...">) & Live IPC Telemetry Modal */}
       {previewApp && (
         <div
           onClick={() => setPreviewApp(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-2 sm:p-5 overflow-y-auto"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-3xl rounded-3xl p-6 space-y-5 shadow-2xl theme-card"
+            className={`w-full ${
+              isSandboxExpanded ? 'max-w-6xl' : 'max-w-4xl'
+            } rounded-3xl p-4 sm:p-6 space-y-4 shadow-2xl theme-card my-auto transition-all`}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] pb-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-2xl">
+            {/* Sandbox Modal Header */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] pb-3.5">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-2xl">
                   {previewApp.icon || '🚀'}
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-display text-lg font-bold">{previewApp.name}</h3>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-display text-base sm:text-lg font-bold truncate">
+                      {previewApp.name}
+                    </h3>
                     <span
                       className={`rounded-lg border px-2 py-0.5 font-mono-num text-[10px] font-bold uppercase ${getProviderBadgeStyle(
                         previewApp.source_provider
@@ -668,114 +856,191 @@ export default function AppStoreView({
                     >
                       {previewApp.source_provider || 'NEX Official'}
                     </span>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono-num text-[10px] text-emerald-400">
+                      <Lock className="h-3 w-3" />
+                      /opt/nex-apps/{previewApp.id}
+                    </span>
                   </div>
-                  <p className="text-xs theme-text-muted">
-                    Developed by <strong>{previewApp.developer}</strong> • Version {previewApp.version}
+                  <p className="text-xs theme-text-muted truncate">
+                    By <strong>{previewApp.developer}</strong> • v{previewApp.version} • Endpoint:{' '}
+                    <code className="text-cyan-400 font-mono-num">/api/sandbox/{previewApp.id}</code>
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setPreviewApp(null)}
-                className="rounded-xl p-2 theme-subtle cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
+
+              {/* Sandbox Mode & Window Controls */}
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center rounded-xl p-1 theme-subtle">
+                  <button
+                    type="button"
+                    onClick={() => setSandboxMode('container')}
+                    className={`rounded-lg px-2.5 py-1 font-mono-num text-[11px] font-bold transition cursor-pointer ${
+                      sandboxMode === 'container'
+                        ? 'bg-indigo-600 text-white'
+                        : 'theme-text-muted hover:text-white'
+                    }`}
+                  >
+                    Container Runtime
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSandboxMode('external')}
+                    className={`rounded-lg px-2.5 py-1 font-mono-num text-[11px] font-bold transition cursor-pointer ${
+                      sandboxMode === 'external'
+                        ? 'bg-cyan-600 text-white'
+                        : 'theme-text-muted hover:text-white'
+                    }`}
+                  >
+                    External URL
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSandboxReloadKey((k) => k + 1)}
+                  title="Restart Sandboxed Container"
+                  className="rounded-xl p-2 theme-subtle hover:border-cyan-400/50 cursor-pointer"
+                >
+                  <RefreshCw className="h-4 w-4 text-cyan-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSandboxExpanded((prev) => !prev)}
+                  title={isSandboxExpanded ? 'Compact Window' : 'Expand Window'}
+                  className="rounded-xl p-2 theme-subtle hover:border-indigo-400/50 cursor-pointer"
+                >
+                  {isSandboxExpanded ? (
+                    <Minimize2 className="h-4 w-4 text-indigo-400" />
+                  ) : (
+                    <Maximize2 className="h-4 w-4 text-indigo-400" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewApp(null)}
+                  className="rounded-xl p-2 theme-subtle cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
-            {/* Interactive Simulated App Sandbox Viewport */}
-            <div className="rounded-2xl border border-indigo-500/30 bg-slate-950 p-5 text-slate-100 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
+            {/* Real Isolated <iframe sandbox> Viewport */}
+            <div className="rounded-2xl border border-indigo-500/35 bg-slate-950 overflow-hidden shadow-inner">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-slate-900 border-b border-slate-800 font-mono-num text-xs">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
                   <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                  <span className="ml-2 font-mono-num text-xs text-cyan-400">
-                    {previewApp.live_url || `https://${previewApp.id}.netlify.app`}
+                  <span className="ml-1 text-cyan-400 truncate">
+                    {sandboxMode === 'container'
+                      ? `sandbox://localhost:3000/api/sandbox/${previewApp.id}`
+                      : previewApp.live_url || `https://${previewApp.id}.netlify.app`}
                   </span>
                 </div>
-                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-mono-num text-[10px] text-emerald-400">
-                  <Lock className="h-3 w-3" />
-                  TLS 1.3 • Isolated Container
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center py-2">
-                <div className="space-y-2.5">
-                  <div className="inline-flex items-center gap-1.5 font-mono-num text-xs text-indigo-400">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    <span>LIVE INTERACTIVE RUNTIME TELEMETRY</span>
-                  </div>
-                  <h4 className="font-display text-base font-bold text-white">
-                    {previewApp.name} Sandbox Environment
-                  </h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {previewApp.description}
-                  </p>
-                  <div className="pt-1 flex flex-wrap gap-2">
-                    {previewApp.live_url && (
-                      <a
-                        href={previewApp.live_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-teal-500 hover:bg-teal-400 px-3.5 py-2 text-xs font-bold text-slate-950 transition"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        <span>Open Deployment ({previewApp.source_provider || 'Netlify'})</span>
-                      </a>
-                    )}
-                    {previewApp.repo_url && (
-                      <a
-                        href={previewApp.repo_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 transition"
-                      >
-                        <GitBranch className="h-3.5 w-3.5" />
-                        <span>Source Repo</span>
-                      </a>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3.5 font-mono-num text-[11px] space-y-2">
-                  <div className="text-emerald-400 font-bold">
-                    $ nex-sandbox verify --app {previewApp.id}
-                  </div>
-                  <div className="text-slate-300">
-                    • Provider: <span className="text-cyan-300">{previewApp.source_provider || 'NEX Official'}</span>
-                  </div>
-                  <div className="text-slate-300 truncate">
-                    • SHA-256: <span className="text-indigo-300">{previewApp.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924'}</span>
-                  </div>
-                  <div className="text-slate-300">
-                    • Security Audit: <span className="text-emerald-400">{previewApp.security_score || 99}/100 (0 CVEs)</span>
-                  </div>
-                  <div className="text-slate-300">
-                    • Capabilities: {safeParseArray(previewApp.permissions_json, ['Sandboxed Iframe']).join(', ')}
-                  </div>
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="text-emerald-400 flex items-center gap-1">
+                    <Activity className="h-3 w-3" />
+                    IPC Packets: <strong>{sandboxTelemetry?.ipcCount || 1}</strong>
+                  </span>
+                  <span className="text-indigo-300 hidden sm:inline">
+                    Ops: <strong>{sandboxTelemetry?.opsPerSec || '142.8 K/s'}</strong>
+                  </span>
+                  <span className="text-cyan-300 hidden md:inline">
+                    Event: <strong>{sandboxTelemetry?.lastEvent || 'sandbox_ready'}</strong>
+                  </span>
                 </div>
               </div>
+
+              {sandboxMode === 'container' ? (
+                <iframe
+                  key={`${previewApp.id}-container-${sandboxReloadKey}`}
+                  title={`${previewApp.name} Isolated Sandbox Runtime`}
+                  sandbox="allow-scripts allow-forms allow-same-origin"
+                  srcDoc={renderSandboxedAppHtml(previewApp)}
+                  className={`w-full border-0 bg-slate-950 ${
+                    isSandboxExpanded ? 'h-[510px]' : 'h-[400px]'
+                  }`}
+                />
+              ) : (
+                <div className="space-y-2 p-3 bg-slate-950">
+                  <div className="flex items-center justify-between px-2 py-1 text-xs text-slate-400">
+                    <span>
+                      Embedding external origin:{' '}
+                      <strong className="text-cyan-300">{previewApp.live_url}</strong>
+                    </span>
+                    <a
+                      href={previewApp.live_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-teal-400 hover:underline font-semibold"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Open in New Tab
+                    </a>
+                  </div>
+                  <iframe
+                    key={`${previewApp.id}-ext-${sandboxReloadKey}`}
+                    title={`${previewApp.name} External Origin`}
+                    sandbox="allow-scripts allow-forms allow-same-origin"
+                    src={previewApp.live_url || `/api/sandbox/${previewApp.id}`}
+                    className={`w-full rounded-xl border border-slate-800 bg-slate-900 ${
+                      isSandboxExpanded ? 'h-[460px]' : 'h-[350px]'
+                    }`}
+                  />
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center justify-between pt-1">
-              <button
-                onClick={() => handleRunSecurityScan(previewApp)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-400 cursor-pointer"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                <span>Re-Verify Cryptographic Checksum</span>
-              </button>
+            {/* Sandbox Footer Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleRunSecurityScan(previewApp)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-semibold text-emerald-400 cursor-pointer"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>Verify SHA-256 ({previewApp.security_score || 99}/100)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadStandalonePackage(previewApp)}
+                  className="inline-flex items-center gap-1.5 rounded-xl theme-subtle px-3.5 py-2 text-xs font-semibold text-cyan-400 hover:border-cyan-400/50 cursor-pointer"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Download Standalone .html Bundle</span>
+                </button>
+              </div>
 
-              <button
-                onClick={() => {
-                  handleInstall(previewApp);
-                  setPreviewApp(null);
-                }}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-2.5 text-xs font-semibold text-white cursor-pointer"
-              >
-                <Download className="h-4 w-4" />
-                <span>Install & Sync Package</span>
-              </button>
+              {installedIds.includes(previewApp.id) ? (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 px-3.5 py-2 text-xs font-bold text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Mounted in /opt/nex-apps/{previewApp.id}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleUninstall(previewApp.id);
+                      setPreviewApp(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 px-3.5 py-2 text-xs font-semibold text-rose-400 cursor-pointer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>Uninstall</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleInstall(previewApp)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-2.5 text-xs font-semibold text-white cursor-pointer"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Install &amp; Mount to Workstation</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
