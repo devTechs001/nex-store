@@ -26,22 +26,14 @@ export default function CompareModal({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center theme-modal-backdrop p-4"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-3xl border shadow-2xl transition-colors ${
-          darkMode
-            ? 'bg-slate-900 border-white/[0.1] text-slate-100'
-            : 'bg-white border-slate-200 text-slate-900'
-        }`}
+        className="w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-3xl border shadow-2xl transition-colors theme-modal-panel theme-card"
       >
         <div
-          className={`sticky top-0 z-10 flex items-center justify-between border-b px-6 py-4 backdrop-blur-md ${
-            darkMode
-              ? 'border-white/[0.08] bg-slate-900/95'
-              : 'border-slate-200 bg-white/95'
-          }`}
+          className="sticky top-0 z-10 flex items-center justify-between border-b px-6 py-4 backdrop-blur-md theme-header"
         >
           <div className="flex items-center gap-2.5">
             <Layers className="h-5 w-5 text-cyan-400" />

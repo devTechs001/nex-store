@@ -49,6 +49,7 @@ export default function CartCheckoutDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
   const [completedOrder, setCompletedOrder] = useState(null);
+  const [completedPayment, setCompletedPayment] = useState(null);
 
   React.useEffect(() => {
     if (isOpen) {
@@ -169,6 +170,7 @@ export default function CartCheckoutDrawer({
           setCheckoutError(data.error || 'Checkout failed');
         } else {
           setCompletedOrder(data.order);
+          setCompletedPayment(data.paymentTransaction || null);
           onClearCart();
           setAppliedCoupon(null);
           setDrawerTab('success');
@@ -239,15 +241,11 @@ export default function CartCheckoutDrawer({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex justify-end bg-slate-950/75 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex justify-end theme-modal-backdrop"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`flex h-full w-full max-w-lg flex-col border-l shadow-2xl transition-colors ${
-          darkMode
-            ? 'bg-slate-900 border-white/[0.1] text-slate-100'
-            : 'bg-white border-slate-200 text-slate-900'
-        }`}
+        className="flex h-full w-full max-w-lg flex-col border-l shadow-2xl transition-colors theme-modal-panel theme-card"
       >
         {/* Drawer Header */}
         <div
@@ -753,6 +751,19 @@ export default function CartCheckoutDrawer({
                     {formatPrice(completedOrder.total, currency)}
                   </span>
                 </div>
+                {completedPayment && (
+                  <div className="pt-2 border-t border-white/[0.08] space-y-1">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-slate-400">Payment Gateway Auth:</span>
+                      <span className="font-mono-num font-bold text-cyan-400">
+                        {completedPayment.auth_code} ({completedPayment.provider})
+                      </span>
+                    </div>
+                    <div className="font-mono-num text-[10px] text-emerald-400 truncate">
+                      Receipt: {completedPayment.receipt_hash}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-2 pt-2">

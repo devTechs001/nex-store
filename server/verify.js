@@ -7,6 +7,12 @@ import { renderProductSvg } from './productArt.js';
 import { renderSandboxedAppHtml } from './appSandboxRuntime.js';
 import { renderAppBannerSvg } from './appArtAndFetcher.js';
 import { executePolyglotAutomation, aiEnhancePolyglotScript } from './polyglotAutomationEngine.js';
+import {
+  getEnvAdminConfig,
+  detectXssAttempt,
+  sanitizeObjectPayloads,
+  verifyAppRealnessAndMalware
+} from './envAndSecurity.js';
 import { THEMES } from '../src/utils/themes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -47,7 +53,12 @@ const expectedTables = [
   'polyglot_automations',
   'subscription_plans',
   'user_subscriptions',
-  'mobile_addons'
+  'mobile_addons',
+  'user_accounts',
+  'hosting_deployments',
+  'blocked_ips',
+  'security_reports',
+  'payment_transactions'
 ];
 
 for (const tbl of expectedTables) {
@@ -79,6 +90,28 @@ assert.ok(polyCount >= 6, 'Expected at least 6 seeded polyglot automations (Pyth
 assert.ok(plansCount >= 4, 'Expected at least 4 seeded subscription plans');
 assert.ok(userSubsCount >= 3, 'Expected at least 3 seeded user subscriptions');
 assert.ok(mobileAddonsCount >= 5, 'Expected at least 5 seeded mobile Native/Flutter add-on modules');
+
+const accountsCount = db.prepare('SELECT COUNT(*) as c FROM user_accounts').get().c;
+const hostingCount = db.prepare('SELECT COUNT(*) as c FROM hosting_deployments').get().c;
+const blockedIpsCount = db.prepare('SELECT COUNT(*) as c FROM blocked_ips').get().c;
+const reportsCount = db.prepare('SELECT COUNT(*) as c FROM security_reports').get().c;
+const paymentsCount = db.prepare('SELECT COUNT(*) as c FROM payment_transactions').get().c;
+assert.ok(accountsCount >= 3, 'Expected at least 3 seeded developer/user accounts in user_accounts');
+assert.ok(hostingCount >= 4, 'Expected at least 4 seeded Netlify/Render/Vercel/Fly.io deployments in hosting_deployments');
+assert.ok(blockedIpsCount >= 3, 'Expected at least 3 seeded blocked IPs in blocked_ips');
+assert.ok(reportsCount >= 3, 'Expected at least 3 seeded security reports in security_reports');
+assert.ok(paymentsCount >= 3, 'Expected at least 3 seeded payment transactions in payment_transactions');
+
+// 3a. Verify .env Root Admin Auth, XSS Sanitizer & 5-Stage App Realness/Malware Scanner
+const envAdmin = getEnvAdminConfig();
+assert.ok(envAdmin.envLoaded && envAdmin.username && envAdmin.password, 'Expected Root Admin credentials loaded strictly from .env');
+const xssCheck = detectXssAttempt('<script>alert(document.cookie)</script>');
+assert.ok(xssCheck && xssCheck.detected, 'Expected detectXssAttempt to catch <script> payload');
+const sanitizedPayload = sanitizeObjectPayloads({ note: '<script>evil()</script>SafeText' });
+assert.ok(!sanitizedPayload.note.includes('<script>'), 'Expected sanitizeObjectPayloads to neutralize <script> tag');
+const firstAppRow = db.prepare('SELECT * FROM apps LIMIT 1').get();
+const realnessReport = verifyAppRealnessAndMalware(firstAppRow, 'linux-x86_64');
+assert.ok(realnessReport.malwareFree && realnessReport.stages.length === 5, 'Expected 5-stage app realness, compatibility & malware verification');
 
 // 3b. Verify Real Sandboxed App HTML5 Runtime Engine, App Banner SVG & Polyglot Execution
 const sampleApp = db.prepare('SELECT * FROM apps LIMIT 1').get();
@@ -122,6 +155,7 @@ assert.ok(cssSource.includes('scrollbar-width: thin'), 'Missing Firefox scrollba
 assert.ok(cssSource.includes('select option'), 'Missing Windows Chrome/Edge <select><option> contrast rule');
 assert.ok(cssSource.includes('@supports (background: color-mix'), 'Missing color-mix() @supports progressive enhancement');
 assert.ok(cssSource.includes('user-select: none'), 'Missing user-select: none text-selection prevention rule');
+assert.ok(cssSource.includes('.theme-modal-panel') && cssSource.includes('.theme-modal-backdrop'), 'Missing theme-profile modal rules in index.css');
 assert.ok(Object.keys(THEMES).length >= 6, 'Expected 6 complete UI theme palettes');
 
 // 6. Verify Documentation, App.css, Desktop SideNav, Mobile BottomNav & NEX-SH v3.0 Assets

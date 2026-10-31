@@ -126,23 +126,15 @@ export default function ProductDetailModal({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-3 sm:p-6 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center theme-modal-backdrop p-3 sm:p-6 overflow-y-auto"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`relative my-auto w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-3xl border shadow-2xl transition-colors ${
-          darkMode
-            ? 'bg-slate-900/95 border-white/[0.1] text-slate-100'
-            : 'bg-white border-slate-200 text-slate-900'
-        }`}
+        className="relative my-auto w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-3xl border shadow-2xl transition-colors theme-modal-panel theme-card"
       >
         {/* Top Modal Header Bar */}
         <div
-          className={`sticky top-0 z-20 flex items-center justify-between border-b px-6 py-4 backdrop-blur-xl ${
-            darkMode
-              ? 'bg-slate-900/90 border-white/[0.08]'
-              : 'bg-white/95 border-slate-200'
-          }`}
+          className="sticky top-0 z-20 flex items-center justify-between border-b px-6 py-4 backdrop-blur-xl theme-header"
         >
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="rounded-lg bg-indigo-500/15 border border-indigo-500/30 px-2.5 py-1 font-mono-num text-xs font-bold text-indigo-400">

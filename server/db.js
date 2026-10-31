@@ -23,6 +23,13 @@ import {
   SEED_USER_SUBSCRIPTIONS,
   SEED_MOBILE_ADDONS
 } from './mobileAndSubscriptions.js';
+import {
+  INITIAL_USER_ACCOUNTS,
+  INITIAL_HOSTING_DEPLOYMENTS,
+  INITIAL_BLOCKED_IPS,
+  INITIAL_SECURITY_REPORTS,
+  INITIAL_PAYMENT_TRANSACTIONS
+} from './envAndSecurity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -371,6 +378,85 @@ export function initSchema() {
       enabled INTEGER NOT NULL DEFAULT 1,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_accounts (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'developer',
+      company TEXT DEFAULT 'Independent Developer',
+      avatar TEXT DEFAULT '👩‍💻',
+      status TEXT NOT NULL DEFAULT 'active',
+      permissions_json TEXT NOT NULL DEFAULT '["publish_app","edit_own_app"]',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS hosting_deployments (
+      id TEXT PRIMARY KEY,
+      app_id TEXT NOT NULL,
+      app_name TEXT NOT NULL,
+      owner_username TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'Netlify',
+      environment TEXT NOT NULL DEFAULT 'production',
+      region TEXT NOT NULL DEFAULT 'Global Edge CDN',
+      deploy_url TEXT NOT NULL,
+      build_command TEXT NOT NULL DEFAULT 'npm run build',
+      min_instances INTEGER NOT NULL DEFAULT 1,
+      max_instances INTEGER NOT NULL DEFAULT 12,
+      current_instances INTEGER NOT NULL DEFAULT 2,
+      cpu_utilization INTEGER NOT NULL DEFAULT 28,
+      memory_mb INTEGER NOT NULL DEFAULT 512,
+      auto_scale INTEGER NOT NULL DEFAULT 1,
+      ssl_verified INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'HEALTHY',
+      last_deployed_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS blocked_ips (
+      id TEXT PRIMARY KEY,
+      ip_address TEXT UNIQUE NOT NULL,
+      cidr_range TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      threat_level TEXT NOT NULL DEFAULT 'high',
+      blocked_by TEXT NOT NULL DEFAULT 'Root Admin WAF',
+      hits_blocked INTEGER NOT NULL DEFAULT 1,
+      auto_automation_rule TEXT DEFAULT 'Manual / WAF Rule',
+      status TEXT NOT NULL DEFAULT 'ACTIVE_BLOCK',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS security_reports (
+      id TEXT PRIMARY KEY,
+      reporter_name TEXT NOT NULL,
+      reporter_role TEXT NOT NULL DEFAULT 'user',
+      target_type TEXT NOT NULL DEFAULT 'app_verification',
+      target_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'high',
+      description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'OPEN',
+      resolution_notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_transactions (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      order_number TEXT NOT NULL,
+      customer_name TEXT NOT NULL,
+      customer_email TEXT NOT NULL,
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      payment_method TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'Stripe Live Gateway',
+      status TEXT NOT NULL DEFAULT 'SETTLED',
+      auth_code TEXT NOT NULL,
+      receipt_hash TEXT NOT NULL,
+      risk_score INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Ensure existing apps table has multi-source, image_url, resources, AI & developer system columns
@@ -431,7 +517,84 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM subscription_plans;
       DELETE FROM user_subscriptions;
       DELETE FROM mobile_addons;
+      DELETE FROM user_accounts;
+      DELETE FROM hosting_deployments;
+      DELETE FROM blocked_ips;
+      DELETE FROM security_reports;
+      DELETE FROM payment_transactions;
     `);
+  }
+
+  // Seed user_accounts, hosting_deployments, blocked_ips, security_reports, payment_transactions
+  const uaCount = db.prepare('SELECT COUNT(*) as count FROM user_accounts').get();
+  if (!uaCount || uaCount.count === 0) {
+    const insUa = db.prepare(`
+      INSERT OR REPLACE INTO user_accounts (
+        id, username, email, password_hash, display_name, role, company, avatar, status, permissions_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const u of INITIAL_USER_ACCOUNTS) {
+      insUa.run(
+        u.id, u.username, u.email, u.password_hash, u.display_name, u.role, u.company, u.avatar, u.status, u.permissions_json, u.created_at
+      );
+    }
+  }
+
+  const insHost = db.prepare(`
+    INSERT OR REPLACE INTO hosting_deployments (
+      id, app_id, app_name, owner_username, provider, environment, region, deploy_url,
+      build_command, min_instances, max_instances, current_instances, cpu_utilization,
+      memory_mb, auto_scale, ssl_verified, status, last_deployed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const h of INITIAL_HOSTING_DEPLOYMENTS) {
+    insHost.run(
+      h.id, h.app_id, h.app_name, h.owner_username, h.provider, h.environment, h.region,
+      h.deploy_url, h.build_command, h.min_instances, h.max_instances, h.current_instances,
+      h.cpu_utilization, h.memory_mb, h.auto_scale, h.ssl_verified, h.status, h.last_deployed_at
+    );
+  }
+
+  const blkCount = db.prepare('SELECT COUNT(*) as count FROM blocked_ips').get();
+  if (!blkCount || blkCount.count === 0) {
+    const insBlk = db.prepare(`
+      INSERT OR REPLACE INTO blocked_ips (
+        id, ip_address, cidr_range, reason, threat_level, blocked_by, hits_blocked, auto_automation_rule, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const b of INITIAL_BLOCKED_IPS) {
+      insBlk.run(
+        b.id, b.ip_address, b.cidr_range, b.reason, b.threat_level, b.blocked_by, b.hits_blocked, b.auto_automation_rule, b.status, b.created_at
+      );
+    }
+  }
+
+  const repCount = db.prepare('SELECT COUNT(*) as count FROM security_reports').get();
+  if (!repCount || repCount.count === 0) {
+    const insRep = db.prepare(`
+      INSERT OR REPLACE INTO security_reports (
+        id, reporter_name, reporter_role, target_type, target_id, category, severity, description, status, resolution_notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const r of INITIAL_SECURITY_REPORTS) {
+      insRep.run(
+        r.id, r.reporter_name, r.reporter_role, r.target_type, r.target_id, r.category, r.severity, r.description, r.status, r.resolution_notes, r.created_at
+      );
+    }
+  }
+
+  const payCount = db.prepare('SELECT COUNT(*) as count FROM payment_transactions').get();
+  if (!payCount || payCount.count === 0) {
+    const insPay = db.prepare(`
+      INSERT OR REPLACE INTO payment_transactions (
+        id, order_id, order_number, customer_name, customer_email, amount, currency, payment_method, provider, status, auth_code, receipt_hash, risk_score, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const p of INITIAL_PAYMENT_TRANSACTIONS) {
+      insPay.run(
+        p.id, p.order_id, p.order_number, p.customer_name, p.customer_email, p.amount, p.currency, p.payment_method, p.provider, p.status, p.auth_code, p.receipt_hash, p.risk_score, p.created_at
+      );
+    }
   }
 
   const nowApps = new Date().toISOString();
