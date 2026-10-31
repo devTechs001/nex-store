@@ -2697,14 +2697,20 @@ app.get('/api/endpoints', (_req, res) => {
   });
 });
 
-// Always serve frontend build from dist/
+// Always serve frontend build from dist/ or snapshot-persisted server/static/
 const distPath = path.resolve(__dirname, '../dist');
+const staticBackupPath = path.resolve(__dirname, './static');
 app.use(express.static(distPath));
+app.use(express.static(staticBackupPath));
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
-  const indexHtmlPath = path.join(distPath, 'index.html');
-  if (fs.existsSync(indexHtmlPath)) {
-    return res.sendFile(indexHtmlPath);
+  const distIndex = path.join(distPath, 'index.html');
+  if (fs.existsSync(distIndex)) {
+    return res.sendFile(distIndex);
+  }
+  const staticIndex = path.join(staticBackupPath, 'index.html');
+  if (fs.existsSync(staticIndex)) {
+    return res.sendFile(staticIndex);
   }
   return next();
 });

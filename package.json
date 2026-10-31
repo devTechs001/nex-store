@@ -5,8 +5,8 @@
   "type": "module",
   "main": "server/index.js",
   "scripts": {
-    "build": "vite build",
-    "start": "[ -d node_modules/express ] || npm install --no-audit --no-fund; [ -f dist/index.html ] || ./node_modules/.bin/vite build; node server/index.js",
+    "build": "vite build && rm -rf server/static && cp -r dist server/static",
+    "start": "[ -d node_modules/express ] || npm install --omit=dev --no-audit --no-fund; node server/index.js",
     "dev": "vite build && node server/index.js",
     "test": "node server/verify.js"
   },
