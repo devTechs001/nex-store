@@ -10,6 +10,40 @@
   display: flex;
   flex-direction: column;
   isolation: isolate;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Global Text-Selection Prevention Helper */
+.no-select,
+button,
+nav,
+aside,
+header {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Desktop Side Navigation Rail & Mobile Bottom Navigation Bar */
+.nex-desktop-sidenav {
+  background-color: var(--bg-header);
+  border-right: 1px solid var(--border-color);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease;
+}
+
+.nex-mobile-bottomnav {
+  background-color: var(--bg-header);
+  border-top: 1px solid var(--border-color);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* 1. Engineering Blueprint Grid Surfaces (Dark & Light Modes) */

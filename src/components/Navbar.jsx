@@ -21,7 +21,9 @@ import {
   Volume2,
   VolumeX,
   Sliders,
-  BookOpen
+  BookOpen,
+  Menu,
+  PanelLeft
 } from 'lucide-react';
 import { CURRENCIES, formatRelativeTime } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
@@ -53,7 +55,9 @@ export default function Navbar({
   unreadNotificationsCount = 0,
   onOpenNotifications,
   onOpenTerminal,
-  onOpenHardwareBuilder
+  onOpenHardwareBuilder,
+  onToggleSideNav,
+  onOpenMobileMenu
 }) {
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 
@@ -72,7 +76,7 @@ export default function Navbar({
       id: 'database',
       label: 'SQLite Studio',
       icon: Database,
-      badge: dbStats?.totalTables ? `${dbStats.totalTables} DB` : '17 DB'
+      badge: dbStats?.totalTables ? `${dbStats.totalTables} DB` : '18 DB'
     },
     { id: 'docs', label: 'Docs & CLI Guide', icon: BookOpen }
   ];
@@ -139,8 +143,28 @@ export default function Navbar({
       {/* Main Header Navigation Row */}
       <div className="mx-auto max-w-7xl px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          {/* Brand Logo + Workspace Switcher */}
-          <div className="flex items-center gap-5">
+          {/* Brand Logo + Desktop SideNav Toggle + Mobile Menu Trigger + Workspace Switcher */}
+          <div className="flex items-center gap-3 sm:gap-5">
+            {onToggleSideNav && (
+              <button
+                type="button"
+                onClick={onToggleSideNav}
+                title="Toggle Desktop Side Navigation Dock"
+                className="theme-subtle hidden lg:inline-flex items-center justify-center rounded-xl p-2 hover:border-indigo-500/40 cursor-pointer transition"
+              >
+                <PanelLeft className="h-4 w-4 text-indigo-400" />
+              </button>
+            )}
+            {onOpenMobileMenu && (
+              <button
+                type="button"
+                onClick={onOpenMobileMenu}
+                title="Open Mobile Navigation & Settings Drawer"
+                className="theme-subtle inline-flex lg:hidden items-center justify-center rounded-xl p-2 hover:border-indigo-500/40 cursor-pointer transition"
+              >
+                <Menu className="h-4 w-4 text-indigo-400" />
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('store')}
               className="group flex items-center gap-3 text-left cursor-pointer"
