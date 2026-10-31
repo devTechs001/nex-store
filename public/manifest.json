@@ -1,64 +1,41 @@
-
 {
-  "name": "NexStore",
-  "short_name": "AppStore",
-  "description": "Discover and download apps for any platform",
+  "name": "NEX Store — Hardware, Sandboxed Apps, Mobile SDK & Subscriptions",
+  "short_name": "NEX Store",
+  "description": "Real-time hardware commerce, multi-source developer app & system store, Polyglot AI studio, Flutter/Native mobile SDK bridge, and customizable subscriptions.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#1f242d",
-  "theme_color": "#00eeff",
-  "orientation": "portrait-primary",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "background_color": "#060913",
+  "theme_color": "#6366f1",
+  "orientation": "any",
   "icons": [
     {
-      "src": "/icons/icon-72x72.png",
-      "sizes": "72x72",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-96x96.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-128x128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-144x144.png",
-      "sizes": "144x144",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icons/icon-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable any"
+      "src": "/api/product-art/prod-aether-pro.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ],
-  "categories": ["utilities", "developer"],
-  "screenshots": [
+  "shortcuts": [
     {
-      "src": "/screenshots/home.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
+      "name": "Hardware Storefront",
+      "short_name": "Store",
+      "description": "Browse 12 flagship hardware SKUs and 4-angle CAD renders",
+      "url": "/?tab=store"
     },
     {
-      "src": "/screenshots/mobile.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow"
+      "name": "Developer App & System Store",
+      "short_name": "App Store",
+      "description": "Publish and install verified apps & system packages",
+      "url": "/?tab=apps"
+    },
+    {
+      "name": "Mobile SDK & Subscriptions",
+      "short_name": "Mobile & Plans",
+      "description": "Manage Flutter/Native mobile add-ons and subscription plans",
+      "url": "/?tab=mobile-subs"
     }
-  ]
+  ],
+  "categories": ["shopping", "developer", "utilities", "productivity"]
 }

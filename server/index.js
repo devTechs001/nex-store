@@ -19,6 +19,7 @@ import { renderProductSvg } from './productArt.js';
 import { renderSandboxedAppHtml } from './appSandboxRuntime.js';
 import { renderAppBannerSvg, inspectAndFetchUrlResources } from './appArtAndFetcher.js';
 import { executePolyglotAutomation, aiEnhancePolyglotScript } from './polyglotAutomationEngine.js';
+import { formatSubscriptionPlan } from './mobileAndSubscriptions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -188,7 +189,10 @@ const ALLOWED_TABLES = [
   'terminal_scripts',
   'bto_configs',
   'app_installs',
-  'polyglot_automations'
+  'polyglot_automations',
+  'subscription_plans',
+  'user_subscriptions',
+  'mobile_addons'
 ];
 
 function getDatabaseStats() {
@@ -286,6 +290,16 @@ app.get('/api/bootstrap', (_req, res) => {
   const polyglotAutomations = db
     .prepare('SELECT * FROM polyglot_automations ORDER BY run_count DESC')
     .all();
+  const subscriptionPlans = db
+    .prepare('SELECT * FROM subscription_plans ORDER BY tier_level ASC')
+    .all()
+    .map(formatSubscriptionPlan);
+  const userSubscriptions = db
+    .prepare('SELECT * FROM user_subscriptions ORDER BY subscribed_at DESC')
+    .all();
+  const mobileAddons = db
+    .prepare('SELECT * FROM mobile_addons ORDER BY updated_at DESC')
+    .all();
 
   res.json({
     categories,
@@ -306,16 +320,79 @@ app.get('/api/bootstrap', (_req, res) => {
     btoConfigs,
     appInstalls,
     polyglotAutomations,
+    subscriptionPlans,
+    userSubscriptions,
+    mobileAddons,
     analytics: getAnalyticsSummary(),
     dbStats: getDatabaseStats(),
     presence: getPresenceSummary()
   });
 });
 
-// 2b. Enterprise Software & Multi-Source Community Apps Endpoints (Netlify / Vercel / GitHub / PyPI / NPM / Dev URL)
+// 2b. Enterprise Software, Developer App & System Package Publishing Endpoints
 app.get('/api/apps', (_req, res) => {
   const apps = db.prepare('SELECT * FROM apps ORDER BY is_featured DESC, downloads DESC').all();
   res.json({ apps });
+});
+
+app.get('/api/developer/apps', (_req, res) => {
+  const apps = db.prepare('SELECT * FROM apps ORDER BY created_at DESC, downloads DESC').all();
+  const installs = db.prepare('SELECT * FROM app_installs').all();
+  res.json({
+    apps,
+    installedCount: installs.length,
+    publishEndpoint: 'POST /api/developer/publish',
+    detailsEndpoint: 'GET /api/apps/:id/details'
+  });
+});
+
+// Full Developer & System Package Details Endpoint (for installation & viewing with developer credentials)
+app.get('/api/apps/:id/details', (req, res) => {
+  const found = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  if (!found) return res.status(404).json({ error: 'App or system package not found' });
+
+  const installRecord = db.prepare('SELECT * FROM app_installs WHERE app_id = ?').get(found.id) || null;
+  let resources = [];
+  let aiCapabilities = [];
+  let permissions = [];
+  let systemRequirements = {};
+  try {
+    resources = JSON.parse(found.resources_json || '[]');
+  } catch {}
+  try {
+    aiCapabilities = JSON.parse(found.ai_capabilities_json || '[]');
+  } catch {}
+  try {
+    permissions = JSON.parse(found.permissions_json || '[]');
+  } catch {}
+  try {
+    systemRequirements = JSON.parse(found.system_requirements_json || '{}');
+  } catch {}
+
+  res.json({
+    app: {
+      ...found,
+      resources,
+      aiCapabilities,
+      permissions,
+      systemRequirements
+    },
+    developerProfile: {
+      name: found.developer,
+      email: found.developer_email || 'dev@nexstore.dev',
+      website: found.developer_website || found.repo_url || 'https://github.com/devTechs001/nex-store',
+      bio: found.developer_bio || 'Verified NEX Ecosystem & Open-Source Systems Publisher',
+      verified: Boolean(found.is_verified),
+      sourceProvider: found.source_provider || 'NEX Official'
+    },
+    installation: {
+      isInstalled: Boolean(installRecord),
+      installRecord,
+      installCommand: found.install_command || `nex install ${found.id} --verify-sha256`,
+      sandboxUrl: `/api/sandbox/${found.id}`,
+      standalonePackageUrl: `/api/apps/${found.id}/package`
+    }
+  });
 });
 
 // Fetch live app metadata, preview image, name, developer, version, resources & AI capabilities from any provided URL
@@ -338,33 +415,42 @@ app.post('/api/apps/inspect-url', async (req, res) => {
   }
 });
 
-app.post('/api/apps', (req, res) => {
+function handlePublishDeveloperAppOrSystem(req, res) {
   const {
     name,
     description = 'Enterprise & community application package',
     version = '1.0.0',
     category = 'web',
+    package_type = 'app',
     language = 'typescript',
     size = '14.2 MB',
     developer = 'Community Developer',
+    developer_email = 'publisher@nexstore.dev',
+    developer_website = 'https://github.com/devTechs001/nex-store',
+    developer_bio = 'Verified External Developer & Systems Architect',
     icon = '🚀',
     license = 'PROPRIETARY-NEX-DRM',
     source_provider = 'Netlify',
     live_url = '',
     repo_url = '',
     image_url = '',
+    install_command = '',
+    changelog = 'Initial verified release with SHA-256 sandbox runtime and DRM lock.',
+    system_requirements = null,
     resources = [],
     ai_capabilities = [],
     permissions = ['Sandboxed Iframe', 'WebAudio API', 'WebSocket Stream']
-  } = req.body;
+  } = req.body || {};
 
-  if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'App name is required' });
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'App or system package name is required' });
   }
 
   const id = `app-${Date.now().toString(36)}`;
   const now = new Date().toISOString();
-  const cleanLiveUrl = live_url.trim() || `https://${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}.netlify.app`;
+  const cleanLiveUrl =
+    String(live_url).trim() ||
+    `https://${String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}.netlify.app`;
   const sha256Hash = crypto
     .createHash('sha256')
     .update(`${id}:${name}:${version}:${cleanLiveUrl}`)
@@ -372,7 +458,7 @@ app.post('/api/apps', (req, res) => {
   const resolvedImageUrl =
     image_url && String(image_url).trim()
       ? String(image_url).trim()
-      : `/api/app-art/${id}.svg?name=${encodeURIComponent(name.trim())}&provider=${encodeURIComponent(source_provider)}&lang=${encodeURIComponent(language)}&dev=${encodeURIComponent(developer.trim())}&icon=${encodeURIComponent(icon)}`;
+      : `/api/app-art/${id}.svg?name=${encodeURIComponent(String(name).trim())}&provider=${encodeURIComponent(source_provider)}&lang=${encodeURIComponent(language)}&dev=${encodeURIComponent(String(developer).trim())}&icon=${encodeURIComponent(icon)}`;
   const resolvedResources =
     Array.isArray(resources) && resources.length > 0
       ? resources
@@ -389,43 +475,63 @@ app.post('/api/apps', (req, res) => {
           `Polyglot ${language} Automation Bridge Ready`,
           'Anti-Piracy Cryptographic DRM Watermark Locked'
         ];
+  const resolvedInstallCmd =
+    String(install_command).trim() ||
+    `nex install ${id} --type=${package_type} --verify-sha256 --mount=/opt/nex-apps/${id}`;
+  const resolvedSysReq =
+    system_requirements && typeof system_requirements === 'object'
+      ? system_requirements
+      : {
+          os: 'Linux / macOS / Windows / NEX Sandbox / Flutter Bridge',
+          ram: package_type === 'system' ? '512 MB Kernel/System Pool' : '256 MB Isolated Heap',
+          arch: 'x86_64 / ARM64 / WASM32',
+          mobileBridge: 'Flutter MethodChannel & React Native JSI Ready'
+        };
 
   db.prepare(`
     INSERT INTO apps (
       id, name, description, version, category, language, platforms_json,
       rating, reviews_count, downloads, size, developer, icon, license, price,
       is_featured, is_verified, source_provider, live_url, repo_url,
-      sha256_hash, security_score, permissions_json, image_url, resources_json, ai_capabilities_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 5.0, 1, 1, ?, ?, ?, ?, 'Free', 1, 1, ?, ?, ?, ?, 99, ?, ?, ?, ?, ?)
+      sha256_hash, security_score, permissions_json, image_url, resources_json, ai_capabilities_json,
+      package_type, developer_email, developer_website, developer_bio, install_command, system_requirements_json, changelog, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 5.0, 1, 1, ?, ?, ?, ?, 'Free', 1, 1, ?, ?, ?, ?, 99, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    name.trim(),
-    description.trim(),
-    version.trim(),
+    String(name).trim(),
+    String(description).trim(),
+    String(version).trim(),
     category,
     language,
-    JSON.stringify(['web', 'linux', 'macos', 'windows']),
+    JSON.stringify(['web', 'linux', 'macos', 'windows', 'flutter', 'react-native']),
     size,
-    developer.trim(),
+    String(developer).trim(),
     icon,
     license,
     source_provider,
     cleanLiveUrl,
-    repo_url.trim(),
+    String(repo_url).trim(),
     sha256Hash,
     JSON.stringify(Array.isArray(permissions) ? permissions : ['Sandboxed Iframe']),
     resolvedImageUrl,
     JSON.stringify(resolvedResources),
     JSON.stringify(resolvedAi),
+    package_type,
+    String(developer_email).trim(),
+    String(developer_website).trim(),
+    String(developer_bio).trim(),
+    resolvedInstallCmd,
+    JSON.stringify(resolvedSysReq),
+    String(changelog).trim(),
     now
   );
 
   const createdApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
   const activity = recordActivityEvent({
     event_type: 'product_created',
-    title: `App Imported from ${source_provider} • ${createdApp.name}`,
-    message: `${createdApp.developer} deployed ${createdApp.name} v${createdApp.version} (${cleanLiveUrl})`,
-    meta: { app_id: createdApp.id, source_provider }
+    title: `Published ${package_type.toUpperCase()} • ${createdApp.name}`,
+    message: `${createdApp.developer} (${createdApp.developer_email}) published ${createdApp.name} v${createdApp.version} from ${source_provider}`,
+    meta: { app_id: createdApp.id, source_provider, package_type }
   });
 
   const secEvent = recordSecurityEvent({
@@ -440,7 +546,7 @@ app.post('/api/apps', (req, res) => {
   const notif = recordPushNotification({
     channel: 'deployment',
     priority: 'high',
-    title: `New ${source_provider} App Live: ${createdApp.name}`,
+    title: `New ${source_provider} ${package_type === 'system' ? 'System Module' : 'App'} Live: ${createdApp.name}`,
     message: `By ${createdApp.developer} • Verified Safe (Score 99/100) • ${cleanLiveUrl}`,
     action_url: 'apps'
   });
@@ -454,6 +560,66 @@ app.post('/api/apps', (req, res) => {
   });
 
   res.status(201).json({ app: createdApp, securityEvent: secEvent, notification: notif });
+}
+
+app.post('/api/apps', handlePublishDeveloperAppOrSystem);
+app.post('/api/developer/publish', handlePublishDeveloperAppOrSystem);
+
+// Allow Admin / Developer to modify or unpublish an app/system package
+app.patch('/api/apps/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'App not found' });
+
+  const {
+    name = existing.name,
+    description = existing.description,
+    version = existing.version,
+    developer = existing.developer,
+    developer_email = existing.developer_email || 'dev@nexstore.dev',
+    developer_website = existing.developer_website || existing.repo_url,
+    developer_bio = existing.developer_bio || 'Verified NEX Publisher',
+    package_type = existing.package_type || 'app',
+    live_url = existing.live_url,
+    repo_url = existing.repo_url,
+    changelog = existing.changelog || 'Updated release notes'
+  } = req.body || {};
+
+  db.prepare(`
+    UPDATE apps
+    SET name = ?, description = ?, version = ?, developer = ?, developer_email = ?,
+        developer_website = ?, developer_bio = ?, package_type = ?, live_url = ?, repo_url = ?, changelog = ?
+    WHERE id = ?
+  `).run(
+    String(name).trim(),
+    String(description).trim(),
+    String(version).trim(),
+    String(developer).trim(),
+    String(developer_email).trim(),
+    String(developer_website).trim(),
+    String(developer_bio).trim(),
+    String(package_type).trim(),
+    String(live_url).trim(),
+    String(repo_url).trim(),
+    String(changelog).trim(),
+    existing.id
+  );
+
+  const updated = db.prepare('SELECT * FROM apps WHERE id = ?').get(existing.id);
+  const apps = db.prepare('SELECT * FROM apps ORDER BY is_featured DESC, downloads DESC').all();
+  broadcast('apps:updated', { app: updated, apps, dbStats: getDatabaseStats() });
+  res.json({ app: updated, apps });
+});
+
+app.delete('/api/apps/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'App not found' });
+
+  db.prepare('DELETE FROM apps WHERE id = ?').run(existing.id);
+  db.prepare('DELETE FROM app_installs WHERE app_id = ?').run(existing.id);
+  const apps = db.prepare('SELECT * FROM apps ORDER BY is_featured DESC, downloads DESC').all();
+  const appInstalls = db.prepare('SELECT * FROM app_installs ORDER BY installed_at DESC').all();
+  broadcast('apps:updated', { apps, appInstalls, dbStats: getDatabaseStats() });
+  res.json({ deleted: true, id: existing.id, apps, appInstalls });
 });
 
 function performAppInstall(appId) {
@@ -709,6 +875,322 @@ app.post('/api/automations/ai-enhance', (req, res) => {
     enhancedCode: enhanced.enhancedCode,
     aiNotes: enhanced.aiNotes,
     polyglotAutomations
+  });
+});
+
+// 2d. Subscriptions System Endpoints (Modifiable by Admin / Developer) — SQLite Tables #21 & #22
+app.get('/api/subscriptions', (_req, res) => {
+  const subscriptionPlans = db
+    .prepare('SELECT * FROM subscription_plans ORDER BY tier_level ASC')
+    .all()
+    .map(formatSubscriptionPlan);
+  const userSubscriptions = db
+    .prepare('SELECT * FROM user_subscriptions ORDER BY subscribed_at DESC')
+    .all();
+  res.json({ subscriptionPlans, userSubscriptions });
+});
+
+app.post('/api/subscriptions/plans', (req, res) => {
+  const {
+    name = 'Custom Developer Tier',
+    code = `TIER_${Date.now().toString(36).toUpperCase()}`,
+    tagline = 'Custom developer & mobile SDK subscription plan.',
+    price_monthly = 49,
+    price_yearly = 490,
+    currency = 'USD',
+    tier_level = 3,
+    badge = 'CUSTOM TIER',
+    features = [
+      'Full Developer Publishing API (POST /api/developer/publish)',
+      'Polyglot AI Automation Studio Access',
+      'Mobile Flutter & React Native Add-On SDK'
+    ],
+    limits = { maxAppsPublished: 100, polyglotRunsPerDay: 2500, mobileSdkNodes: 15, slaUptime: '99.95%' },
+    is_popular = false,
+    updated_by = 'Admin / Developer'
+  } = req.body || {};
+
+  const id = `plan-${Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO subscription_plans (
+      id, code, name, tagline, price_monthly, price_yearly, currency, tier_level,
+      badge, features_json, limits_json, is_popular, active, updated_by, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+  `).run(
+    id,
+    String(code).trim().toUpperCase(),
+    String(name).trim(),
+    String(tagline).trim(),
+    Number(price_monthly) || 0,
+    Number(price_yearly) || 0,
+    String(currency).trim() || 'USD',
+    Number(tier_level) || 2,
+    String(badge).trim() || 'CUSTOM TIER',
+    JSON.stringify(Array.isArray(features) ? features : [String(features)]),
+    JSON.stringify(limits || {}),
+    is_popular ? 1 : 0,
+    String(updated_by).trim() || 'Admin / Developer',
+    now
+  );
+
+  const subscriptionPlans = db
+    .prepare('SELECT * FROM subscription_plans ORDER BY tier_level ASC')
+    .all()
+    .map(formatSubscriptionPlan);
+  const created = subscriptionPlans.find((p) => p.id === id) || subscriptionPlans[0];
+
+  broadcast('subscriptions:updated', {
+    subscriptionPlans,
+    dbStats: getDatabaseStats()
+  });
+
+  res.status(201).json({ plan: created, subscriptionPlans });
+});
+
+app.patch('/api/subscriptions/plans/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM subscription_plans WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Subscription plan not found' });
+
+  const formattedExisting = formatSubscriptionPlan(existing);
+  const {
+    name = existing.name,
+    tagline = existing.tagline,
+    price_monthly = existing.price_monthly,
+    price_yearly = existing.price_yearly,
+    badge = existing.badge,
+    features = formattedExisting.features,
+    limits = formattedExisting.limits,
+    is_popular = formattedExisting.is_popular,
+    active = formattedExisting.active,
+    updated_by = 'Admin / Developer'
+  } = req.body || {};
+
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE subscription_plans
+    SET name = ?, tagline = ?, price_monthly = ?, price_yearly = ?, badge = ?,
+        features_json = ?, limits_json = ?, is_popular = ?, active = ?, updated_by = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    String(name).trim(),
+    String(tagline).trim(),
+    Number(price_monthly),
+    Number(price_yearly),
+    String(badge).trim(),
+    JSON.stringify(Array.isArray(features) ? features : formattedExisting.features),
+    JSON.stringify(limits || formattedExisting.limits),
+    is_popular ? 1 : 0,
+    active ? 1 : 0,
+    String(updated_by).trim(),
+    now,
+    existing.id
+  );
+
+  const subscriptionPlans = db
+    .prepare('SELECT * FROM subscription_plans ORDER BY tier_level ASC')
+    .all()
+    .map(formatSubscriptionPlan);
+  const updated = subscriptionPlans.find((p) => p.id === existing.id);
+
+  recordActivityEvent({
+    event_type: 'price_drop',
+    title: `Subscription Plan Modified • ${updated.name}`,
+    message: `${updated_by} updated ${updated.name} ($${updated.price_monthly}/mo • ${updated.badge})`,
+    meta: { plan_id: updated.id }
+  });
+
+  broadcast('subscriptions:updated', {
+    plan: updated,
+    subscriptionPlans,
+    dbStats: getDatabaseStats()
+  });
+
+  res.json({ plan: updated, subscriptionPlans });
+});
+
+app.delete('/api/subscriptions/plans/:id', (req, res) => {
+  db.prepare('DELETE FROM subscription_plans WHERE id = ?').run(req.params.id);
+  const subscriptionPlans = db
+    .prepare('SELECT * FROM subscription_plans ORDER BY tier_level ASC')
+    .all()
+    .map(formatSubscriptionPlan);
+  broadcast('subscriptions:updated', { subscriptionPlans, dbStats: getDatabaseStats() });
+  res.json({ deleted: true, subscriptionPlans });
+});
+
+app.post('/api/subscriptions/subscribe', (req, res) => {
+  const {
+    plan_id = 'plan-pro-developer',
+    subscriber_name = 'External Systems Developer',
+    subscriber_email = 'developer@nexstore.dev',
+    billing_cycle = 'monthly'
+  } = req.body || {};
+
+  const planRow =
+    db.prepare('SELECT * FROM subscription_plans WHERE id = ?').get(plan_id) ||
+    db.prepare('SELECT * FROM subscription_plans LIMIT 1').get();
+  if (!planRow) return res.status(404).json({ error: 'Subscription plan not found' });
+
+  const id = `sub-usr-${Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+  const amount = billing_cycle === 'yearly' ? Number(planRow.price_yearly) : Number(planRow.price_monthly);
+  const tokenHash = crypto.createHash('sha256').update(`${id}:${subscriber_email}:${now}`).digest('hex');
+  const apiKeyPreview = `nex_live_${tokenHash.slice(0, 8)}...${tokenHash.slice(-4)}`;
+
+  db.prepare(`
+    INSERT INTO user_subscriptions (
+      id, plan_id, plan_name, subscriber_name, subscriber_email, billing_cycle, amount_paid, status, api_key_preview, subscribed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+  `).run(
+    id,
+    planRow.id,
+    planRow.name,
+    String(subscriber_name).trim(),
+    String(subscriber_email).trim(),
+    billing_cycle === 'yearly' ? 'yearly' : 'monthly',
+    amount,
+    apiKeyPreview,
+    now
+  );
+
+  const userSubscriptions = db
+    .prepare('SELECT * FROM user_subscriptions ORDER BY subscribed_at DESC')
+    .all();
+  const created = userSubscriptions.find((s) => s.id === id) || userSubscriptions[0];
+
+  const activity = recordActivityEvent({
+    event_type: 'live_purchase',
+    title: `New Subscription • ${planRow.name}`,
+    message: `${created.subscriber_name} (${created.subscriber_email}) activated ${planRow.name} (${billing_cycle})`,
+    meta: { subscription_id: id, plan_id: planRow.id }
+  });
+
+  broadcast('subscriptions:enrolled', {
+    subscription: created,
+    userSubscriptions,
+    activity,
+    dbStats: getDatabaseStats()
+  });
+
+  res.status(201).json({ subscription: created, userSubscriptions, activity });
+});
+
+// 2e. Mobile Integration Hub (Flutter, React Native, SwiftUI, Kotlin Add-On Future Room) & PWA Status — SQLite Table #23
+app.get('/api/mobile/addons', (_req, res) => {
+  const mobileAddons = db.prepare('SELECT * FROM mobile_addons ORDER BY updated_at DESC').all();
+  res.json({ mobileAddons });
+});
+
+app.post('/api/mobile/addons', (req, res) => {
+  const {
+    name = 'Custom Flutter / Native Add-On',
+    slug = `addon-${Date.now().toString(36)}`,
+    framework = 'Flutter 3.24 / React Native 0.76',
+    version = '1.0.0-add-on',
+    status = 'READY',
+    category = 'Mobile Extension',
+    description = 'Custom mobile native/Flutter integration module registered with NEX Store.',
+    endpoint_path = '/api/mobile/sdk-config',
+    sdk_snippet = '// © 2026 NEX STORE PROPRIETARY DRM — MOBILE ADD-ON'
+  } = req.body || {};
+
+  const id = `mob-${Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT OR REPLACE INTO mobile_addons (
+      id, name, slug, framework, version, status, category, description, endpoint_path, sdk_snippet, enabled, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+  `).run(
+    id,
+    String(name).trim(),
+    String(slug).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-'),
+    String(framework).trim(),
+    String(version).trim(),
+    String(status).trim(),
+    String(category).trim(),
+    String(description).trim(),
+    String(endpoint_path).trim(),
+    String(sdk_snippet),
+    now
+  );
+
+  const mobileAddons = db.prepare('SELECT * FROM mobile_addons ORDER BY updated_at DESC').all();
+  const created = mobileAddons.find((m) => m.id === id) || mobileAddons[0];
+  broadcast('mobile:updated', { mobileAddons, dbStats: getDatabaseStats() });
+  res.status(201).json({ addon: created, mobileAddons });
+});
+
+app.patch('/api/mobile/addons/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM mobile_addons WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Mobile add-on not found' });
+
+  const {
+    name = existing.name,
+    framework = existing.framework,
+    version = existing.version,
+    status = existing.status,
+    description = existing.description,
+    sdk_snippet = existing.sdk_snippet,
+    enabled = existing.enabled
+  } = req.body || {};
+
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE mobile_addons
+    SET name = ?, framework = ?, version = ?, status = ?, description = ?, sdk_snippet = ?, enabled = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    String(name).trim(),
+    String(framework).trim(),
+    String(version).trim(),
+    String(status).trim(),
+    String(description).trim(),
+    String(sdk_snippet),
+    enabled ? 1 : 0,
+    now,
+    existing.id
+  );
+
+  const mobileAddons = db.prepare('SELECT * FROM mobile_addons ORDER BY updated_at DESC').all();
+  const updated = mobileAddons.find((m) => m.id === existing.id);
+  broadcast('mobile:updated', { addon: updated, mobileAddons, dbStats: getDatabaseStats() });
+  res.json({ addon: updated, mobileAddons });
+});
+
+app.get('/api/mobile/sdk-config', (req, res) => {
+  const framework = String(req.query.framework || 'flutter').toLowerCase();
+  const mobileAddons = db.prepare('SELECT * FROM mobile_addons WHERE enabled = 1').all();
+  res.json({
+    framework,
+    deepLinkScheme: 'nexstore://connect',
+    restBaseUrl: '/api',
+    wsEndpoint: '/ws',
+    developerPublishEndpoint: 'POST /api/developer/publish',
+    appDetailsEndpoint: 'GET /api/apps/:id/details',
+    pwaManifestUrl: '/manifest.json',
+    serviceWorkerUrl: '/sw.js',
+    activeAddonsCount: mobileAddons.length,
+    drmPolicy: '© 2026 NEX STORE & DEVTECHS001 LABS — STRICTLY PROPRIETARY, DO NOT SHARE OR PIRATE',
+    addons: mobileAddons
+  });
+});
+
+app.get('/api/pwa/status', (_req, res) => {
+  res.json({
+    pwaReady: true,
+    manifestUrl: '/manifest.json',
+    serviceWorkerUrl: '/sw.js',
+    cacheVersion: 'nex-store-v11',
+    displayModes: ['standalone', 'window-controls-overlay', 'minimal-ui'],
+    offlineCapabilities: [
+      'Full 12-SKU Hardware Catalog & 4-Angle Procedural SVG CAD Cache',
+      'Installed App Sandbox Runtime (/api/sandbox/:id)',
+      'Offline Cart, Wishlist & BTO Rig Configuration Persistence',
+      'Mobile Drawer & Bottom Dock Touch Navigation'
+    ]
   });
 });
 

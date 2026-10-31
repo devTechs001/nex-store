@@ -46,6 +46,23 @@ header {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Smooth GPU-Accelerated Mobile Slide-Over Sidebar Drawer */
+.nex-mobile-drawer-backdrop {
+  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1), visibility 0.28s ease;
+  will-change: opacity;
+}
+
+.nex-mobile-drawer-panel {
+  background-color: var(--bg-card);
+  border-right: 1px solid var(--border-color);
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
 /* 1. Engineering Blueprint Grid Surfaces (Dark & Light Modes) */
 .bg-engineering-grid-dark {
   background-color: var(--bg-app, #060913);

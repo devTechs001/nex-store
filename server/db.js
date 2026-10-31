@@ -18,6 +18,11 @@ import {
   SEED_BTO_CONFIGS
 } from './seedData.js';
 import { SEED_POLYGLOT_AUTOMATIONS } from './polyglotAutomationEngine.js';
+import {
+  SEED_SUBSCRIPTION_PLANS,
+  SEED_USER_SUBSCRIPTIONS,
+  SEED_MOBILE_ADDONS
+} from './mobileAndSubscriptions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -320,9 +325,55 @@ export function initSchema() {
       last_output TEXT DEFAULT '',
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS subscription_plans (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      tagline TEXT NOT NULL,
+      price_monthly REAL NOT NULL DEFAULT 0,
+      price_yearly REAL NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      tier_level INTEGER NOT NULL DEFAULT 1,
+      badge TEXT DEFAULT 'STANDARD',
+      features_json TEXT NOT NULL DEFAULT '[]',
+      limits_json TEXT NOT NULL DEFAULT '{}',
+      is_popular INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      updated_by TEXT NOT NULL DEFAULT 'Admin',
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_subscriptions (
+      id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL,
+      plan_name TEXT NOT NULL,
+      subscriber_name TEXT NOT NULL,
+      subscriber_email TEXT NOT NULL,
+      billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+      amount_paid REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      api_key_preview TEXT NOT NULL,
+      subscribed_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mobile_addons (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT UNIQUE NOT NULL,
+      framework TEXT NOT NULL,
+      version TEXT NOT NULL DEFAULT '1.0.0',
+      status TEXT NOT NULL DEFAULT 'READY',
+      category TEXT NOT NULL DEFAULT 'Mobile Bridge',
+      description TEXT NOT NULL,
+      endpoint_path TEXT NOT NULL DEFAULT '/api/mobile/sdk-config',
+      sdk_snippet TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL
+    );
   `);
 
-  // Ensure existing apps table has multi-source, image_url, resources & AI capability columns
+  // Ensure existing apps table has multi-source, image_url, resources, AI & developer system columns
   const appCols = db.prepare('PRAGMA table_info(apps)').all().map((c) => c.name);
   const alterColumns = [
     ['source_provider', "TEXT DEFAULT 'NEX Official'"],
@@ -333,7 +384,14 @@ export function initSchema() {
     ['permissions_json', "TEXT DEFAULT '[]'"],
     ['image_url', "TEXT DEFAULT ''"],
     ['resources_json', "TEXT DEFAULT '[]'"],
-    ['ai_capabilities_json', "TEXT DEFAULT '[]'"]
+    ['ai_capabilities_json', "TEXT DEFAULT '[]'"],
+    ['package_type', "TEXT DEFAULT 'app'"],
+    ['developer_email', "TEXT DEFAULT 'dev@nexstore.dev'"],
+    ['developer_website', "TEXT DEFAULT 'https://github.com/devTechs001/nex-store'"],
+    ['developer_bio', "TEXT DEFAULT 'Verified NEX Ecosystem & Open-Source Systems Publisher'"],
+    ['install_command', "TEXT DEFAULT ''"],
+    ['system_requirements_json', "TEXT DEFAULT '{}'"],
+    ['changelog', "TEXT DEFAULT 'v1.0.0 — Verified SHA-256 sandbox runtime & anti-piracy DRM lock.'"]
   ];
   for (const [colName, colDef] of alterColumns) {
     if (!appCols.includes(colName)) {
@@ -370,6 +428,9 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM bto_configs;
       DELETE FROM app_installs;
       DELETE FROM polyglot_automations;
+      DELETE FROM subscription_plans;
+      DELETE FROM user_subscriptions;
+      DELETE FROM mobile_addons;
     `);
   }
 
@@ -427,11 +488,11 @@ export function seedDatabase({ forceReset = false } = {}) {
     }
   }
 
-  // Ensure any pre-existing app rows have image_url, resources_json, and ai_capabilities_json populated
-  const allExistingApps = db.prepare('SELECT id, language, size, repo_url, image_url, resources_json, ai_capabilities_json FROM apps').all();
-  const updateAppMeta = db.prepare('UPDATE apps SET image_url = ?, resources_json = ?, ai_capabilities_json = ? WHERE id = ?');
+  // Ensure any pre-existing app rows have image_url, resources_json, ai_capabilities_json & system metadata populated
+  const allExistingApps = db.prepare('SELECT id, name, category, language, size, repo_url, image_url, resources_json, ai_capabilities_json, install_command, system_requirements_json FROM apps').all();
+  const updateAppMeta = db.prepare('UPDATE apps SET image_url = ?, resources_json = ?, ai_capabilities_json = ?, install_command = ?, system_requirements_json = ?, package_type = ? WHERE id = ?');
   for (const row of allExistingApps) {
-    if (!row.image_url || !row.resources_json || row.resources_json === '[]') {
+    if (!row.image_url || !row.resources_json || row.resources_json === '[]' || !row.install_command) {
       const imgUrl = row.image_url || `/api/app-art/${row.id}.svg`;
       const resJson =
         row.resources_json && row.resources_json !== '[]'
@@ -449,7 +510,95 @@ export function seedDatabase({ forceReset = false } = {}) {
               `Polyglot ${row.language || 'Rust/Python'} Bridge Ready`,
               'Anti-Piracy Cryptographic DRM Watermark Locked'
             ]);
-      updateAppMeta.run(imgUrl, resJson, aiJson, row.id);
+      const instCmd = row.install_command || `nex install ${row.id} --verify-sha256 --mount=/opt/nex-apps/${row.id}`;
+      const sysReq =
+        row.system_requirements_json && row.system_requirements_json !== '{}'
+          ? row.system_requirements_json
+          : JSON.stringify({
+              os: 'Linux / macOS / Windows / NEX Sandbox / Flutter Bridge',
+              ram: '256 MB Isolated Heap',
+              arch: 'x86_64 / ARM64 / WASM32',
+              mobileBridge: 'Flutter MethodChannel & React Native JSI Ready'
+            });
+      const pkgType = row.category === 'cli' || row.category === 'utility' ? 'system' : 'app';
+      updateAppMeta.run(imgUrl, resJson, aiJson, instCmd, sysReq, pkgType, row.id);
+    }
+  }
+
+  const plansCountRow = db.prepare('SELECT COUNT(*) as count FROM subscription_plans').get();
+  if (!plansCountRow || plansCountRow.count === 0) {
+    const insertPlan = db.prepare(`
+      INSERT OR REPLACE INTO subscription_plans (
+        id, code, name, tagline, price_monthly, price_yearly, currency, tier_level,
+        badge, features_json, limits_json, is_popular, active, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const pl of SEED_SUBSCRIPTION_PLANS) {
+      insertPlan.run(
+        pl.id,
+        pl.code,
+        pl.name,
+        pl.tagline,
+        pl.price_monthly,
+        pl.price_yearly,
+        pl.currency || 'USD',
+        pl.tier_level || 1,
+        pl.badge || 'STANDARD',
+        pl.features_json,
+        pl.limits_json,
+        pl.is_popular ? 1 : 0,
+        pl.active ?? 1,
+        pl.updated_by || 'System Seed',
+        pl.updated_at || nowApps
+      );
+    }
+  }
+
+  const userSubsCountRow = db.prepare('SELECT COUNT(*) as count FROM user_subscriptions').get();
+  if (!userSubsCountRow || userSubsCountRow.count === 0) {
+    const insertUserSub = db.prepare(`
+      INSERT OR REPLACE INTO user_subscriptions (
+        id, plan_id, plan_name, subscriber_name, subscriber_email, billing_cycle, amount_paid, status, api_key_preview, subscribed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const us of SEED_USER_SUBSCRIPTIONS) {
+      insertUserSub.run(
+        us.id,
+        us.plan_id,
+        us.plan_name,
+        us.subscriber_name,
+        us.subscriber_email,
+        us.billing_cycle,
+        us.amount_paid,
+        us.status,
+        us.api_key_preview,
+        us.subscribed_at || nowApps
+      );
+    }
+  }
+
+  const mobileAddonsCountRow = db.prepare('SELECT COUNT(*) as count FROM mobile_addons').get();
+  if (!mobileAddonsCountRow || mobileAddonsCountRow.count === 0) {
+    const insertMob = db.prepare(`
+      INSERT OR REPLACE INTO mobile_addons (
+        id, name, slug, framework, version, status, category, description, endpoint_path, sdk_snippet, enabled, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const m of SEED_MOBILE_ADDONS) {
+      insertMob.run(
+        m.id,
+        m.name,
+        m.slug,
+        m.framework,
+        m.version,
+        m.status,
+        m.category,
+        m.description,
+        m.endpoint_path,
+        m.sdk_snippet,
+        m.enabled ?? 1,
+        m.updated_at || nowApps
+      );
     }
   }
 

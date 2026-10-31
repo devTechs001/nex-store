@@ -44,14 +44,17 @@ const expectedTables = [
   'terminal_scripts',
   'bto_configs',
   'app_installs',
-  'polyglot_automations'
+  'polyglot_automations',
+  'subscription_plans',
+  'user_subscriptions',
+  'mobile_addons'
 ];
 
 for (const tbl of expectedTables) {
   assert.ok(tables.includes(tbl), `Missing SQLite table: ${tbl}`);
 }
 
-// 3. Verify Multi-Source Apps, Server Nodes, Integrations, Security Events, Terminal Logs, Playbooks, BTO Rigs, App Installs & Polyglot Automations
+// 3. Verify Multi-Source Apps, Server Nodes, Integrations, Security Events, Terminal Logs, Playbooks, BTO Rigs, App Installs, Polyglot, Subscriptions & Mobile Add-Ons
 const appCount = db.prepare('SELECT COUNT(*) as c FROM apps').get().c;
 const srvCount = db.prepare('SELECT COUNT(*) as c FROM server_nodes').get().c;
 const intCount = db.prepare('SELECT COUNT(*) as c FROM integrations').get().c;
@@ -61,6 +64,9 @@ const scriptCount = db.prepare('SELECT COUNT(*) as c FROM terminal_scripts').get
 const btoCount = db.prepare('SELECT COUNT(*) as c FROM bto_configs').get().c;
 const installsCount = db.prepare('SELECT COUNT(*) as c FROM app_installs').get().c;
 const polyCount = db.prepare('SELECT COUNT(*) as c FROM polyglot_automations').get().c;
+const plansCount = db.prepare('SELECT COUNT(*) as c FROM subscription_plans').get().c;
+const userSubsCount = db.prepare('SELECT COUNT(*) as c FROM user_subscriptions').get().c;
+const mobileAddonsCount = db.prepare('SELECT COUNT(*) as c FROM mobile_addons').get().c;
 assert.ok(appCount >= 8, 'Expected at least 8 seeded multi-source apps');
 assert.ok(srvCount >= 6, 'Expected at least 6 seeded edge server nodes');
 assert.ok(intCount >= 8, 'Expected at least 8 seeded platform integrations');
@@ -70,6 +76,9 @@ assert.ok(scriptCount >= 4, 'Expected at least 4 seeded .nexsh automation playbo
 assert.ok(btoCount >= 3, 'Expected at least 3 seeded BTO hardware rig configurations');
 assert.ok(installsCount >= 3, 'Expected at least 3 seeded installed workstation apps in app_installs');
 assert.ok(polyCount >= 6, 'Expected at least 6 seeded polyglot automations (Python, Rust, C++, Java, Go, TS)');
+assert.ok(plansCount >= 4, 'Expected at least 4 seeded subscription plans');
+assert.ok(userSubsCount >= 3, 'Expected at least 3 seeded user subscriptions');
+assert.ok(mobileAddonsCount >= 5, 'Expected at least 5 seeded mobile Native/Flutter add-on modules');
 
 // 3b. Verify Real Sandboxed App HTML5 Runtime Engine, App Banner SVG & Polyglot Execution
 const sampleApp = db.prepare('SELECT * FROM apps LIMIT 1').get();
@@ -120,10 +129,11 @@ assert.ok(fs.existsSync(path.resolve(__dirname, '../docs/ARCHITECTURE_AND_GUIDE.
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/DocumentationView.jsx')), 'Missing src/components/DocumentationView.jsx');
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/DesktopSideNav.jsx')), 'Missing src/components/DesktopSideNav.jsx');
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/MobileBottomNav.jsx')), 'Missing src/components/MobileBottomNav.jsx');
+assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/MobileAndSubscriptionsView.jsx')), 'Missing src/components/MobileAndSubscriptionsView.jsx');
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/App.css')), 'Missing src/App.css');
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/app.css')), 'Missing src/app.css');
 const appCssSource = fs.readFileSync(path.resolve(__dirname, '../src/App.css'), 'utf8');
 assert.ok(appCssSource.includes('.bg-engineering-grid-dark') && appCssSource.includes('.no-scrollbar'), 'Missing App.css engineering grid or scrollbar utility rules');
-assert.ok(appCssSource.includes('.nex-desktop-sidenav') && appCssSource.includes('.nex-mobile-bottomnav'), 'Missing desktop side nav or mobile bottom nav CSS rules');
+assert.ok(appCssSource.includes('.nex-desktop-sidenav') && appCssSource.includes('.nex-mobile-bottomnav') && appCssSource.includes('.nex-mobile-drawer-panel'), 'Missing desktop side nav or smooth mobile drawer CSS rules');
 
-console.log('✅ All 19 SQLite tables (including app_installs & bto_configs), real HTML5/Canvas/WebAudio App Sandbox Runtime, Desktop SideNav, Mobile BottomNav, text-selection prevention, real REST endpoints, NEX-SH v3.0 .nexsh playbooks, documentation suite, cross-browser CSS rules, 6 themes, and CAD SVG renders verified!');
+console.log('✅ All 23 SQLite tables (including subscription_plans, user_subscriptions, mobile_addons, polyglot_automations, app_installs & bto_configs), standard 56px Top Bar, smooth GPU-accelerated Mobile Slide-Over Sidebar Drawer, true Developer Publishing & Details endpoints, PWA manifest/SW, Mobile Flutter/Native Add-On Hub, and Admin/Dev Modifiable Subscriptions verified!');

@@ -18,7 +18,8 @@ import {
   Activity,
   RefreshCw,
   CheckCircle2,
-  Cpu
+  Cpu,
+  Smartphone
 } from 'lucide-react';
 
 export default function DesktopSideNav({
@@ -64,11 +65,19 @@ export default function DesktopSideNav({
     },
     {
       id: 'apps',
-      label: 'App Store (Netlify)',
-      sub: 'Multi-Source Sandbox',
+      label: 'App Store (Devs)',
+      sub: 'Publish Apps & Systems',
       icon: Terminal,
       badge: `${appsCount} Apps`,
       badgeColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+    },
+    {
+      id: 'mobile-subs',
+      label: 'Mobile SDK & Plans',
+      sub: 'Flutter, PWA & Tiers',
+      icon: Smartphone,
+      badge: 'SDK + PWA',
+      badgeColor: 'bg-teal-500/15 text-teal-400 border-teal-500/30'
     },
     {
       id: 'subsystems',
@@ -177,12 +186,12 @@ export default function DesktopSideNav({
   return (
     <aside
       aria-label="Desktop Workspace Side Navigation"
-      className={`nex-desktop-sidenav hidden lg:flex flex-col shrink-0 sticky top-[112px] h-[calc(100dvh-112px)] z-30 select-none ${
+      className={`nex-desktop-sidenav hidden lg:flex flex-col shrink-0 sticky top-14 h-[calc(100dvh-56px)] z-30 select-none ${
         collapsed ? 'w-20' : 'w-64'
       }`}
     >
       {/* Top Collapse Toggle Header */}
-      <div className="flex items-center justify-between px-3.5 py-3 border-b border-white/[0.07]">
+      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.07]">
         {!collapsed && (
           <div className="flex items-center gap-2 min-w-0">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -211,7 +220,7 @@ export default function DesktopSideNav({
         <div className="space-y-1">
           {!collapsed && (
             <div className="px-2.5 pb-1 font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
-              Core Workspaces (7)
+              Core Workspaces (8)
             </div>
           )}
           {primaryNav.map((item) => {
