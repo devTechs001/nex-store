@@ -385,6 +385,18 @@ export default function AdminDashboardView({
   const [newProdStock, setNewProdStock] = useState('20');
   const [newProdBadge, setNewProdBadge] = useState('NEW LAUNCH');
   const [newProdFlash, setNewProdFlash] = useState(true);
+  const [newProdImageUrl, setNewProdImageUrl] = useState('');
+
+  const handleAdminImageFile = (fileList) => {
+    const file = Array.from(fileList || []).find((f) => f.type.startsWith('image/'));
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (dataUrl) setNewProdImageUrl(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
 
   // New Coupon Form State
   const [couponCode, setCouponCode] = useState('');
@@ -405,9 +417,11 @@ export default function AdminDashboardView({
       stock: Number(newProdStock) || 15,
       badge: newProdBadge.trim(),
       is_flash_sale: newProdFlash,
-      featured: true
+      featured: true,
+      image_url: newProdImageUrl.trim() || ''
     });
     setNewProdName('');
+    setNewProdImageUrl('');
     setShowNewProductModal(false);
   };
 
@@ -1746,6 +1760,47 @@ export default function AdminDashboardView({
                   />
                   <span>Activate Flash Sale</span>
                 </label>
+              </div>
+
+              <div className="col-span-2 rounded-2xl p-3 theme-subtle space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-mono-num uppercase text-cyan-400">
+                  <span>Product Image (Upload File or Paste URL)</span>
+                  <label className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2.5 py-1 text-[10px] font-bold text-indigo-300 cursor-pointer">
+                    Upload Image File
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleAdminImageFile(e.target.files)}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={newProdImageUrl}
+                  onChange={(e) => setNewProdImageUrl(e.target.value)}
+                  placeholder="Or paste custom image URL (https://... or data:image/...)"
+                  className={`w-full rounded-xl border px-3 py-1.5 font-mono-num text-xs ${inputSurface}`}
+                />
+                {newProdImageUrl && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <img
+                      src={newProdImageUrl}
+                      alt="Preview"
+                      className="h-12 w-16 rounded-lg object-cover border border-indigo-500/40"
+                    />
+                    <span className="text-[11px] text-emerald-400 font-mono-num">
+                      ✓ Custom Product Image Ready
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setNewProdImageUrl('')}
+                      className="ml-auto text-[10px] text-rose-400 underline cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

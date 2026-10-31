@@ -833,9 +833,28 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(productPayload)
       });
-      if (isJsonResponse(res)) return;
+      if (isJsonResponse(res)) {
+        const data = await res.json();
+        if (data?.product) {
+          setProducts((prev) => [
+            data.product,
+            ...prev.filter((p) => p.id !== data.product.id)
+          ]);
+        }
+        return;
+      }
     } catch {}
     const id = `prod-${Date.now()}`;
+    const customImg = (productPayload.image_url || '').trim();
+    const extraGal = Array.isArray(productPayload.custom_gallery_images)
+      ? productPayload.custom_gallery_images.map((g, i) => ({
+          label: g.label || `Photo ${i + 1}`,
+          view: g.url || g,
+          url: g.url || g
+        }))
+      : customImg
+      ? [{ label: 'Custom Photo', view: customImg, url: customImg }]
+      : [];
     const newProd = {
       id,
       sku: productPayload.sku || `NX-${Math.floor(100 + Math.random() * 899)}`,
@@ -848,17 +867,25 @@ export default function App() {
       rating: 5.0,
       reviews_count: 1,
       badge: productPayload.badge || 'NEW LAUNCH',
+      featured: true,
       is_featured: 1,
       is_flash_sale: productPayload.is_flash_sale ? 1 : 0,
       warranty: '2-Year NEX Care+',
       shipping_time: 'Ships in 24 hrs',
       description: productPayload.description || 'Precision hardware engineered by NEX-Lab.',
       specs: productPayload.specs || { Architecture: 'Custom Gen-5', Warranty: '2 Years' },
-      colors: [{ name: 'Obsidian Black', hex: '#1e1b4b' }],
+      colors: productPayload.colors || [{ name: 'Obsidian Black', hex: '#1e1b4b' }],
+      gallery: [
+        ...extraGal,
+        { label: 'Studio Hero', view: 'hero' },
+        { label: 'Detail Cutaway', view: 'detail' },
+        { label: 'CAD Blueprint', view: 'blueprint' },
+        { label: 'Telemetry Spec', view: 'spec' }
+      ],
       tags: ['new', 'hardware'],
       reviews: []
     };
-    newProd.image_url = getProductArtUrl(newProd);
+    newProd.image_url = customImg || getProductArtUrl(newProd);
     setProducts((prev) => [newProd, ...prev]);
     pushToast('Hardware SKU Created', `${newProd.name} added to catalog`, 'success');
   };
@@ -2071,6 +2098,17 @@ export default function App() {
           onToggleWishlist={handleToggleWishlist}
           isCompared={compareIds.includes(selectedProduct.id)}
           onToggleCompare={handleToggleCompare}
+          onProductUpdated={(updatedProd) => {
+            setProducts((prev) =>
+              prev.map((p) => (p.id === updatedProd.id ? updatedProd : p))
+            );
+            setSelectedProduct(updatedProd);
+            pushToast(
+              'Product Image Saved',
+              `Added custom photo to ${updatedProd.name}`,
+              'success'
+            );
+          }}
           presence={presence}
         />
       )}
