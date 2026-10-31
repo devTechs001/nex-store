@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { db, seedDatabase, formatProductRow } from './db.js';
 import { renderProductSvg } from './productArt.js';
 import { renderSandboxedAppHtml } from './appSandboxRuntime.js';
+import { renderAppBannerSvg } from './appArtAndFetcher.js';
+import { executePolyglotAutomation, aiEnhancePolyglotScript } from './polyglotAutomationEngine.js';
 import { THEMES } from '../src/utils/themes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,14 +43,15 @@ const expectedTables = [
   'terminal_logs',
   'terminal_scripts',
   'bto_configs',
-  'app_installs'
+  'app_installs',
+  'polyglot_automations'
 ];
 
 for (const tbl of expectedTables) {
   assert.ok(tables.includes(tbl), `Missing SQLite table: ${tbl}`);
 }
 
-// 3. Verify Multi-Source Apps, Server Nodes, Integrations, Security Events, Terminal Logs, Playbooks, BTO Rigs & App Installs
+// 3. Verify Multi-Source Apps, Server Nodes, Integrations, Security Events, Terminal Logs, Playbooks, BTO Rigs, App Installs & Polyglot Automations
 const appCount = db.prepare('SELECT COUNT(*) as c FROM apps').get().c;
 const srvCount = db.prepare('SELECT COUNT(*) as c FROM server_nodes').get().c;
 const intCount = db.prepare('SELECT COUNT(*) as c FROM integrations').get().c;
@@ -57,6 +60,7 @@ const termCount = db.prepare('SELECT COUNT(*) as c FROM terminal_logs').get().c;
 const scriptCount = db.prepare('SELECT COUNT(*) as c FROM terminal_scripts').get().c;
 const btoCount = db.prepare('SELECT COUNT(*) as c FROM bto_configs').get().c;
 const installsCount = db.prepare('SELECT COUNT(*) as c FROM app_installs').get().c;
+const polyCount = db.prepare('SELECT COUNT(*) as c FROM polyglot_automations').get().c;
 assert.ok(appCount >= 8, 'Expected at least 8 seeded multi-source apps');
 assert.ok(srvCount >= 6, 'Expected at least 6 seeded edge server nodes');
 assert.ok(intCount >= 8, 'Expected at least 8 seeded platform integrations');
@@ -65,14 +69,35 @@ assert.ok(termCount >= 3, 'Expected at least 3 seeded terminal logs');
 assert.ok(scriptCount >= 4, 'Expected at least 4 seeded .nexsh automation playbooks');
 assert.ok(btoCount >= 3, 'Expected at least 3 seeded BTO hardware rig configurations');
 assert.ok(installsCount >= 3, 'Expected at least 3 seeded installed workstation apps in app_installs');
+assert.ok(polyCount >= 6, 'Expected at least 6 seeded polyglot automations (Python, Rust, C++, Java, Go, TS)');
 
-// 3b. Verify Real Sandboxed App HTML5 Runtime Engine
+// 3b. Verify Real Sandboxed App HTML5 Runtime Engine, App Banner SVG & Polyglot Execution
 const sampleApp = db.prepare('SELECT * FROM apps LIMIT 1').get();
 const sandboxHtml = renderSandboxedAppHtml(sampleApp);
 assert.ok(
   sandboxHtml.includes('<canvas id="sandbox-canvas"') && sandboxHtml.includes('nex-sandbox:telemetry'),
   'Expected real interactive HTML5 Canvas & postMessage IPC sandbox runtime'
 );
+const appBannerSvg = renderAppBannerSvg(sampleApp);
+assert.ok(
+  appBannerSvg.includes('<svg') && appBannerSvg.includes('DRM PROTECTED'),
+  'Expected dynamic App Preview Banner SVG with anti-piracy DRM watermark'
+);
+
+const samplePyAuto = db.prepare("SELECT * FROM polyglot_automations WHERE language = 'python' LIMIT 1").get();
+const pyExec = executePolyglotAutomation(samplePyAuto, { products: [], serverNodes: [], apps: [] });
+assert.ok(pyExec.output.includes('PYTHON'), 'Expected Python polyglot automation output');
+
+const enhancedScript = aiEnhancePolyglotScript({
+  language: 'rust',
+  name: 'test_drm.rs',
+  code: 'fn main() {}'
+});
+assert.ok(
+  enhancedScript.enhancedCode.includes('NEVER SHARE OR PIRATE THIS CODE'),
+  'Expected AI enhancer to inject Copyright & Anti-Piracy DRM lock'
+);
+assert.ok(fs.existsSync(path.resolve(__dirname, '../COPYRIGHT_AND_DRM.md')), 'Missing COPYRIGHT_AND_DRM.md');
 
 // 4. Verify Product Formatting & SVG Studio Render
 const sampleProd = formatProductRow(db.prepare('SELECT * FROM products LIMIT 1').get());

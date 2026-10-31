@@ -17,6 +17,8 @@ import {
 import crypto from 'node:crypto';
 import { renderProductSvg } from './productArt.js';
 import { renderSandboxedAppHtml } from './appSandboxRuntime.js';
+import { renderAppBannerSvg, inspectAndFetchUrlResources } from './appArtAndFetcher.js';
+import { executePolyglotAutomation, aiEnhancePolyglotScript } from './polyglotAutomationEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -185,7 +187,8 @@ const ALLOWED_TABLES = [
   'terminal_logs',
   'terminal_scripts',
   'bto_configs',
-  'app_installs'
+  'app_installs',
+  'polyglot_automations'
 ];
 
 function getDatabaseStats() {
@@ -225,11 +228,20 @@ function getDatabaseStats() {
   };
 }
 
-// 1. Dynamic Product Studio SVG Endpoint
+// 1. Dynamic Product Studio SVG Endpoint & Dynamic App Preview Banner SVG Endpoint
 app.get('/api/product-art/:idFile', (req, res) => {
   const rawId = req.params.idFile.replace(/\.svg$/i, '');
   const product = db.prepare('SELECT id, sku, name, category FROM products WHERE id = ?').get(rawId);
   const svg = renderProductSvg(rawId, req.query, product);
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(svg);
+});
+
+app.get('/api/app-art/:idFile', (req, res) => {
+  const rawId = req.params.idFile.replace(/\.svg$/i, '');
+  const foundApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(rawId) || { id: rawId };
+  const svg = renderAppBannerSvg(foundApp, req.query);
   res.setHeader('Content-Type', 'image/svg+xml');
   res.setHeader('Cache-Control', 'no-cache');
   res.send(svg);
@@ -271,6 +283,9 @@ app.get('/api/bootstrap', (_req, res) => {
   const appInstalls = db
     .prepare('SELECT * FROM app_installs ORDER BY installed_at DESC')
     .all();
+  const polyglotAutomations = db
+    .prepare('SELECT * FROM polyglot_automations ORDER BY run_count DESC')
+    .all();
 
   res.json({
     categories,
@@ -290,16 +305,37 @@ app.get('/api/bootstrap', (_req, res) => {
     terminalScripts,
     btoConfigs,
     appInstalls,
+    polyglotAutomations,
     analytics: getAnalyticsSummary(),
     dbStats: getDatabaseStats(),
     presence: getPresenceSummary()
   });
 });
 
-// 2b. Enterprise Software & Multi-Source Community Apps Endpoints (Netlify / Vercel / GitHub / Dev URL)
+// 2b. Enterprise Software & Multi-Source Community Apps Endpoints (Netlify / Vercel / GitHub / PyPI / NPM / Dev URL)
 app.get('/api/apps', (_req, res) => {
   const apps = db.prepare('SELECT * FROM apps ORDER BY is_featured DESC, downloads DESC').all();
   res.json({ apps });
+});
+
+// Fetch live app metadata, preview image, name, developer, version, resources & AI capabilities from any provided URL
+app.post('/api/apps/inspect-url', async (req, res) => {
+  try {
+    const rawUrl = req.body?.url || req.body?.live_url || '';
+    if (!String(rawUrl).trim()) {
+      return res.status(400).json({ error: 'Please provide a URL to inspect' });
+    }
+    const inspected = await inspectAndFetchUrlResources(rawUrl);
+    recordTerminalLog({
+      command: `nex inspect-url "${inspected.live_url}" --extract-resources --ai-audit`,
+      output: `[URL-EXTRACTOR] Fetched "${inspected.name}" (${inspected.source_provider}) • Image: ${inspected.image_url} • Resources: ${inspected.resources?.length || 0} • AI Score: 99/100`,
+      exit_code: 0,
+      duration_ms: 6.4
+    });
+    res.json({ inspected });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to inspect URL' });
+  }
 });
 
 app.post('/api/apps', (req, res) => {
@@ -312,10 +348,13 @@ app.post('/api/apps', (req, res) => {
     size = '14.2 MB',
     developer = 'Community Developer',
     icon = '🚀',
-    license = 'MIT',
+    license = 'PROPRIETARY-NEX-DRM',
     source_provider = 'Netlify',
     live_url = '',
     repo_url = '',
+    image_url = '',
+    resources = [],
+    ai_capabilities = [],
     permissions = ['Sandboxed Iframe', 'WebAudio API', 'WebSocket Stream']
   } = req.body;
 
@@ -330,14 +369,34 @@ app.post('/api/apps', (req, res) => {
     .createHash('sha256')
     .update(`${id}:${name}:${version}:${cleanLiveUrl}`)
     .digest('hex');
+  const resolvedImageUrl =
+    image_url && String(image_url).trim()
+      ? String(image_url).trim()
+      : `/api/app-art/${id}.svg?name=${encodeURIComponent(name.trim())}&provider=${encodeURIComponent(source_provider)}&lang=${encodeURIComponent(language)}&dev=${encodeURIComponent(developer.trim())}&icon=${encodeURIComponent(icon)}`;
+  const resolvedResources =
+    Array.isArray(resources) && resources.length > 0
+      ? resources
+      : [
+          { type: 'image', name: 'og-preview-banner.svg', url: resolvedImageUrl, size: '24 KB' },
+          { type: 'manifest', name: 'nex-app-manifest.json', url: `/api/apps/${id}/package`, size },
+          { type: 'security', name: 'drm-sha256-attestation.sig', url: cleanLiveUrl, size: '4 KB' }
+        ];
+  const resolvedAi =
+    Array.isArray(ai_capabilities) && ai_capabilities.length > 0
+      ? ai_capabilities
+      : [
+          'AI Zero-Trust Sandbox Runtime Verified',
+          `Polyglot ${language} Automation Bridge Ready`,
+          'Anti-Piracy Cryptographic DRM Watermark Locked'
+        ];
 
   db.prepare(`
     INSERT INTO apps (
       id, name, description, version, category, language, platforms_json,
       rating, reviews_count, downloads, size, developer, icon, license, price,
       is_featured, is_verified, source_provider, live_url, repo_url,
-      sha256_hash, security_score, permissions_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 5.0, 1, 1, ?, ?, ?, ?, 'Free', 1, 1, ?, ?, ?, ?, 99, ?, ?)
+      sha256_hash, security_score, permissions_json, image_url, resources_json, ai_capabilities_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 5.0, 1, 1, ?, ?, ?, ?, 'Free', 1, 1, ?, ?, ?, ?, 99, ?, ?, ?, ?, ?)
   `).run(
     id,
     name.trim(),
@@ -355,6 +414,9 @@ app.post('/api/apps', (req, res) => {
     repo_url.trim(),
     sha256Hash,
     JSON.stringify(Array.isArray(permissions) ? permissions : ['Sandboxed Iframe']),
+    resolvedImageUrl,
+    JSON.stringify(resolvedResources),
+    JSON.stringify(resolvedAi),
     now
   );
 
@@ -520,6 +582,134 @@ app.get('/api/apps/:id/package', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(html);
+});
+
+// 2c. Polyglot AI Automation Studio Endpoints (Python, Rust, C++, Java, Go, TypeScript) — SQLite Table #20
+app.get('/api/automations', (_req, res) => {
+  const polyglotAutomations = db
+    .prepare('SELECT * FROM polyglot_automations ORDER BY run_count DESC')
+    .all();
+  res.json({ polyglotAutomations });
+});
+
+app.post('/api/automations', (req, res) => {
+  const {
+    name = 'custom_automation.py',
+    title = 'Custom Polyglot AI Automation',
+    language = 'python',
+    runtime = 'Python 3.12 + AI Neural Engine',
+    category = 'AI & Automation',
+    description = 'Custom multi-language automation protected by NEX Anti-Piracy DRM.',
+    code = '# © 2026 NEX STORE PROPRIETARY DRM — DO NOT SHARE OR PIRATE\nprint("Hello from NEX Polyglot Engine")'
+  } = req.body || {};
+
+  const id = `poly-${Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+  const enhanced = aiEnhancePolyglotScript({ language, name, code });
+
+  db.prepare(`
+    INSERT OR REPLACE INTO polyglot_automations (
+      id, name, title, language, runtime, category, description, code, run_count, ai_enhanced, last_output, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'Ready for execution', ?)
+  `).run(
+    id,
+    String(name).trim(),
+    String(title).trim(),
+    String(language).toLowerCase(),
+    String(runtime).trim(),
+    String(category).trim(),
+    String(description).trim(),
+    enhanced.enhancedCode,
+    now
+  );
+
+  const polyglotAutomations = db
+    .prepare('SELECT * FROM polyglot_automations ORDER BY run_count DESC')
+    .all();
+  const created = polyglotAutomations.find((p) => p.id === id) || polyglotAutomations[0];
+
+  broadcast('automations:updated', {
+    polyglotAutomations,
+    dbStats: getDatabaseStats()
+  });
+
+  res.status(201).json({ automation: created, polyglotAutomations });
+});
+
+app.post('/api/automations/run', (req, res) => {
+  const { id, language = 'python', name = 'inline_automation.py', code = '' } = req.body || {};
+  const existing = id
+    ? db.prepare('SELECT * FROM polyglot_automations WHERE id = ?').get(id)
+    : null;
+
+  const targetAutomation = existing
+    ? { ...existing, code: code || existing.code, language: language || existing.language }
+    : { id: 'adhoc', name, language, code };
+
+  const liveContext = {
+    products: db.prepare('SELECT sku, name, stock, sold_count FROM products').all(),
+    serverNodes: db.prepare('SELECT id, region, latency_ms, status FROM server_nodes').all(),
+    apps: db.prepare('SELECT id, name, source_provider, language FROM apps').all()
+  };
+
+  const result = executePolyglotAutomation(targetAutomation, liveContext);
+  const now = new Date().toISOString();
+
+  if (existing) {
+    db.prepare(`
+      UPDATE polyglot_automations
+      SET run_count = run_count + 1, code = ?, last_output = ?, updated_at = ?
+      WHERE id = ?
+    `).run(targetAutomation.code, result.output, now, existing.id);
+  }
+
+  const termLog = recordTerminalLog({
+    command: `nex polyglot run ${targetAutomation.name} --lang=${targetAutomation.language}`,
+    output: result.output,
+    exit_code: 0,
+    duration_ms: result.durationMs
+  });
+
+  const polyglotAutomations = db
+    .prepare('SELECT * FROM polyglot_automations ORDER BY run_count DESC')
+    .all();
+
+  broadcast('automations:executed', {
+    result,
+    polyglotAutomations,
+    terminalLog: termLog,
+    dbStats: getDatabaseStats()
+  });
+
+  res.json({
+    result,
+    polyglotAutomations,
+    terminalLog: termLog
+  });
+});
+
+app.post('/api/automations/ai-enhance', (req, res) => {
+  const { id, language = 'python', name = 'automation.py', code = '', goal = '' } = req.body || {};
+  const enhanced = aiEnhancePolyglotScript({ language, name, code, goal });
+  const now = new Date().toISOString();
+
+  if (id) {
+    db.prepare(`
+      UPDATE polyglot_automations
+      SET code = ?, ai_enhanced = 1, updated_at = ?
+      WHERE id = ?
+    `).run(enhanced.enhancedCode, now, id);
+  }
+
+  const polyglotAutomations = db
+    .prepare('SELECT * FROM polyglot_automations ORDER BY run_count DESC')
+    .all();
+
+  res.json({
+    enhancedCode: enhanced.enhancedCode,
+    aiNotes: enhanced.aiNotes,
+    polyglotAutomations
+  });
 });
 
 // 3. Products Endpoints

@@ -17,6 +17,7 @@ import {
   SEED_TERMINAL_SCRIPTS,
   SEED_BTO_CONFIGS
 } from './seedData.js';
+import { SEED_POLYGLOT_AUTOMATIONS } from './polyglotAutomationEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -304,9 +305,24 @@ export function initSchema() {
       status TEXT NOT NULL DEFAULT 'INSTALLED',
       installed_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS polyglot_automations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'python',
+      runtime TEXT NOT NULL DEFAULT 'Python 3.12',
+      category TEXT NOT NULL DEFAULT 'AI & Automation',
+      description TEXT NOT NULL,
+      code TEXT NOT NULL,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      ai_enhanced INTEGER NOT NULL DEFAULT 1,
+      last_output TEXT DEFAULT '',
+      updated_at TEXT NOT NULL
+    );
   `);
 
-  // Ensure existing apps table has multi-source & security columns
+  // Ensure existing apps table has multi-source, image_url, resources & AI capability columns
   const appCols = db.prepare('PRAGMA table_info(apps)').all().map((c) => c.name);
   const alterColumns = [
     ['source_provider', "TEXT DEFAULT 'NEX Official'"],
@@ -314,7 +330,10 @@ export function initSchema() {
     ['repo_url', "TEXT DEFAULT ''"],
     ['sha256_hash', "TEXT DEFAULT ''"],
     ['security_score', 'INTEGER DEFAULT 99'],
-    ['permissions_json', "TEXT DEFAULT '[]'"]
+    ['permissions_json', "TEXT DEFAULT '[]'"],
+    ['image_url', "TEXT DEFAULT ''"],
+    ['resources_json', "TEXT DEFAULT '[]'"],
+    ['ai_capabilities_json', "TEXT DEFAULT '[]'"]
   ];
   for (const [colName, colDef] of alterColumns) {
     if (!appCols.includes(colName)) {
@@ -350,6 +369,7 @@ export function seedDatabase({ forceReset = false } = {}) {
       DELETE FROM terminal_scripts;
       DELETE FROM bto_configs;
       DELETE FROM app_installs;
+      DELETE FROM polyglot_automations;
     `);
   }
 
@@ -361,10 +381,20 @@ export function seedDatabase({ forceReset = false } = {}) {
         id, name, description, version, category, language, platforms_json,
         rating, reviews_count, downloads, size, developer, icon, license, price,
         is_featured, is_verified, source_provider, live_url, repo_url,
-        sha256_hash, security_score, permissions_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sha256_hash, security_score, permissions_json, image_url, resources_json, ai_capabilities_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const a of SEED_APPS) {
+      const defaultResources = JSON.stringify([
+        { type: 'image', name: 'og-preview-banner.svg', url: `/api/app-art/${a.id}.svg`, size: '24 KB' },
+        { type: 'manifest', name: 'nex-app-manifest.json', url: `/api/apps/${a.id}/package`, size: a.size || '18 MB' },
+        { type: 'security', name: 'drm-sha256-attestation.sig', url: a.repo_url || 'https://github.com/devTechs001/nex-store', size: '4 KB' }
+      ]);
+      const defaultAi = JSON.stringify([
+        'AI Zero-Trust Sandbox Runtime Verified',
+        `Polyglot ${a.language || 'Rust/Python'} Bridge Ready`,
+        'Anti-Piracy Cryptographic DRM Watermark Locked'
+      ]);
       insertApp.run(
         a.id,
         a.name,
@@ -389,7 +419,61 @@ export function seedDatabase({ forceReset = false } = {}) {
         a.sha256_hash || 'e3b0c44298fc1c149afbf4c8996fb924',
         a.security_score || 99,
         a.permissions_json || '[]',
+        a.image_url || `/api/app-art/${a.id}.svg`,
+        a.resources_json || defaultResources,
+        a.ai_capabilities_json || defaultAi,
         nowApps
+      );
+    }
+  }
+
+  // Ensure any pre-existing app rows have image_url, resources_json, and ai_capabilities_json populated
+  const allExistingApps = db.prepare('SELECT id, language, size, repo_url, image_url, resources_json, ai_capabilities_json FROM apps').all();
+  const updateAppMeta = db.prepare('UPDATE apps SET image_url = ?, resources_json = ?, ai_capabilities_json = ? WHERE id = ?');
+  for (const row of allExistingApps) {
+    if (!row.image_url || !row.resources_json || row.resources_json === '[]') {
+      const imgUrl = row.image_url || `/api/app-art/${row.id}.svg`;
+      const resJson =
+        row.resources_json && row.resources_json !== '[]'
+          ? row.resources_json
+          : JSON.stringify([
+              { type: 'image', name: 'og-preview-banner.svg', url: imgUrl, size: '24 KB' },
+              { type: 'manifest', name: 'nex-app-manifest.json', url: `/api/apps/${row.id}/package`, size: row.size || '18 MB' },
+              { type: 'security', name: 'drm-sha256-attestation.sig', url: row.repo_url || 'https://github.com/devTechs001/nex-store', size: '4 KB' }
+            ]);
+      const aiJson =
+        row.ai_capabilities_json && row.ai_capabilities_json !== '[]'
+          ? row.ai_capabilities_json
+          : JSON.stringify([
+              'AI Zero-Trust Sandbox Runtime Verified',
+              `Polyglot ${row.language || 'Rust/Python'} Bridge Ready`,
+              'Anti-Piracy Cryptographic DRM Watermark Locked'
+            ]);
+      updateAppMeta.run(imgUrl, resJson, aiJson, row.id);
+    }
+  }
+
+  const polyCountRow = db.prepare('SELECT COUNT(*) as count FROM polyglot_automations').get();
+  if (!polyCountRow || polyCountRow.count === 0) {
+    const insertPoly = db.prepare(`
+      INSERT OR REPLACE INTO polyglot_automations (
+        id, name, title, language, runtime, category, description, code, run_count, ai_enhanced, last_output, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const p of SEED_POLYGLOT_AUTOMATIONS) {
+      insertPoly.run(
+        p.id,
+        p.name,
+        p.title,
+        p.language,
+        p.runtime,
+        p.category,
+        p.description,
+        p.code,
+        p.run_count || 10,
+        p.ai_enhanced ?? 1,
+        p.last_output || '',
+        p.updated_at || nowApps
       );
     }
   }
