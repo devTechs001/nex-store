@@ -1,5 +1,5 @@
 // public/sw.js
-const CACHE_NAME = 'nex-store-v10';
+const CACHE_NAME = 'nex-store-v11';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', (event) => {

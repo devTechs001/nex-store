@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Store,
   Terminal,
@@ -19,7 +19,9 @@ import {
   VolumeX,
   RefreshCw,
   CheckCircle2,
-  Palette
+  Smartphone,
+  Download,
+  Sparkles
 } from 'lucide-react';
 import { CURRENCIES } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
@@ -50,20 +52,31 @@ export default function MobileBottomNav({
   onOpenCommandPalette,
   onOpenNotifications,
   onOpenTerminal,
-  onOpenHardwareBuilder
+  onOpenHardwareBuilder,
+  onTriggerPwaInstall
 }) {
   const badges = navTelemetry?.badges || {};
-  const totalTables = badges.database?.totalTables || dbStats?.totalTables || 18;
+  const totalTables = badges.database?.totalTables || dbStats?.totalTables || 23;
 
   const allWorkspaces = [
     { id: 'store', label: 'Hardware Store', sub: '12 Flagship SKUs & CAD', icon: Store, badge: `${badges.store?.products || 12} SKUs` },
-    { id: 'apps', label: 'App Store (Netlify/Devs)', sub: 'Verified Multi-Source Apps', icon: Terminal, badge: `${badges.apps?.total || 10} Apps` },
+    { id: 'apps', label: 'App Store (Devs)', sub: 'Publish Apps & Systems', icon: Terminal, badge: `${badges.apps?.total || 10} Apps` },
+    { id: 'mobile-subs', label: 'Mobile SDK, PWA & Plans', sub: 'Flutter, Native & Tiers', icon: Smartphone, badge: 'SDK + PWA' },
     { id: 'subsystems', label: 'Subsystems & Security', sub: '6 Edge Nodes & WAF Shield', icon: Server, badge: `${badges.subsystems?.onlineNodes || 6} Online` },
     { id: 'tracker', label: 'Order Tracker', sub: 'Live Fulfillment Telemetry', icon: Truck, badge: `${badges.tracker?.activeOrders ?? 3} Active` },
     { id: 'admin', label: 'Admin Operations', sub: 'Inventory & Revenue Studio', icon: ShieldCheck, badge: 'Ops' },
     { id: 'database', label: 'SQLite Studio', sub: 'Live WAL Table Explorer', icon: Database, badge: `${totalTables} DB` },
-    { id: 'docs', label: 'Docs & API Guide', sub: 'REST, WS & CLI Manual', icon: BookOpen, badge: 'v3.1' }
+    { id: 'docs', label: 'Docs & API Guide', sub: 'REST, WS & CLI Manual', icon: BookOpen, badge: 'v3.2' }
   ];
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setMobileMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mobileMenuOpen, setMobileMenuOpen]);
 
   const handleSelectWorkspace = (id) => {
     setActiveTab(id);
@@ -106,15 +119,15 @@ export default function MobileBottomNav({
 
           <button
             type="button"
-            onClick={() => handleSelectWorkspace('subsystems')}
+            onClick={() => handleSelectWorkspace('mobile-subs')}
             className={`flex flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 text-[10px] font-bold transition cursor-pointer ${
-              activeTab === 'subsystems'
-                ? 'text-emerald-400 bg-emerald-500/15'
-                : 'theme-text-muted hover:text-emerald-400'
+              activeTab === 'mobile-subs'
+                ? 'text-teal-400 bg-teal-500/15'
+                : 'theme-text-muted hover:text-teal-400'
             }`}
           >
-            <Server className="h-4 w-4" />
-            <span>Nodes</span>
+            <Smartphone className="h-4 w-4" />
+            <span>Mobile/Plans</span>
           </button>
 
           <button
@@ -152,43 +165,70 @@ export default function MobileBottomNav({
             }`}
           >
             {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-            <span>Menu</span>
+            <span>Drawer</span>
           </button>
         </div>
       </nav>
 
-      {/* Full-Featured Slide-Up / Slide-Over Mobile Command & Navigation Drawer */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex flex-col justify-end bg-black/75 backdrop-blur-md animate-fadeIn select-none">
-          <div
-            className="fixed inset-0"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-          <div className="relative z-10 max-h-[86dvh] w-full rounded-t-3xl border-t border-indigo-500/30 theme-card p-5 overflow-y-auto space-y-5 shadow-2xl">
-            {/* Drawer Header */}
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3.5">
-              <div>
-                <div className="font-mono-num text-[10px] font-bold uppercase tracking-wider text-indigo-400">
-                  NEXUS OS v3.1 // MOBILE COMMAND HUB
+      {/* Smooth 60fps GPU-Accelerated Left Slide-Over Mobile Sidebar Drawer */}
+      <div
+        aria-hidden={!mobileMenuOpen}
+        className={`nex-mobile-drawer-backdrop fixed inset-0 z-50 lg:hidden select-none ${
+          mobileMenuOpen
+            ? 'opacity-100 visible pointer-events-auto'
+            : 'opacity-0 invisible pointer-events-none'
+        }`}
+      >
+        {/* Backdrop */}
+        <div
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm"
+        />
+
+        {/* Slide-Over Left Sidebar Panel */}
+        <aside
+          aria-label="Mobile Sidebar Navigation Drawer"
+          className={`nex-mobile-drawer-panel relative z-10 flex h-full w-80 max-w-[86vw] flex-col justify-between overflow-y-auto p-4 shadow-2xl ${
+            mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          <div className="space-y-4">
+            {/* Drawer Brand Header */}
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-xl text-white shadow-sm"
+                  style={{
+                    background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`
+                  }}
+                >
+                  <Sparkles className="h-4 w-4" />
                 </div>
-                <h3 className="text-base font-bold">Workspaces, Studios &amp; Settings</h3>
+                <div>
+                  <div className="font-display text-sm font-bold tracking-tight">
+                    NEX STORE // DRAWER
+                  </div>
+                  <div className="font-mono-num text-[10px] text-emerald-400">
+                    PWA • Flutter SDK • {totalTables} SQLite DBs
+                  </div>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
-                className="rounded-xl p-2 theme-subtle cursor-pointer"
-                aria-label="Close mobile menu"
+                className="rounded-xl p-1.5 theme-subtle hover:border-indigo-400/50 cursor-pointer"
+                aria-label="Close mobile sidebar drawer"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            {/* All 7 Workspaces Grid */}
-            <div className="space-y-2">
-              <div className="font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
-                All Workspaces (7)
+            {/* All 8 Workspaces List */}
+            <div className="space-y-1.5">
+              <div className="px-1 font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
+                Workspaces (8)
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-1">
                 {allWorkspaces.map((ws) => {
                   const Icon = ws.icon;
                   const active = activeTab === ws.id;
@@ -197,13 +237,13 @@ export default function MobileBottomNav({
                       key={ws.id}
                       type="button"
                       onClick={() => handleSelectWorkspace(ws.id)}
-                      className={`flex items-center justify-between rounded-2xl p-3 text-left transition cursor-pointer ${
+                      className={`w-full flex items-center justify-between rounded-2xl px-3 py-2.5 text-left transition cursor-pointer ${
                         active
-                          ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-lg'
+                          ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
                           : 'theme-subtle hover:border-indigo-500/40'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         <Icon className="h-4 w-4 shrink-0" />
                         <div className="min-w-0">
                           <div className="text-xs font-bold truncate">{ws.label}</div>
@@ -217,7 +257,7 @@ export default function MobileBottomNav({
                         </div>
                       </div>
                       <span
-                        className={`ml-2 rounded-full px-2 py-0.5 font-mono-num text-[10px] font-bold ${
+                        className={`ml-2 rounded-full px-2 py-0.5 font-mono-num text-[9px] font-bold shrink-0 ${
                           active ? 'bg-white/20 text-white' : 'theme-card'
                         }`}
                       >
@@ -229,22 +269,22 @@ export default function MobileBottomNav({
               </div>
             </div>
 
-            {/* Quick Engineering Studios Row */}
-            <div className="space-y-2">
-              <div className="font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
-                Engineering Studios &amp; Drawers
+            {/* Quick Engineering Studios & PWA Action Grid */}
+            <div className="space-y-1.5">
+              <div className="px-1 font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
+                Studios, PWA &amp; Drawers
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   onClick={() => {
                     setMobileMenuOpen(false);
                     onOpenTerminal();
                   }}
-                  className="flex items-center gap-2 rounded-xl p-2.5 text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-xl p-2 text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 cursor-pointer"
                 >
-                  <Terminal className="h-4 w-4" />
-                  <span>&gt;_ NEX-SH CLI</span>
+                  <Terminal className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">NEX-SH CLI</span>
                 </button>
 
                 <button
@@ -253,10 +293,26 @@ export default function MobileBottomNav({
                     setMobileMenuOpen(false);
                     onOpenHardwareBuilder();
                   }}
-                  className="flex items-center gap-2 rounded-xl p-2.5 text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-xl p-2 text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-pointer"
                 >
-                  <Sliders className="h-4 w-4" />
-                  <span>5-Slot Rig BTO</span>
+                  <Sliders className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">5-Slot BTO</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    if (onTriggerPwaInstall) {
+                      onTriggerPwaInstall();
+                    } else {
+                      handleSelectWorkspace('mobile-subs');
+                    }
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl p-2 text-[11px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 cursor-pointer"
+                >
+                  <Download className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">Install PWA</span>
                 </button>
 
                 <button
@@ -265,10 +321,10 @@ export default function MobileBottomNav({
                     setMobileMenuOpen(false);
                     onOpenCommandPalette();
                   }}
-                  className="flex items-center gap-2 rounded-xl p-2.5 text-xs font-bold theme-subtle cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-xl p-2 text-[11px] font-bold theme-subtle cursor-pointer"
                 >
-                  <Command className="h-4 w-4 text-indigo-400" />
-                  <span>Search (⌘K)</span>
+                  <Command className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                  <span className="truncate">Search (⌘K)</span>
                 </button>
 
                 <button
@@ -277,22 +333,10 @@ export default function MobileBottomNav({
                     setMobileMenuOpen(false);
                     onOpenCart('wishlist');
                   }}
-                  className="flex items-center gap-2 rounded-xl p-2.5 text-xs font-bold theme-subtle cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-xl p-2 text-[11px] font-bold theme-subtle cursor-pointer"
                 >
-                  <Heart className="h-4 w-4 text-rose-400" />
-                  <span>Wishlist ({wishlistCount})</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    onOpenCompare();
-                  }}
-                  className="flex items-center gap-2 rounded-xl p-2.5 text-xs font-bold theme-subtle cursor-pointer"
-                >
-                  <Layers className="h-4 w-4 text-purple-400" />
-                  <span>Compare ({compareCount})</span>
+                  <Heart className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+                  <span className="truncate">Wishlist ({wishlistCount})</span>
                 </button>
 
                 <button
@@ -301,102 +345,97 @@ export default function MobileBottomNav({
                     setMobileMenuOpen(false);
                     onOpenNotifications();
                   }}
-                  className="flex items-center gap-2 rounded-xl p-2.5 text-xs font-bold theme-subtle cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-xl p-2 text-[11px] font-bold theme-subtle cursor-pointer"
                 >
-                  <Bell className="h-4 w-4 text-amber-400" />
-                  <span>Alerts ({unreadNotificationsCount})</span>
+                  <Bell className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <span className="truncate">Alerts ({unreadNotificationsCount})</span>
                 </button>
               </div>
             </div>
 
-            {/* Theme, Currency & Sound Quick Controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-white/[0.08]">
+            {/* Theme Palette & Currency Controls */}
+            <div className="space-y-2.5 pt-2 border-t border-white/[0.08]">
               <div>
                 <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
-                  Active Theme (6)
+                  Theme Palette (6)
                 </label>
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="grid grid-cols-3 gap-1.5">
                   {Object.values(THEMES).map((t) => (
                     <button
                       key={t.id}
                       type="button"
                       onClick={() => setThemeId(t.id)}
-                      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold border cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold border cursor-pointer truncate ${
                         themeId === t.id
                           ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300'
                           : 'theme-subtle'
                       }`}
                     >
                       <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: t.swatch || t.accent || '#6366f1' }}
+                        className="h-2 w-2 rounded-full shrink-0"
+                        style={{ backgroundColor: t.swatch?.[0] || '#6366f1' }}
                       />
-                      <span>{t.name.split(' ')[0]}</span>
+                      <span className="truncate">{t.name.split(' ')[0]}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="flex items-center justify-between sm:justify-start gap-2">
-                <div className="flex-1">
-                  <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
-                    Currency
-                  </label>
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                    className="w-full rounded-xl px-3 py-1.5 text-xs font-mono-num font-semibold theme-input"
-                  >
-                    {Object.keys(CURRENCIES).map((code) => (
-                      <option key={code} value={code}>
-                        {code} ({CURRENCIES[code].symbol})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  className="flex-1 rounded-xl px-2.5 py-1.5 text-xs font-mono-num font-semibold theme-input"
+                >
+                  {Object.keys(CURRENCIES).map((code) => (
+                    <option key={code} value={code}>
+                      {code} ({CURRENCIES[code].symbol})
+                    </option>
+                  ))}
+                </select>
 
-                <div>
-                  <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
-                    WebAudio
-                  </label>
-                  <button
-                    type="button"
-                    onClick={onToggleSound}
-                    className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border cursor-pointer ${
-                      soundEnabled
-                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                        : 'theme-subtle'
-                    }`}
-                  >
-                    {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                    <span>{soundEnabled ? 'On' : 'Muted'}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Live Health Endpoint Status */}
-              <div className="rounded-xl p-2.5 theme-subtle flex items-center justify-between">
-                <div className="font-mono-num text-[11px]">
-                  <div className="flex items-center gap-1 text-emerald-400 font-bold">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span>/api/health: OK</span>
-                  </div>
-                  <div className="text-[10px] theme-text-muted">
-                    {totalTables} SQLite Tables • {healthStatus?.memory?.rssMB || 75} MB RAM
-                  </div>
-                </div>
                 <button
                   type="button"
-                  onClick={onRefreshHealth}
-                  className="rounded-lg px-2.5 py-1 text-xs font-mono-num theme-card cursor-pointer"
+                  onClick={onToggleSound}
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border cursor-pointer ${
+                    soundEnabled
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : 'theme-subtle'
+                  }`}
                 >
-                  <RefreshCw className={`h-3.5 w-3.5 text-cyan-400 ${isPingingHealth ? 'animate-spin' : ''}`} />
+                  {soundEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                  <span>{soundEnabled ? 'Audio' : 'Muted'}</span>
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+
+          {/* Drawer Footer: Live Health & Copyright DRM */}
+          <div className="mt-4 pt-3 border-t border-white/[0.08] space-y-2">
+            <div className="rounded-xl p-2.5 theme-subtle flex items-center justify-between">
+              <div className="font-mono-num text-[10px]">
+                <div className="flex items-center gap-1 text-emerald-400 font-bold">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>/api/health: OK</span>
+                </div>
+                <div className="text-[9px] theme-text-muted">
+                  {totalTables} SQLite Tables • {healthStatus?.memory?.rssMB || 75} MB RAM
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onRefreshHealth}
+                className="rounded-lg p-1.5 theme-card cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 text-cyan-400 ${isPingingHealth ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            <div className="font-mono-num text-[9px] text-amber-300/90 text-center">
+              🔒 © 2026 NEX STORE PROPRIETARY • DO NOT PIRATE
+            </div>
+          </div>
+        </aside>
+      </div>
     </>
   );
 }

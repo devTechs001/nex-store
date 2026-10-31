@@ -17,6 +17,7 @@ import HardwareBuilderModal from './components/HardwareBuilderModal.jsx';
 import DocumentationView from './components/DocumentationView.jsx';
 import DesktopSideNav from './components/DesktopSideNav.jsx';
 import MobileBottomNav from './components/MobileBottomNav.jsx';
+import MobileAndSubscriptionsView from './components/MobileAndSubscriptionsView.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
 import { getFallbackBootstrapData, getProductArtUrl } from './utils/storeEngine.js';
 import {
@@ -125,6 +126,10 @@ export default function App() {
   const [btoConfigs, setBtoConfigs] = useState(initialSeed.btoConfigs || []);
   const [appInstalls, setAppInstalls] = useState(initialSeed.appInstalls || []);
   const [polyglotAutomations, setPolyglotAutomations] = useState(initialSeed.polyglotAutomations || []);
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
+  const [userSubscriptions, setUserSubscriptions] = useState([]);
+  const [mobileAddons, setMobileAddons] = useState([]);
+  const [pwaDeferredPrompt, setPwaDeferredPrompt] = useState(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [hardwareBuilderOpen, setHardwareBuilderOpen] = useState(false);
   const [sideNavCollapsed, setSideNavCollapsed] = useState(false);
@@ -220,6 +225,15 @@ export default function App() {
       if (Array.isArray(data.polyglotAutomations) && data.polyglotAutomations.length > 0) {
         setPolyglotAutomations(data.polyglotAutomations);
       }
+      if (Array.isArray(data.subscriptionPlans) && data.subscriptionPlans.length > 0) {
+        setSubscriptionPlans(data.subscriptionPlans);
+      }
+      if (Array.isArray(data.userSubscriptions) && data.userSubscriptions.length > 0) {
+        setUserSubscriptions(data.userSubscriptions);
+      }
+      if (Array.isArray(data.mobileAddons) && data.mobileAddons.length > 0) {
+        setMobileAddons(data.mobileAddons);
+      }
       if (data.analytics && Object.keys(data.analytics).length > 0) setAnalytics(data.analytics);
       if (data.dbStats && Object.keys(data.dbStats).length > 0) setDbStats(data.dbStats);
       if (data.presence) setPresence(data.presence);
@@ -244,6 +258,25 @@ export default function App() {
   useEffect(() => {
     fetchBootstrap();
   }, [fetchBootstrap]);
+
+  useEffect(() => {
+    const onBeforeInstall = (e) => {
+      e.preventDefault();
+      setPwaDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+  }, []);
+
+  const handleTriggerPwaInstall = useCallback(async () => {
+    if (pwaDeferredPrompt) {
+      pwaDeferredPrompt.prompt();
+      const choice = await pwaDeferredPrompt.userChoice;
+      setPwaDeferredPrompt(null);
+      return choice?.outcome || 'accepted';
+    }
+    return null;
+  }, [pwaDeferredPrompt]);
 
   // Connect to Real-Time WebSocket Engine (/ws)
   useEffect(() => {
@@ -1751,6 +1784,17 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'mobile-subs' && (
+          <MobileAndSubscriptionsView
+            subscriptionPlans={subscriptionPlans}
+            userSubscriptions={userSubscriptions}
+            mobileAddons={mobileAddons}
+            pwaDeferredPrompt={pwaDeferredPrompt}
+            onTriggerPwaInstall={handleTriggerPwaInstall}
+            onPlaySound={handlePlaySound}
+          />
+        )}
+
         {activeTab === 'subsystems' && (
           <SubsystemsHubView
             serverNodes={serverNodes}
@@ -1912,6 +1956,7 @@ export default function App() {
           handlePlaySound('click');
           setHardwareBuilderOpen(true);
         }}
+        onTriggerPwaInstall={handleTriggerPwaInstall}
       />
 
       {/* Slide-Over Push & Real-Time Notification Center Drawer */}

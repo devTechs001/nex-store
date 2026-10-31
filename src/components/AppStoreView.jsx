@@ -184,6 +184,26 @@ export default function AppStoreView({
   const [appImageUrl, setAppImageUrl] = useState('');
   const [appResources, setAppResources] = useState([]);
   const [appAiCapabilities, setAppAiCapabilities] = useState([]);
+  const [packageType, setPackageType] = useState('app');
+  const [devEmail, setDevEmail] = useState('publisher@nexstore.dev');
+  const [devWebsite, setDevWebsite] = useState('https://github.com/devTechs001/nex-store');
+  const [devBio, setDevBio] = useState('Verified External Developer & Systems Architect');
+  const [installCmd, setInstallCmd] = useState('');
+  const [appChangelog, setAppChangelog] = useState('v1.0.0 — Verified SHA-256 sandbox runtime & anti-piracy DRM lock.');
+
+  // Full Developer & System Package Details Modal State
+  const [detailsModalData, setDetailsModalData] = useState(null);
+  const [isEditingPackage, setIsEditingPackage] = useState(false);
+  const [editPkgForm, setEditPkgForm] = useState({
+    name: '',
+    version: '',
+    developer: '',
+    developer_email: '',
+    developer_website: '',
+    package_type: 'app',
+    description: '',
+    changelog: ''
+  });
 
   const sources = ['all', 'Netlify', 'Vercel', 'GitHub', 'PyPI', 'NPM', 'NEX Official', 'Community Dev'];
   const languages = ['all', 'python', 'typescript', 'rust', 'go', 'java', 'cpp', 'javascript'];
@@ -363,11 +383,17 @@ export default function AppStoreView({
     if (!appName.trim()) return;
     await onCreateApp({
       name: appName.trim(),
-      description: appDesc.trim() || 'Community deployed software package',
+      description: appDesc.trim() || 'Community deployed software & system package',
       version: appVersion.trim() || '1.0.0',
       category: appCategory,
+      package_type: packageType,
       language: appLanguage,
       developer: appDeveloper.trim() || 'Independent Developer',
+      developer_email: devEmail.trim() || 'publisher@nexstore.dev',
+      developer_website: devWebsite.trim() || repoUrl.trim() || 'https://github.com/devTechs001/nex-store',
+      developer_bio: devBio.trim() || 'Verified External Developer & Systems Publisher',
+      install_command: installCmd.trim(),
+      changelog: appChangelog.trim(),
       icon: appIcon,
       source_provider: sourceProvider,
       live_url: liveUrl.trim() || `https://${appName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}.netlify.app`,
@@ -386,6 +412,79 @@ export default function AppStoreView({
     setAppResources([]);
     setAppAiCapabilities([]);
     setShowUploadModal(false);
+  };
+
+  const handleOpenDeveloperDetails = async (app) => {
+    onPlaySound?.('click');
+    setIsEditingPackage(false);
+    try {
+      const res = await fetch(`/api/apps/${app.id}/details`);
+      if (res.ok) {
+        const data = await res.json();
+        setDetailsModalData(data);
+        setEditPkgForm({
+          name: data.app.name,
+          version: data.app.version,
+          developer: data.app.developer,
+          developer_email: data.developerProfile?.email || 'dev@nexstore.dev',
+          developer_website: data.developerProfile?.website || 'https://github.com/devTechs001/nex-store',
+          package_type: data.app.package_type || 'app',
+          description: data.app.description,
+          changelog: data.app.changelog || 'v1.0.0 — Verified SHA-256 sandbox runtime.'
+        });
+        return;
+      }
+    } catch {}
+    // Fallback if offline
+    setDetailsModalData({
+      app: {
+        ...app,
+        resources: safeParseArray(app.resources_json, []),
+        aiCapabilities: safeParseArray(app.ai_capabilities_json, []),
+        permissions: safeParseArray(app.permissions_json, []),
+        systemRequirements: {
+          os: 'Linux / macOS / Windows / NEX Sandbox / Flutter Bridge',
+          ram: '256 MB Isolated Heap',
+          arch: 'x86_64 / ARM64 / WASM32',
+          mobileBridge: 'Flutter MethodChannel & React Native JSI Ready'
+        }
+      },
+      developerProfile: {
+        name: app.developer,
+        email: app.developer_email || 'dev@nexstore.dev',
+        website: app.developer_website || app.repo_url || 'https://github.com/devTechs001/nex-store',
+        bio: app.developer_bio || 'Verified NEX Ecosystem & Open-Source Systems Publisher',
+        verified: Boolean(app.is_verified),
+        sourceProvider: app.source_provider || 'NEX Official'
+      },
+      installation: {
+        isInstalled: installedIds.includes(app.id),
+        installCommand: app.install_command || `nex install ${app.id} --verify-sha256`,
+        sandboxUrl: `/api/sandbox/${app.id}`,
+        standalonePackageUrl: `/api/apps/${app.id}/package`
+      }
+    });
+  };
+
+  const handleSavePackageModification = async (e) => {
+    e.preventDefault();
+    if (!detailsModalData?.app?.id) return;
+    onPlaySound?.('success');
+    const targetId = detailsModalData.app.id;
+    try {
+      const res = await fetch(`/api/apps/${targetId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editPkgForm)
+      });
+      if (res.ok) {
+        const updatedDetails = await fetch(`/api/apps/${targetId}/details`).then((r) => r.json());
+        if (updatedDetails?.app) {
+          setDetailsModalData(updatedDetails);
+        }
+      }
+    } catch {}
+    setIsEditingPackage(false);
   };
 
   const handleSelectAutomation = (auto) => {
@@ -1190,8 +1289,16 @@ export default function AppStoreView({
                       <span>Sandbox</span>
                     </button>
                     <button
+                      onClick={() => handleOpenDeveloperDetails(app)}
+                      className="inline-flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold theme-subtle hover:border-teal-400/50 text-teal-300 cursor-pointer"
+                      title="View Full Developer Profile, System Requirements & CLI Install Endpoint"
+                    >
+                      <Code2 className="h-3.5 w-3.5 text-teal-400" />
+                      <span>Details</span>
+                    </button>
+                    <button
                       onClick={() => handleDownloadStandalonePackage(app)}
-                      className="inline-flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold theme-subtle hover:border-indigo-400/50 cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded-xl px-2 py-2 text-xs font-semibold theme-subtle hover:border-indigo-400/50 cursor-pointer"
                       title="Download Standalone Executable .html Package"
                     >
                       <Download className="h-3.5 w-3.5 text-indigo-400" />
@@ -1199,7 +1306,7 @@ export default function AppStoreView({
                     <button
                       onClick={() => handleRunSecurityScan(app)}
                       disabled={scanningId === app.id}
-                      className="inline-flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold theme-subtle hover:border-emerald-400/50 cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded-xl px-2 py-2 text-xs font-semibold theme-subtle hover:border-emerald-400/50 cursor-pointer"
                       title="Run SHA-256 & Sandbox Security Audit"
                     >
                       <ShieldCheck
@@ -1544,11 +1651,11 @@ export default function AppStoreView({
               </div>
             </div>
 
-            {/* App Details Form */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* App & System Details Form */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
-                  Application Name *
+                  Package Name *
                 </label>
                 <input
                   type="text"
@@ -1562,6 +1669,23 @@ export default function AppStoreView({
 
               <div>
                 <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                  Package Type (App / System)
+                </label>
+                <select
+                  value={packageType}
+                  onChange={(e) => setPackageType(e.target.value)}
+                  className="w-full rounded-xl px-2.5 py-2 text-xs theme-input"
+                >
+                  <option value="app">Web / Desktop App</option>
+                  <option value="system">System / OS Module</option>
+                  <option value="driver">Hardware / NPU Driver</option>
+                  <option value="mobile_addon">Flutter / Mobile Add-On</option>
+                  <option value="cli">NEX-SH CLI Utility</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
                   Developer / Author Handle *
                 </label>
                 <input
@@ -1569,7 +1693,34 @@ export default function AppStoreView({
                   required
                   value={appDeveloper}
                   onChange={(e) => setAppDeveloper(e.target.value)}
-                  placeholder="e.g. @elena_quantum (External Dev)"
+                  placeholder="e.g. @elena_quantum"
+                  className="w-full rounded-xl px-3.5 py-2 text-xs theme-input"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                  Developer Contact Email
+                </label>
+                <input
+                  type="email"
+                  value={devEmail}
+                  onChange={(e) => setDevEmail(e.target.value)}
+                  placeholder="publisher@nexstore.dev"
+                  className="w-full rounded-xl px-3.5 py-2 text-xs theme-input"
+                />
+              </div>
+              <div>
+                <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                  Developer Website / Portfolio
+                </label>
+                <input
+                  type="text"
+                  value={devWebsite}
+                  onChange={(e) => setDevWebsite(e.target.value)}
+                  placeholder="https://github.com/devTechs001"
                   className="w-full rounded-xl px-3.5 py-2 text-xs theme-input"
                 />
               </div>
@@ -1588,6 +1739,8 @@ export default function AppStoreView({
                   <option value="Netlify">Netlify</option>
                   <option value="Vercel">Vercel</option>
                   <option value="GitHub">GitHub</option>
+                  <option value="PyPI">PyPI</option>
+                  <option value="NPM">NPM</option>
                   <option value="Community Dev">Community Dev</option>
                   <option value="NEX Official">NEX Official</option>
                 </select>
@@ -1674,21 +1827,25 @@ export default function AppStoreView({
 
             <div>
               <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
-                Description & Capabilities
+                Description, System Requirements &amp; Capabilities
               </label>
               <textarea
                 rows={2}
                 value={appDesc}
                 onChange={(e) => setAppDesc(e.target.value)}
-                placeholder="Describe what this app does and how it integrates with NEX..."
+                placeholder="Describe what this app or system package does and how it integrates with NEX..."
                 className="w-full rounded-xl px-3.5 py-2 text-xs theme-input"
               />
+            </div>
+
+            <div className="rounded-xl bg-slate-950 p-2.5 border border-indigo-500/30 font-mono-num text-[10px] text-cyan-300">
+              REST API Endpoint: <code>POST /api/developer/publish</code> • Details Endpoint: <code>GET /api/apps/:id/details</code>
             </div>
 
             <div className="flex items-center justify-between pt-2">
               <span className="inline-flex items-center gap-1.5 font-mono-num text-[11px] text-emerald-400">
                 <ShieldCheck className="h-4 w-4" />
-                Auto-generates SHA-256 signature & sandbox security profile
+                Auto-generates SHA-256 signature &amp; sandbox security profile
               </span>
 
               <button
@@ -1696,10 +1853,251 @@ export default function AppStoreView({
                 className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 px-6 py-2.5 text-xs font-bold text-white shadow-lg cursor-pointer"
               >
                 <Upload className="h-4 w-4" />
-                <span>Verify & Publish to SQLite</span>
+                <span>Verify &amp; Publish to SQLite</span>
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Full Developer Profile & System Package Details Modal (GET /api/apps/:id/details + PATCH /api/apps/:id) */}
+      {detailsModalData && (
+        <div
+          onClick={() => setDetailsModalData(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-5 overflow-y-auto"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-3xl rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl theme-card my-auto border border-teal-500/40"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] pb-3.5">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">{detailsModalData.app.icon || '📦'}</span>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-display text-lg font-bold">{detailsModalData.app.name}</h3>
+                    <span className="rounded-lg bg-teal-500/20 border border-teal-500/40 px-2 py-0.5 font-mono-num text-[10px] font-bold uppercase text-teal-300">
+                      {detailsModalData.app.package_type || 'app'}
+                    </span>
+                    <span className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2 py-0.5 font-mono-num text-[10px] font-bold text-indigo-300">
+                      v{detailsModalData.app.version}
+                    </span>
+                  </div>
+                  <p className="font-mono-num text-xs text-cyan-400">
+                    GET /api/apps/{detailsModalData.app.id}/details • SHA-256:{' '}
+                    {(detailsModalData.app.sha256_hash || 'e3b0c44298fc1c14').slice(0, 16)}...
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingPackage((prev) => !prev)}
+                  className="rounded-xl bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 font-mono-num text-xs font-bold text-amber-300 cursor-pointer"
+                >
+                  {isEditingPackage ? 'Cancel Edit' : 'Admin/Dev: Edit'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailsModalData(null)}
+                  className="rounded-xl p-1.5 theme-subtle cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {isEditingPackage ? (
+              <form onSubmit={handleSavePackageModification} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Package Name
+                    </label>
+                    <input
+                      type="text"
+                      value={editPkgForm.name}
+                      onChange={(e) => setEditPkgForm({ ...editPkgForm, name: e.target.value })}
+                      className="w-full rounded-xl px-3 py-1.5 text-xs theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Version
+                    </label>
+                    <input
+                      type="text"
+                      value={editPkgForm.version}
+                      onChange={(e) => setEditPkgForm({ ...editPkgForm, version: e.target.value })}
+                      className="w-full rounded-xl px-3 py-1.5 text-xs theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Package Type
+                    </label>
+                    <select
+                      value={editPkgForm.package_type}
+                      onChange={(e) =>
+                        setEditPkgForm({ ...editPkgForm, package_type: e.target.value })
+                      }
+                      className="w-full rounded-xl px-2.5 py-1.5 text-xs theme-input"
+                    >
+                      <option value="app">app</option>
+                      <option value="system">system</option>
+                      <option value="driver">driver</option>
+                      <option value="mobile_addon">mobile_addon</option>
+                      <option value="cli">cli</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Developer Name
+                    </label>
+                    <input
+                      type="text"
+                      value={editPkgForm.developer}
+                      onChange={(e) =>
+                        setEditPkgForm({ ...editPkgForm, developer: e.target.value })
+                      }
+                      className="w-full rounded-xl px-3 py-1.5 text-xs theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Developer Email
+                    </label>
+                    <input
+                      type="email"
+                      value={editPkgForm.developer_email}
+                      onChange={(e) =>
+                        setEditPkgForm({ ...editPkgForm, developer_email: e.target.value })
+                      }
+                      className="w-full rounded-xl px-3 py-1.5 text-xs theme-input"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editPkgForm.description}
+                    onChange={(e) =>
+                      setEditPkgForm({ ...editPkgForm, description: e.target.value })
+                    }
+                    className="w-full rounded-xl px-3 py-1.5 text-xs theme-input"
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                    Changelog
+                  </label>
+                  <input
+                    type="text"
+                    value={editPkgForm.changelog}
+                    onChange={(e) =>
+                      setEditPkgForm({ ...editPkgForm, changelog: e.target.value })
+                    }
+                    className="w-full rounded-xl px-3 py-1.5 text-xs theme-input"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-emerald-500 hover:bg-emerald-400 px-5 py-2 text-xs font-bold text-slate-950 cursor-pointer"
+                  >
+                    Save Changes (PATCH /api/apps/{detailsModalData.app.id})
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Developer Profile Card */}
+                  <div className="rounded-2xl p-4 theme-subtle space-y-2 border border-indigo-500/25">
+                    <div className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
+                      Publisher &amp; Developer Credentials
+                    </div>
+                    <div className="text-sm font-bold">{detailsModalData.developerProfile?.name}</div>
+                    <div className="font-mono-num text-xs text-cyan-400">
+                      Email: {detailsModalData.developerProfile?.email}
+                    </div>
+                    <div className="font-mono-num text-xs text-teal-300 truncate">
+                      Website: {detailsModalData.developerProfile?.website}
+                    </div>
+                    <p className="text-xs theme-text-muted">
+                      {detailsModalData.developerProfile?.bio}
+                    </p>
+                  </div>
+
+                  {/* System Requirements & Mobile Bridge Card */}
+                  <div className="rounded-2xl p-4 theme-subtle space-y-2 border border-teal-500/25">
+                    <div className="font-mono-num text-[10px] font-bold uppercase text-teal-400">
+                      System Architecture &amp; Mobile SDK Requirements
+                    </div>
+                    <div className="font-mono-num text-xs">
+                      <span className="theme-text-muted">OS / Target: </span>
+                      <strong>{detailsModalData.app.systemRequirements?.os || 'Cross-Platform + Sandbox'}</strong>
+                    </div>
+                    <div className="font-mono-num text-xs">
+                      <span className="theme-text-muted">Memory Pool: </span>
+                      <strong>{detailsModalData.app.systemRequirements?.ram || '256 MB Isolated'}</strong>
+                    </div>
+                    <div className="font-mono-num text-xs">
+                      <span className="theme-text-muted">Mobile Bridge: </span>
+                      <strong className="text-cyan-300">
+                        {detailsModalData.app.systemRequirements?.mobileBridge || 'Flutter & React Native Ready'}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CLI Install Command & Endpoints */}
+                <div className="rounded-2xl p-3.5 bg-slate-950 border border-slate-800 space-y-1.5 font-mono-num text-xs">
+                  <div className="text-[10px] uppercase text-emerald-400 font-bold">
+                    Workstation &amp; CLI Installation Command:
+                  </div>
+                  <div className="text-cyan-300 select-all">
+                    $ {detailsModalData.installation?.installCommand}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.08]">
+                  <span className="font-mono-num text-[11px] text-amber-300">
+                    🔒 © 2026 NEX STORE PROPRIETARY DRM — DO NOT PIRATE
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = detailsModalData.app;
+                        setDetailsModalData(null);
+                        setSandboxMode('container');
+                        setPreviewApp(target);
+                      }}
+                      className="rounded-xl bg-cyan-500/20 border border-cyan-500/40 px-4 py-2 text-xs font-bold text-cyan-300 cursor-pointer"
+                    >
+                      Launch Sandbox Runtime
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleInstall(detailsModalData.app);
+                        setDetailsModalData(null);
+                      }}
+                      className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-bold text-white cursor-pointer"
+                    >
+                      Install &amp; Mount Package
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
