@@ -13,10 +13,87 @@ import {
   LayoutGrid,
   List,
   Tag,
-  Send
+  Send,
+  Plus,
+  X
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
 import { getProductArtUrl } from '../utils/storeEngine.js';
+
+const HARDWARE_SKU_PRESETS = [
+  {
+    name: 'Axon Ultra 256-Core Neural NPU Card',
+    sku: 'NEX-NPU-256',
+    category: 'compute',
+    brand: 'NEX-Lab Silicon',
+    price: 1299,
+    original_price: 1499,
+    stock: 18,
+    badge: 'NEW LAUNCH',
+    is_flash_sale: true,
+    tagline: '480 TOPS PCIe Gen-6 AI & Polyglot Tensor Accelerator',
+    description: 'Dedicated liquid-cooled neural processing card engineered for local LLM inference, Rust/C++ SIMD compute, and 5-slot BTO workstations.',
+    specArch: '256-Core NEX Tensor Matrix (3nm)',
+    specConn: 'PCIe 6.0 x16 / OCuLink 128Gbps',
+    specMat: 'Vapor-Chamber Copper & Anodized Titanium',
+    colorName: 'Cyber Indigo',
+    colorHex: '#6366f1'
+  },
+  {
+    name: 'Hyperion 32" 8K 240Hz Micro-OLED Studio Display',
+    sku: 'NEX-DSP-8K',
+    category: 'compute',
+    brand: 'NEX Optics',
+    price: 1899,
+    original_price: 2199,
+    stock: 11,
+    badge: 'FLAGSHIP',
+    is_flash_sale: false,
+    tagline: 'Dual-Layer Tandem Micro-OLED • 2000 Nits • 99.8% DCI-P3',
+    description: 'Reference mastering display with hardware Lut calibration, Thunderbolt 5 140W passthrough, and zero-bezel CNC aluminum enclosure.',
+    specArch: '8K (7680x4320) 240Hz Tandem Micro-OLED',
+    specConn: '2x Thunderbolt 5 / DisplayPort 2.1 UHBR20',
+    specMat: ' Bead-Blasted 6061 Aerospace Aluminum',
+    colorName: 'Obsidian Slate',
+    colorHex: '#06b6d4'
+  },
+  {
+    name: 'Valkyrie 16TB PCIe Gen-6 NVMe RAID Enclosure',
+    sku: 'NEX-STR-16T',
+    category: 'peripherals',
+    brand: 'NEX Storage',
+    price: 649,
+    original_price: 749,
+    stock: 24,
+    badge: 'FLASH DEAL',
+    is_flash_sale: true,
+    tagline: '28,000 MB/s Sequential Read • Hardware AES-XTS-512 Encryption',
+    description: 'Pocket-sized 4-bay M.2 NVMe RAID-0/10 array with active magnetic-levitation cooling and hardware cryptographic DRM lock.',
+    specArch: 'Quad-Channel Phison E31T Gen-6 Controller',
+    specConn: 'Thunderbolt 5 (120Gbps Bandwidth)',
+    specMat: 'Forged Carbon Fiber & Finned Heatsink',
+    colorName: 'Emerald Matrix',
+    colorHex: '#10b981'
+  },
+  {
+    name: 'Aether Reference IEM Tribrid Studio Monitors',
+    sku: 'NEX-AUD-IEM',
+    category: 'audio',
+    brand: 'Aether Audio',
+    price: 399,
+    original_price: 479,
+    stock: 30,
+    badge: 'NEW LAUNCH',
+    is_flash_sale: false,
+    tagline: 'Planar Magnetic + Dual Electrostatic + Bone Conduction IEMs',
+    description: 'Custom-molded titanium shell in-ear monitors delivering 5Hz-55kHz ultra-linear response for studio mastering engineers.',
+    specArch: '12-Driver Tribrid Acoustic Crossover',
+    specConn: '4.4mm Balanced Pentaconn + USB-C 32-Bit DAC',
+    specMat: '5-Axis CNC Grade-5 Titanium Shells',
+    colorName: 'Solaris Gold',
+    colorHex: '#f59e0b'
+  }
+];
 
 export default function StorefrontView({
   products,
@@ -29,6 +106,7 @@ export default function StorefrontView({
   darkMode,
   onSelectProduct,
   onAddToCart,
+  onCreateProduct,
   wishlistIds,
   onToggleWishlist,
   compareIds,
@@ -49,6 +127,79 @@ export default function StorefrontView({
   const [countdown, setCountdown] = useState({ hrs: 11, mins: 42, secs: 19 });
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [copiedCode, setCopiedCode] = useState(null);
+
+  // Always-Open Live CAD & Hardware Preview Dock State
+  const [alwaysOpenPreviewExpanded, setAlwaysOpenPreviewExpanded] = useState(true);
+  const [previewDockAngle, setPreviewDockAngle] = useState('blueprint');
+
+  // Add Hardware Product Modal State
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [newProdName, setNewProdName] = useState('');
+  const [newProdSku, setNewProdSku] = useState('NEX-HW-901');
+  const [newProdCategory, setNewProdCategory] = useState('compute');
+  const [newProdBrand, setNewProdBrand] = useState('NEX-Lab');
+  const [newProdPrice, setNewProdPrice] = useState(799);
+  const [newProdOrigPrice, setNewProdOrigPrice] = useState(899);
+  const [newProdStock, setNewProdStock] = useState(20);
+  const [newProdBadge, setNewProdBadge] = useState('NEW LAUNCH');
+  const [newProdFlash, setNewProdFlash] = useState(true);
+  const [newProdTagline, setNewProdTagline] = useState('Next-Gen Precision Hardware Engineered by NEX-Lab');
+  const [newProdDesc, setNewProdDesc] = useState('Built with CNC aerospace aluminum, carbon fiber, and full 4-angle procedural CAD telemetry.');
+  const [newProdSpecArch, setNewProdSpecArch] = useState('NEX Gen-5 Custom Silicon');
+  const [newProdSpecConn, setNewProdSpecConn] = useState('Thunderbolt 5 / PCIe 6.0 / Wi-Fi 7');
+  const [newProdSpecMat, setNewProdSpecMat] = useState('CNC 6063 Anodized Aluminum & Titanium');
+  const [newProdColorName, setNewProdColorName] = useState('Cyber Indigo');
+  const [newProdColorHex, setNewProdColorHex] = useState('#6366f1');
+  const [modalCadView, setModalCadView] = useState('hero');
+
+  const handleApplyHardwarePreset = (preset) => {
+    setNewProdName(preset.name);
+    setNewProdSku(preset.sku);
+    setNewProdCategory(preset.category);
+    setNewProdBrand(preset.brand);
+    setNewProdPrice(preset.price);
+    setNewProdOrigPrice(preset.original_price);
+    setNewProdStock(preset.stock);
+    setNewProdBadge(preset.badge);
+    setNewProdFlash(preset.is_flash_sale);
+    setNewProdTagline(preset.tagline);
+    setNewProdDesc(preset.description);
+    setNewProdSpecArch(preset.specArch);
+    setNewProdSpecConn(preset.specConn);
+    setNewProdSpecMat(preset.specMat);
+    setNewProdColorName(preset.colorName);
+    setNewProdColorHex(preset.colorHex);
+  };
+
+  const handleSubmitNewProduct = async (e) => {
+    e.preventDefault();
+    if (!newProdName.trim() || !onCreateProduct) return;
+    await onCreateProduct({
+      name: newProdName.trim(),
+      sku: newProdSku.trim().toUpperCase() || `NEX-${Math.floor(100 + Math.random() * 899)}`,
+      category: newProdCategory,
+      brand: newProdBrand.trim() || 'NEX-Lab',
+      price: Number(newProdPrice) || 499,
+      original_price: Number(newProdOrigPrice) || Math.round((Number(newProdPrice) || 499) * 1.15),
+      stock: Number(newProdStock) || 15,
+      badge: newProdBadge || 'NEW LAUNCH',
+      is_flash_sale: Boolean(newProdFlash),
+      featured: true,
+      tagline: newProdTagline.trim(),
+      description: newProdDesc.trim(),
+      specs: {
+        Architecture: newProdSpecArch.trim() || 'NEX Gen-5 Platform',
+        Connectivity: newProdSpecConn.trim() || 'Thunderbolt 5 / USB4',
+        Materials: newProdSpecMat.trim() || 'CNC Aerospace Aluminum',
+        Warranty: '3-Year NEX Global Pro Care+'
+      },
+      colors: [{ name: newProdColorName.trim() || 'Obsidian Black', hex: newProdColorHex || '#6366f1' }],
+      tags: [newProdCategory, 'nex', 'new-launch', 'hardware']
+    });
+    setShowAddProductModal(false);
+    setHeroIndex(0);
+    setNewProdName('');
+  };
 
   // Live Flash Sale Countdown Timer
   useEffect(() => {
@@ -222,7 +373,16 @@ export default function StorefrontView({
                     className="theme-subtle inline-flex items-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold hover:border-indigo-500 transition cursor-pointer"
                   >
                     <Eye className="h-4 w-4 text-cyan-400" />
-                    <span>4-Angle CAD & Specs</span>
+                    <span>4-Angle CAD &amp; Specs</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAddProductModal(true)}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 px-4 py-3.5 text-sm font-bold text-emerald-300 shadow transition cursor-pointer"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add Hardware Product</span>
                   </button>
                 </div>
               </div>
@@ -340,6 +500,99 @@ export default function StorefrontView({
             </div>
           ))}
       </section>
+
+      {/* Always-Open Live Hardware CAD & Store Telemetry Preview Bar */}
+      {activeHero && (
+        <section className="rounded-3xl p-4 sm:p-5 theme-card border border-cyan-500/35 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-mono-num text-xs font-bold uppercase tracking-wider text-cyan-400">
+                ALWAYS-ON LIVE HARDWARE CAD &amp; TELEMETRY PREVIEW // {activeHero.sku}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAddProductModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 px-3.5 py-1.5 text-xs font-bold text-slate-950 shadow cursor-pointer transition"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>+ Add Hardware Product to Store</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAlwaysOpenPreviewExpanded((p) => !p)}
+                className="rounded-xl px-2.5 py-1.5 font-mono-num text-[11px] theme-subtle cursor-pointer"
+              >
+                {alwaysOpenPreviewExpanded ? 'Compact Preview' : 'Expand Live Preview'}
+              </button>
+            </div>
+          </div>
+
+          {alwaysOpenPreviewExpanded && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center pt-1">
+              <div className="lg:col-span-5 overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-950">
+                <img
+                  src={getProductArtUrl(activeHero, {
+                    view: previewDockAngle,
+                    color: activeHero.colors?.[0]?.hex || null
+                  })}
+                  alt={activeHero.name}
+                  className="w-full h-44 object-cover"
+                />
+              </div>
+              <div className="lg:col-span-7 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-display text-base font-bold">{activeHero.name}</h3>
+                    <p className="text-xs theme-text-muted">
+                      {activeHero.brand} • SKU: <span className="font-mono-num text-cyan-400">{activeHero.sku}</span> • Stock: <strong className="text-emerald-400">{activeHero.stock} units</strong>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {['hero', 'detail', 'blueprint', 'spec'].map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setPreviewDockAngle(v)}
+                        className={`rounded-lg px-2.5 py-1 font-mono-num text-[10px] font-bold uppercase cursor-pointer ${
+                          previewDockAngle === v
+                            ? 'bg-cyan-500 text-slate-950'
+                            : 'theme-subtle text-cyan-300'
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {products.slice(0, 4).map((p, idx) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setHeroIndex(idx)}
+                      className={`rounded-xl p-2 text-left transition cursor-pointer ${
+                        activeHero.id === p.id
+                          ? 'border border-cyan-400 bg-cyan-500/15'
+                          : 'theme-subtle hover:border-indigo-400/50'
+                      }`}
+                    >
+                      <div className="font-mono-num text-[10px] text-cyan-400 truncate">{p.sku}</div>
+                      <div className="text-xs font-bold truncate">{p.name}</div>
+                      <div className="font-mono-num text-[11px] text-emerald-400">
+                        {formatPrice(p.price, currency)}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Category & Multi-Facet Filter Control Deck */}
       <section className="theme-card rounded-3xl p-5 space-y-4">
@@ -843,6 +1096,284 @@ export default function StorefrontView({
           </form>
         </div>
       </section>
+
+      {/* Add Hardware Product & Live 4-Angle CAD Studio Modal */}
+      {showAddProductModal && (
+        <div
+          onClick={() => setShowAddProductModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-5 overflow-y-auto"
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleSubmitNewProduct}
+            className="w-full max-w-4xl rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl theme-card my-auto border border-emerald-500/40"
+          >
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <div>
+                <div className="font-mono-num text-[10px] font-bold uppercase text-emerald-400">
+                  NEX HARDWARE LAB // SQLITE SKU PUBLISHER (POST /api/products)
+                </div>
+                <h3 className="font-display text-lg font-bold">
+                  Add New Hardware Product &amp; Generate 4-Angle Procedural CAD
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddProductModal(false)}
+                className="rounded-xl p-1.5 theme-subtle cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* 1-Click Hardware Presets */}
+            <div className="rounded-2xl p-3 theme-subtle space-y-2">
+              <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                1-Click Flagship Hardware Templates (or type custom details below):
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {HARDWARE_SKU_PRESETS.map((preset) => (
+                  <button
+                    key={preset.sku}
+                    type="button"
+                    onClick={() => handleApplyHardwarePreset(preset)}
+                    className="rounded-xl border border-white/[0.08] p-2.5 text-left hover:border-emerald-400/50 transition cursor-pointer"
+                  >
+                    <div className="font-mono-num text-[10px] font-bold text-emerald-400">
+                      {preset.sku} • ${preset.price}
+                    </div>
+                    <div className="text-xs font-bold truncate mt-0.5">{preset.name}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Left 7 Cols: Hardware Inputs */}
+              <div className="lg:col-span-7 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="sm:col-span-2">
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Hardware Product Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newProdName}
+                      onChange={(e) => setNewProdName(e.target.value)}
+                      placeholder="e.g. Axon Ultra 256-Core Neural NPU Card"
+                      className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      SKU Code
+                    </label>
+                    <input
+                      type="text"
+                      value={newProdSku}
+                      onChange={(e) => setNewProdSku(e.target.value)}
+                      className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Category
+                    </label>
+                    <select
+                      value={newProdCategory}
+                      onChange={(e) => setNewProdCategory(e.target.value)}
+                      className="w-full rounded-xl px-2.5 py-2 text-xs theme-input"
+                    >
+                      <option value="compute">Compute / NPU</option>
+                      <option value="audio">Studio Audio</option>
+                      <option value="peripherals">Peripherals</option>
+                      <option value="wearables">Wearables</option>
+                      <option value="power">GaN Power</option>
+                      <option value="imaging">8K Imaging</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Price (USD) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={newProdPrice}
+                      onChange={(e) => setNewProdPrice(e.target.value)}
+                      className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Original ($)
+                    </label>
+                    <input
+                      type="number"
+                      value={newProdOrigPrice}
+                      onChange={(e) => setNewProdOrigPrice(e.target.value)}
+                      className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Initial Stock
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newProdStock}
+                      onChange={(e) => setNewProdStock(e.target.value)}
+                      className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Brand
+                    </label>
+                    <input
+                      type="text"
+                      value={newProdBrand}
+                      onChange={(e) => setNewProdBrand(e.target.value)}
+                      className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Badge
+                    </label>
+                    <input
+                      type="text"
+                      value={newProdBadge}
+                      onChange={(e) => setNewProdBadge(e.target.value)}
+                      className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <label className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold theme-subtle w-full cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newProdFlash}
+                        onChange={(e) => setNewProdFlash(e.target.checked)}
+                      />
+                      <span>Activate Flash Deal</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                    Engineering Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={newProdDesc}
+                    onChange={(e) => setNewProdDesc(e.target.value)}
+                    className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Architecture Spec
+                    </label>
+                    <input
+                      type="text"
+                      value={newProdSpecArch}
+                      onChange={(e) => setNewProdSpecArch(e.target.value)}
+                      className="w-full rounded-xl px-2.5 py-1.5 text-xs theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Connectivity Spec
+                    </label>
+                    <input
+                      type="text"
+                      value={newProdSpecConn}
+                      onChange={(e) => setNewProdSpecConn(e.target.value)}
+                      className="w-full rounded-xl px-2.5 py-1.5 text-xs theme-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                      Accent Hex Color
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={newProdColorHex}
+                        onChange={(e) => setNewProdColorHex(e.target.value)}
+                        className="h-8 w-10 rounded cursor-pointer bg-transparent"
+                      />
+                      <input
+                        type="text"
+                        value={newProdColorName}
+                        onChange={(e) => setNewProdColorName(e.target.value)}
+                        className="flex-1 rounded-xl px-2.5 py-1.5 text-xs theme-input"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right 5 Cols: Live 4-Angle Procedural CAD Preview */}
+              <div className="lg:col-span-5 flex flex-col justify-between space-y-2.5">
+                <div className="space-y-2">
+                  <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                    Live 4-Angle Procedural CAD Vector Preview
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-indigo-500/35 bg-slate-950">
+                    <img
+                      src={`/api/product-art/preview.svg?name=${encodeURIComponent(
+                        newProdName || 'NEX CUSTOM HARDWARE'
+                      )}&sku=${encodeURIComponent(newProdSku || 'NEX-901')}&category=${encodeURIComponent(
+                        newProdCategory
+                      )}&view=${encodeURIComponent(modalCadView)}&color=${encodeURIComponent(
+                        newProdColorHex
+                      )}`}
+                      alt="Live CAD Preview"
+                      className="w-full h-52 object-cover"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {['hero', 'detail', 'blueprint', 'spec'].map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setModalCadView(v)}
+                        className={`rounded-lg py-1.5 font-mono-num text-[10px] font-bold uppercase cursor-pointer ${
+                          modalCadView === v
+                            ? 'bg-indigo-600 text-white'
+                            : 'theme-subtle text-indigo-300'
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 py-3 text-xs font-extrabold text-slate-950 shadow-lg cursor-pointer transition"
+                >
+                  Publish Hardware SKU to Store &amp; SQLite
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

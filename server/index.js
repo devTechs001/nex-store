@@ -2626,28 +2626,170 @@ function executeSingleCommand(singleRawCmd) {
 
   if (lower === 'help' || lower === 'nex help' || lower === '--help') {
     outputLines = [
-      'NEX-SH v3.0 • Interactive Cloud CLI, Pipe Filter & Automation Scripting Engine',
+      'NEX-SH v4.0 • Interactive Cloud CLI, Hardware SKU Publisher, Polyglot Runner & Pipe Engine',
       '────────────────────────────────────────────────────────────────────────────────────────',
-      '  CORE COMMANDS:',
-      '    nex status                   Inspect system health, memory, WS clients & 17 SQLite tables',
-      '    nex servers                  List all 6 global edge server nodes, latency & RPS',
-      '    nex ping                     Calibrate round-trip latency across all edge server nodes',
-      '    nex apps                     List verified multi-source apps (Netlify, Vercel, GitHub)',
-      '    nex deploy <url>             Import & verify a live app from Netlify/Vercel/GitHub URL',
-      '    nex security scan            Run deep WAF, SQLi/XSS & SHA-256 package security audit',
-      '    nex security block           Simulate & block a live SQLi/DDoS threat at edge gateway',
+      '  HARDWARE STORE & CATALOG COMMANDS:',
       '    nex products                 List flagship hardware SKUs, prices & live warehouse stock',
+      '    nex product add <name> ...   Add a new Hardware SKU directly to Store & SQLite',
+      '                                 (e.g. nex product add "Axon NPU Card" --price=999 --cat=compute)',
       '    nex restock                  Auto-replenish (+15 units) all low-stock hardware SKUs',
-      '    nex sql <SELECT ...>         Execute a read-only SQL query against any of the 17 tables',
-      '    nex notify <message>         Broadcast a real-time push notification to all clients',
-      '    nex theme <id>               Switch UI theme (obsidian|light|cyber|midnight|forest|ocean)',
-      '  SCRIPTING, DIAGNOSTICS & PIPES:',
-      '    nex scripts                  List all saved .nexsh automation scripts in SQLite',
-      '    nex run <script-name>        Execute a multi-line .nexsh automation playbook',
-      '    nex benchmark                Run SQLite WAL + SVG CAD + Edge Mesh throughput benchmark',
-      '    top | netstat | uname -a     Inspect live edge processes, sockets & kernel telemetry',
-      '    <cmd> | grep <text>          Filter command output lines (also: | head 5, | count, | sort)',
-      '    <cmd1> && <cmd2>             Chain multiple commands sequentially'
+      '  POLYGLOT AI, APPS & MOBILE ECOSYSTEM:',
+      '    nex polyglot                 List all 6-language Polyglot AI Automations (Python/Rust/C++/Java/Go/TS)',
+      '    nex polyglot run <lang|id>   Compile & run a Polyglot AI script (e.g. nex polyglot run rust)',
+      '    nex apps                     List verified multi-source apps (Netlify, Vercel, GitHub, System)',
+      '    nex deploy <url>             Import & verify a live app from Netlify/Vercel/GitHub URL',
+      '    nex subscriptions            List all 4 customizable subscription tiers & active API keys',
+      '    nex mobile                   Inspect Native / Flutter mobile add-on modules & SDK endpoints',
+      '  SYSTEM TELEMETRY, SECURITY & PIPES:',
+      '    neofetch                     Display NEX-OS Gen-5 ASCII hardware, 23-table SQLite & DRM banner',
+      '    nex status | nex servers     Inspect system health, memory, 6 Anycast nodes & 23 SQLite tables',
+      '    nex security scan | block    Run deep WAF, SQLi/XSS & SHA-256 package security audit',
+      '    nex sql <SELECT ...>         Execute a read-only SQL query against any of the 23 tables',
+      '    nex scripts | nex run <name> List and execute multi-line .nexsh automation playbooks',
+      '    <cmd> | grep <text>          Filter command output lines (also: | head 5, | count, | sort)'
+    ];
+  } else if (lower === 'neofetch' || lower === 'nex neofetch') {
+    const stats = getDatabaseStats();
+    const mem = process.memoryUsage();
+    outputLines = [
+      '       /\\        root@nex-edge-nbo-01',
+      '      /  \\       ────────────────────',
+      '     / /\\ \\      OS      : NEX-OS Gen-5 Quantum Core v4.0 (x86_64)',
+      '    / /__\\ \\     Kernel  : Linux 6.11.0-nex-anycast (Node ' + process.version + ')',
+      '   / /____\\ \\    Uptime  : ' + Math.round(process.uptime()) + 's • Active WS Sessions: ' + Math.max(1, clients.size),
+      '  /_/      \\_\\   SQLite  : ' + stats.totalTables + ' WAL Tables • ' + stats.totalRows + ' Rows (' + stats.sizeFormatted + ')',
+      '  NEX STORE v4   Polyglot: Python 3.12 • Rust 1.82 • C++23 • Java 21 • Go • TS',
+      '                 Memory  : ' + (mem.rss / 1024 / 1024).toFixed(1) + ' MB RSS / 64 GB Unified',
+      '                 DRM Lock: © 2026 NEX STORE & DEVTECHS001 LABS (PROPRIETARY)'
+    ];
+  } else if (lower.startsWith('nex product add ')) {
+    const argsStr = baseCmd.slice('nex product add '.length).trim();
+    const priceMatch = argsStr.match(/--price=([0-9.]+)/i);
+    const catMatch = argsStr.match(/--cat=([a-z0-9-_]+)/i);
+    const stockMatch = argsStr.match(/--stock=([0-9]+)/i);
+    const skuMatch = argsStr.match(/--sku=([a-z0-9-_]+)/i);
+    const cleanName = argsStr
+      .replace(/--[a-z]+=\S+/gi, '')
+      .replace(/^["']|["']$/g, '')
+      .trim() || 'NEX Custom Quantum Accelerator';
+
+    const numPrice = priceMatch ? Number(priceMatch[1]) : 799;
+    const category = catMatch ? catMatch[1].toLowerCase() : 'compute';
+    const numStock = stockMatch ? parseInt(stockMatch[1], 10) : 20;
+    const id = `prod-${Date.now().toString(36)}`;
+    const cleanSku = (skuMatch ? skuMatch[1] : `NEX-${Math.floor(100 + Math.random() * 899)}`).toUpperCase();
+    const now = new Date().toISOString();
+    const imageUrl = `/api/product-art/${id}.svg`;
+    const gallery = [
+      { label: 'Studio Hero', view: 'hero' },
+      { label: 'Detail Cutaway', view: 'detail' },
+      { label: 'CAD Blueprint', view: 'blueprint' },
+      { label: 'Telemetry Spec', view: 'spec' }
+    ];
+    const specs = {
+      Architecture: 'NEX Gen-5 Custom Silicon',
+      Connectivity: 'Thunderbolt 5 / PCIe 6.0',
+      Materials: 'CNC Anodized 6063 Aluminum & Titanium',
+      Warranty: '3-Year NEX Global Pro Care+'
+    };
+    const colors = [{ name: 'Cyber Indigo', hex: '#6366f1' }];
+
+    db.prepare(`
+      INSERT INTO products (
+        id, sku, name, tagline, description, category, brand,
+        price, original_price, cost_price, stock, low_stock_threshold,
+        rating, review_count, sold_count, featured, is_flash_sale,
+        flash_sale_ends_at, badge, image_url, gallery_json, specs_json,
+        colors_json, tags_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'NEX-Lab CLI', ?, ?, ?, ?, 5, 5.0, 1, 0, 1, 1, ?, 'CLI LAUNCH', ?, ?, ?, ?, '["nex","cli","hardware"]', ?, ?)
+    `).run(
+      id,
+      cleanSku,
+      cleanName,
+      'Created via NEX-SH v4.0 Hardware Publisher CLI',
+      `Precision ${category} hardware launched directly from NEX-SH CLI with 4-angle procedural CAD telemetry.`,
+      category,
+      numPrice,
+      Math.round(numPrice * 1.15),
+      Math.round(numPrice * 0.55),
+      numStock,
+      new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString(),
+      imageUrl,
+      JSON.stringify(gallery),
+      JSON.stringify(specs),
+      JSON.stringify(colors),
+      now,
+      now
+    );
+
+    const created = formatProductRow(db.prepare('SELECT * FROM products WHERE id = ?').get(id));
+    broadcast('product:created', {
+      product: created,
+      analytics: getAnalyticsSummary(),
+      dbStats: getDatabaseStats()
+    });
+
+    outputLines = [
+      `[HARDWARE LAB] Serializing new SKU ${cleanSku} ("${cleanName}")...`,
+      `[CAD ENGINE]   Generated 4-angle vector blueprints at ${imageUrl}`,
+      `[SQLITE WAL]   Inserted into products (${category} • $${numPrice} • ${numStock} units in stock)`,
+      `[SUCCESS]      Hardware product "${cleanName}" is now LIVE in the Storefront!`
+    ];
+  } else if (lower === 'nex polyglot' || lower === 'nex polyglot list' || lower === 'polyglot') {
+    const autos = db.prepare('SELECT * FROM polyglot_automations ORDER BY run_count DESC').all();
+    outputLines = [
+      'ID                       LANGUAGE     RUNTIME                 RUNS   TITLE',
+      '──────────────────────── ──────────── ─────────────────────── ────── ─────────────────────────────────────',
+      ...autos.map(
+        (a) =>
+          `${a.id.padEnd(24)} ${a.language.toUpperCase().padEnd(12)} ${a.runtime.slice(0, 22).padEnd(23)} ${String(a.run_count).padEnd(6)} ${a.title}`
+      )
+    ];
+  } else if (lower.startsWith('nex polyglot run ')) {
+    const target = baseCmd.slice('nex polyglot run '.length).trim().toLowerCase();
+    const found =
+      db.prepare('SELECT * FROM polyglot_automations WHERE LOWER(id) = ? OR LOWER(language) = ?').get(target, target) ||
+      db.prepare('SELECT * FROM polyglot_automations LIMIT 1').get();
+    if (!found) {
+      exitCode = 1;
+      outputLines = [`[ERROR] No polyglot automation found for "${target}"`];
+    } else {
+      const storeStats = {
+        productCount: db.prepare('SELECT COUNT(*) as c FROM products').get().c,
+        appCount: db.prepare('SELECT COUNT(*) as c FROM apps').get().c,
+        nodeCount: db.prepare('SELECT COUNT(*) as c FROM server_nodes').get().c,
+        orderCount: db.prepare('SELECT COUNT(*) as c FROM orders').get().c
+      };
+      const execResult = executePolyglotAutomation(found, storeStats);
+      db.prepare(`
+        UPDATE polyglot_automations
+        SET last_output = ?, last_status = ?, run_count = run_count + 1, execution_ms = ?, updated_at = ?
+        WHERE id = ?
+      `).run(execResult.output, execResult.status, execResult.executionMs, new Date().toISOString(), found.id);
+      const polyglotAutomations = db.prepare('SELECT * FROM polyglot_automations ORDER BY run_count DESC').all();
+      broadcast('polyglot:executed', { polyglotAutomations, dbStats: getDatabaseStats() });
+      outputLines = execResult.output.split('\n');
+    }
+  } else if (lower === 'nex subscriptions' || lower === 'subscriptions') {
+    const plans = db.prepare('SELECT * FROM subscription_plans ORDER BY tier_level ASC').all();
+    const subs = db.prepare('SELECT * FROM user_subscriptions ORDER BY subscribed_at DESC').all();
+    outputLines = [
+      'ID                    NAME                        MONTHLY     ANNUAL/MO   MODIFIABLE   ACTIVE KEYS',
+      '───────────────────── ─────────────────────────── ─────────── ─────────── ──────────── ───────────',
+      ...plans.map(
+        (p) =>
+          `${p.id.padEnd(21)} ${p.name.padEnd(27)} ${('$' + p.price_monthly).padEnd(11)} ${('$' + p.price_annual).padEnd(11)} YES (ADMIN)  ${subs.filter((s) => s.plan_id === p.id).length} key(s)`
+      )
+    ];
+  } else if (lower === 'nex mobile' || lower === 'mobile') {
+    const addons = db.prepare('SELECT * FROM mobile_addons ORDER BY updated_at DESC').all();
+    outputLines = [
+      'ID                       FRAMEWORK       VERSION   PLATFORM          STATUS    ENDPOINT',
+      '──────────────────────── ─────────────── ───────── ───────────────── ───────── ──────────────────────────',
+      ...addons.map(
+        (m) =>
+          `${m.id.padEnd(24)} ${m.framework.padEnd(15)} ${('v' + m.version).padEnd(9)} ${m.target_platform.slice(0, 16).padEnd(17)} ${(m.enabled ? 'ENABLED' : 'OFF').padEnd(9)} ${m.api_endpoint}`
+      )
     ];
   } else if (lower.startsWith('echo ')) {
     const text = baseCmd.slice(5).trim().replace(/^["']|["']$/g, '');

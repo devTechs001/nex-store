@@ -113,14 +113,28 @@ export function renderProductSvg(productId, query = {}, productRecord = null) {
     }
   };
 
+  const categoryKindMap = {
+    audio: 'headphones',
+    compute: 'laptop',
+    peripherals: 'keyboard',
+    wearables: 'watch',
+    power: 'powerhub',
+    imaging: 'camera',
+    displays: 'laptop',
+    networking: 'powerhub'
+  };
+  const resolvedCategory = String(productRecord?.category || query.category || '').toLowerCase();
+
   const theme = themes[productId] || {
     accent: customHex || '#6366f1',
     secondary: '#06b6d4',
     bg1: '#0b101b',
     bg2: '#162033',
-    label: (productRecord?.name || 'NEX HARDWARE SERIES').toUpperCase().slice(0, 32),
-    code: productRecord?.sku || 'NEX-CUSTOM',
-    kind: 'generic'
+    label: String(productRecord?.name || query.name || 'NEX HARDWARE SERIES')
+      .toUpperCase()
+      .slice(0, 32),
+    code: String(productRecord?.sku || query.sku || 'NEX-CUSTOM').toUpperCase(),
+    kind: categoryKindMap[resolvedCategory] || 'generic'
   };
 
   const isBlueprint = view === 'blueprint';

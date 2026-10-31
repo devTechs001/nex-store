@@ -26,16 +26,16 @@ import {
 } from 'lucide-react';
 
 const QUICK_COMMANDS = [
-  { label: 'help', cmd: 'help', icon: Sparkles, desc: 'Full NEX-SH v3.0 manual' },
-  { label: 'nex status', cmd: 'nex status', icon: Cpu, desc: '17-table telemetry overview' },
-  { label: 'nex benchmark', cmd: 'nex benchmark', icon: Zap, desc: 'SQLite & Edge latency stress test' },
-  { label: 'top', cmd: 'top', icon: Server, desc: 'Process & node load table' },
-  { label: 'netstat', cmd: 'netstat', icon: Globe, desc: 'Active sockets & tunnels' },
+  { label: 'neofetch', cmd: 'neofetch', icon: Sparkles, desc: 'NEX-OS v4.0 ASCII & 23-table telemetry' },
+  { label: 'Add Hardware SKU (CLI)', cmd: 'nex product add "Axon NPU Card" --price=999 --cat=compute --stock=25', icon: Plus, desc: 'Create real Hardware SKU from CLI' },
+  { label: 'Run Rust Polyglot AI', cmd: 'nex polyglot run rust', icon: Zap, desc: 'Run Rust 1.82 SIMD Engine in CLI' },
+  { label: 'Run Python Tensor AI', cmd: 'nex polyglot run python', icon: Cpu, desc: 'Run Python 3.12 Neural Forecaster' },
+  { label: 'nex products', cmd: 'nex products', icon: Layers, desc: 'List all Hardware SKUs & stock' },
+  { label: 'nex subscriptions', cmd: 'nex subscriptions', icon: Shield, desc: 'Inspect modifiable subscription tiers' },
+  { label: 'nex mobile', cmd: 'nex mobile', icon: Globe, desc: 'Inspect Native / Flutter SDK add-ons' },
+  { label: 'nex status', cmd: 'nex status', icon: Server, desc: '23-table SQLite & Edge health' },
   { label: 'nex servers | grep ONLINE', cmd: 'nex servers | grep ONLINE', icon: Filter, desc: 'Pipe filter online nodes' },
-  { label: 'nex security', cmd: 'nex security', icon: Shield, desc: 'Zero-Trust WAF telemetry' },
-  { label: 'nex scripts', cmd: 'nex scripts', icon: FileCode, desc: 'List .nexsh playbooks' },
-  { label: 'Run SecOps Playbook', cmd: 'nex run nightly-secops-audit.nexsh', icon: Play, desc: 'Execute multi-step SecOps script' },
-  { label: 'SQL Revenue Rank', cmd: 'nex sql SELECT sku, name, price, units_sold FROM products ORDER BY units_sold DESC LIMIT 5', icon: Database, desc: 'Live SQLite query' }
+  { label: 'help', cmd: 'help', icon: BookOpen, desc: 'Full NEX-SH v4.0 manual' }
 ];
 
 const PIPE_SNIPPETS = [
@@ -49,7 +49,18 @@ const PIPE_SNIPPETS = [
 ];
 
 const AUTOCOMPLETE_COMMANDS = [
+  'neofetch',
   'help',
+  'nex product add "Axon NPU Card" --price=999 --cat=compute --stock=25',
+  'nex product add "Hyperion 8K Display" --price=1799 --cat=compute --stock=12',
+  'nex products',
+  'nex polyglot',
+  'nex polyglot run rust',
+  'nex polyglot run python',
+  'nex polyglot run cpp',
+  'nex polyglot run java',
+  'nex subscriptions',
+  'nex mobile',
   'nex status',
   'nex benchmark',
   'nex scripts',
@@ -59,13 +70,10 @@ const AUTOCOMPLETE_COMMANDS = [
   'nex run edge-cluster-healthcheck.nexsh',
   'nex servers',
   'nex servers | grep ONLINE',
-  'nex security',
-  'nex integrations',
-  'nex stock',
+  'nex security scan',
   'nex restock',
   'nex deploy https://quantum-synth-ui.netlify.app',
   'nex sql SELECT name, price, stock FROM products ORDER BY price DESC LIMIT 5',
-  'nex sql SELECT id, name, category, run_count FROM terminal_scripts',
   'top',
   'netstat',
   'uname -a',

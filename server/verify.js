@@ -130,6 +130,17 @@ assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/Documentation
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/DesktopSideNav.jsx')), 'Missing src/components/DesktopSideNav.jsx');
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/MobileBottomNav.jsx')), 'Missing src/components/MobileBottomNav.jsx');
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/MobileAndSubscriptionsView.jsx')), 'Missing src/components/MobileAndSubscriptionsView.jsx');
+assert.ok(fs.existsSync(path.resolve(__dirname, '../src/components/SplashScreen.jsx')), 'Missing src/components/SplashScreen.jsx');
+const previewCadSvg = renderProductSvg('preview', {
+  name: 'Axon Ultra NPU',
+  sku: 'NEX-NPU-256',
+  category: 'compute',
+  view: 'blueprint'
+});
+assert.ok(
+  previewCadSvg.includes('<svg') && previewCadSvg.includes('NEX-NPU-256'),
+  'Expected live 4-angle CAD preview SVG for custom hardware SKU'
+);
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/App.css')), 'Missing src/App.css');
 assert.ok(fs.existsSync(path.resolve(__dirname, '../src/app.css')), 'Missing src/app.css');
 const appCssSource = fs.readFileSync(path.resolve(__dirname, '../src/App.css'), 'utf8');
