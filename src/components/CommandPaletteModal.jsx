@@ -123,21 +123,15 @@ export default function CommandPaletteModal({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/75 backdrop-blur-md pt-16 sm:pt-24 p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center theme-modal-backdrop pt-16 sm:pt-24 p-4"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-2xl overflow-hidden rounded-3xl border shadow-2xl transition-all ${
-          darkMode
-            ? 'bg-slate-900/95 border-slate-700/80 text-slate-100 shadow-indigo-950/50'
-            : 'bg-white border-slate-200 text-slate-900 shadow-slate-900/15'
-        }`}
+        className="w-full max-w-2xl overflow-hidden rounded-3xl border shadow-2xl transition-all theme-modal-panel theme-card"
       >
         {/* Top Command Input Bar */}
         <div
-          className={`flex items-center gap-3 border-b px-5 py-4 ${
-            darkMode ? 'border-slate-800 bg-slate-950/60' : 'border-slate-200 bg-slate-50/80'
-          }`}
+          className="flex items-center gap-3 border-b px-5 py-4 theme-header"
         >
           <Command className="h-4 w-4 text-indigo-400 shrink-0" />
           <input

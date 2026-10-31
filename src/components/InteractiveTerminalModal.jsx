@@ -515,10 +515,10 @@ export default function InteractiveTerminalModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-6xl bg-slate-950 border border-cyan-500/40 rounded-2xl shadow-2xl shadow-cyan-950/60 overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 theme-modal-backdrop animate-fadeIn">
+      <div className="relative w-full max-w-6xl theme-modal-panel theme-card border border-cyan-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Terminal Window Titlebar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-slate-900/95 border-b border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 theme-header border-b">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               <button

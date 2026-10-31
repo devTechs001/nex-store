@@ -225,6 +225,56 @@
   -webkit-backdrop-filter: blur(16px);
 }
 
+/* Universal Theme-Profile Modal & Drawer Surface Rules (Adheres to all 6 Themes) */
+.theme-modal-backdrop {
+  background-color: rgba(2, 6, 23, 0.76);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+html.light-theme .theme-modal-backdrop {
+  background-color: rgba(15, 23, 42, 0.48);
+}
+
+.theme-modal-panel {
+  background-color: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-main) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+/* Ensure all modals & fixed drawers inherit active theme profile variables */
+html.light-theme .fixed .bg-slate-950,
+html.light-theme .fixed .bg-slate-950\/95,
+html.light-theme .fixed .bg-slate-950\/90,
+html.light-theme .fixed .bg-\[\#050811\],
+html.light-theme .fixed .bg-\[\#060913\],
+html.light-theme .fixed .bg-\[\#070a14\],
+html.light-theme .fixed .bg-\[\#080c18\] {
+  background-color: var(--bg-card) !important;
+  color: var(--text-main) !important;
+}
+
+html.light-theme .fixed .bg-slate-900,
+html.light-theme .fixed .bg-slate-900\/90,
+html.light-theme .fixed .bg-slate-900\/80,
+html.light-theme .fixed .bg-slate-900\/75,
+html.light-theme .fixed .bg-slate-900\/60 {
+  background-color: var(--bg-subtle) !important;
+  color: var(--text-main) !important;
+}
+
+html.light-theme .fixed .border-slate-800,
+html.light-theme .fixed .border-slate-800\/90,
+html.light-theme .fixed .border-slate-700 {
+  border-color: var(--border-color) !important;
+}
+
+html.light-theme .fixed .text-slate-100,
+html.light-theme .fixed .text-slate-200 {
+  color: var(--text-main) !important;
+}
+
 /* Light-Theme Contrast Safeguards */
 html.light-theme .text-slate-300 {
   color: #334155 !important;

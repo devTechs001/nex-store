@@ -130,6 +130,11 @@ export default function App() {
   const [subscriptionPlans, setSubscriptionPlans] = useState([]);
   const [userSubscriptions, setUserSubscriptions] = useState([]);
   const [mobileAddons, setMobileAddons] = useState([]);
+  const [userAccounts, setUserAccounts] = useState([]);
+  const [hostingDeployments, setHostingDeployments] = useState([]);
+  const [blockedIps, setBlockedIps] = useState([]);
+  const [securityReports, setSecurityReports] = useState([]);
+  const [paymentTransactions, setPaymentTransactions] = useState([]);
   const [pwaDeferredPrompt, setPwaDeferredPrompt] = useState(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [hardwareBuilderOpen, setHardwareBuilderOpen] = useState(false);
@@ -235,6 +240,11 @@ export default function App() {
       if (Array.isArray(data.mobileAddons) && data.mobileAddons.length > 0) {
         setMobileAddons(data.mobileAddons);
       }
+      if (Array.isArray(data.userAccounts)) setUserAccounts(data.userAccounts);
+      if (Array.isArray(data.hostingDeployments)) setHostingDeployments(data.hostingDeployments);
+      if (Array.isArray(data.blockedIps)) setBlockedIps(data.blockedIps);
+      if (Array.isArray(data.securityReports)) setSecurityReports(data.securityReports);
+      if (Array.isArray(data.paymentTransactions)) setPaymentTransactions(data.paymentTransactions);
       if (data.analytics && Object.keys(data.analytics).length > 0) setAnalytics(data.analytics);
       if (data.dbStats && Object.keys(data.dbStats).length > 0) setDbStats(data.dbStats);
       if (data.presence) setPresence(data.presence);
@@ -1850,6 +1860,11 @@ export default function App() {
             presence={presence}
             currency={currency}
             darkMode={darkMode}
+            userAccounts={userAccounts}
+            hostingDeployments={hostingDeployments}
+            blockedIps={blockedIps}
+            securityReports={securityReports}
+            paymentTransactions={paymentTransactions}
             onQuickStockUpdate={handleQuickStockUpdate}
             onBulkRestockLow={handleBulkRestockLow}
             onToggleFlashSale={handleToggleFlashSale}

