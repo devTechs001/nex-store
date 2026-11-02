@@ -117,7 +117,7 @@ export default function CompareModal({
                             <img
                               src={getProductArtUrl(p)}
                               alt={p.name}
-                              className="h-32 w-full rounded-xl object-cover bg-slate-950"
+                              className="h-32 w-full rounded-xl object-contain bg-slate-950"
                             />
                             <div className="font-mono-num text-[10px] font-bold text-indigo-400">
                               {p.sku}

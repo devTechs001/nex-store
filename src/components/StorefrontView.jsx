@@ -125,6 +125,7 @@ export default function StorefrontView({
   const [maxPrice, setMaxPrice] = useState(3500);
   const [viewMode, setViewMode] = useState('grid');
   const [selectedCardColors, setSelectedCardColors] = useState({});
+  const [selectedCardViews, setSelectedCardViews] = useState({});
   const [heroIndex, setHeroIndex] = useState(0);
   const [heroAngle, setHeroAngle] = useState('hero');
   const [countdown, setCountdown] = useState({ hrs: 11, mins: 42, secs: 19 });
@@ -485,7 +486,7 @@ export default function StorefrontView({
                 <img
                   src={heroImgSrc}
                   alt={activeHero.name}
-                  className="w-full h-72 sm:h-80 object-cover transition duration-500 group-hover:scale-[1.03]"
+                  className="w-full h-72 sm:h-80 object-contain bg-slate-950 transition duration-500 group-hover:scale-[1.03]"
                 />
                 <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between rounded-2xl bg-slate-950/85 backdrop-blur-md border border-white/10 px-4 py-2.5 text-xs text-white">
                   <div className="flex items-center gap-2">
@@ -601,7 +602,7 @@ export default function StorefrontView({
                     color: activeHero.colors?.[0]?.hex || null
                   })}
                   alt={activeHero.name}
-                  className="w-full h-44 object-cover"
+                  className="w-full h-44 object-contain bg-slate-950"
                 />
               </div>
               <div className="lg:col-span-7 space-y-2.5">
@@ -841,8 +842,9 @@ export default function StorefrontView({
             const activeColor =
               selectedCardColors[product.id] ||
               product.colors?.[0] || { name: 'Standard', hex: '' };
+            const activeCardView = selectedCardViews[product.id] || 'hero';
             const imgSrc = getProductArtUrl(product, {
-              view: 'hero',
+              view: activeCardView,
               color: activeColor.hex || null
             });
             const isLowStock =
@@ -872,8 +874,12 @@ export default function StorefrontView({
                       src={imgSrc}
                       alt={product.name}
                       onClick={() => onSelectProduct(product)}
-                      className={`w-full object-cover transition duration-500 group-hover:scale-105 cursor-pointer ${
-                        viewMode === 'list' ? 'h-48 rounded-2xl' : 'h-56'
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = getProductArtUrl(product, { view: 'hero', preferCad: true });
+                      }}
+                      className={`w-full object-contain bg-slate-950 transition duration-500 group-hover:scale-105 cursor-pointer ${
+                        viewMode === 'list' ? 'h-48 rounded-2xl' : 'h-60'
                       }`}
                     />
 
@@ -936,6 +942,31 @@ export default function StorefrontView({
                         {product.sku}
                       </span>
                     </div>
+                  </div>
+
+                  {/* 4-Angle Interactive Studio View Switcher on Card */}
+                  <div className="grid grid-cols-4 gap-1 bg-slate-950/90 px-3 py-1.5 border-b border-white/[0.06]">
+                    {[
+                      { id: 'hero', label: 'Hero' },
+                      { id: 'detail', label: 'Cutaway' },
+                      { id: 'blueprint', label: 'Blueprint' },
+                      { id: 'spec', label: 'Spec' }
+                    ].map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedCardViews((prev) => ({ ...prev, [product.id]: v.id }))
+                        }
+                        className={`rounded-lg py-1 font-mono-num text-[10px] font-bold uppercase transition cursor-pointer ${
+                          activeCardView === v.id
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-900'
+                        }`}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -1546,16 +1577,18 @@ export default function StorefrontView({
                           modalCadView.startsWith('http://') ||
                           modalCadView.startsWith('https://'))
                           ? modalCadView
-                          : `/api/product-art/preview.svg?name=${encodeURIComponent(
-                              newProdName || 'NEX CUSTOM HARDWARE'
-                            )}&sku=${encodeURIComponent(newProdSku || 'NEX-901')}&category=${encodeURIComponent(
-                              newProdCategory
-                            )}&view=${encodeURIComponent(modalCadView)}&color=${encodeURIComponent(
-                              newProdColorHex
-                            )}`
+                          : getProductArtUrl(
+                              {
+                                id: 'prod-custom-preview',
+                                name: newProdName || 'NEX CUSTOM HARDWARE',
+                                sku: newProdSku || 'NEX-901',
+                                category: newProdCategory
+                              },
+                              { view: modalCadView, color: newProdColorHex, preferCad: true }
+                            )
                       }
                       alt="Live Product Preview"
-                      className="w-full h-56 object-cover"
+                      className="w-full h-56 object-contain bg-slate-950"
                     />
                   </div>
                   <div className="grid grid-cols-4 gap-1.5">

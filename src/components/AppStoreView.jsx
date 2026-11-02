@@ -24,6 +24,7 @@ import {
   Minimize2
 } from 'lucide-react';
 import { renderSandboxedAppHtml } from '../../server/appSandboxRuntime.js';
+import { getAppArtUrl, getAppVisualResources } from '../utils/storeEngine.js';
 
 const COMMUNITY_NETLIFY_PRESETS = [
   {
@@ -193,6 +194,10 @@ export default function AppStoreView({
 
   // Full Developer & System Package Details Modal State
   const [detailsModalData, setDetailsModalData] = useState(null);
+  const [detailsActiveView, setDetailsActiveView] = useState('hero');
+  const [selectedAppCardViews, setSelectedAppCardViews] = useState({});
+  const [inspectedUrlActiveView, setInspectedUrlActiveView] = useState('hero');
+  const [lightboxResource, setLightboxResource] = useState(null);
   const [isEditingPackage, setIsEditingPackage] = useState(false);
   const [editPkgForm, setEditPkgForm] = useState({
     name: '',
@@ -769,17 +774,62 @@ export default function AppStoreView({
 
         {inspectedUrlData && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 rounded-2xl p-4 theme-subtle border border-cyan-500/35">
-            {/* Fetched App Preview Banner Image */}
-            <div className="lg:col-span-5 space-y-2">
-              <div className="overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-950">
+            {/* Fetched App Preview Banner Image & 4-View Resource Gallery */}
+            <div className="lg:col-span-5 space-y-2.5">
+              <div
+                onClick={() =>
+                  setLightboxResource({
+                    app: inspectedUrlData,
+                    view: inspectedUrlActiveView,
+                    title: `${inspectedUrlData.name} — Full HD Resource`
+                  })
+                }
+                className="relative overflow-hidden rounded-2xl border border-indigo-500/40 bg-slate-950 cursor-zoom-in group"
+              >
                 <img
-                  src={inspectedUrlData.image_url}
+                  src={getAppArtUrl(inspectedUrlData, {
+                    view: inspectedUrlActiveView,
+                    preferGenerated: inspectedUrlActiveView !== 'hero'
+                  })}
                   alt={inspectedUrlData.name}
-                  className="w-full h-44 object-cover"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = getAppArtUrl(inspectedUrlData, {
+                      view: 'hero',
+                      preferGenerated: true
+                    });
+                  }}
+                  className="w-full h-48 object-contain bg-slate-950 transition duration-300 group-hover:scale-[1.02]"
                 />
+                <span className="absolute right-2.5 bottom-2.5 rounded-lg bg-slate-950/90 border border-cyan-500/40 px-2 py-1 font-mono-num text-[10px] font-bold text-cyan-300">
+                  Click for Fullscreen HD ↗
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {getAppVisualResources(inspectedUrlData).map((resItem) => (
+                  <button
+                    key={resItem.id}
+                    type="button"
+                    onClick={() => setInspectedUrlActiveView(resItem.id)}
+                    className={`overflow-hidden rounded-xl border p-1 text-left transition cursor-pointer ${
+                      inspectedUrlActiveView === resItem.id
+                        ? 'border-cyan-400 bg-cyan-500/20'
+                        : 'border-white/10 bg-slate-950/70 hover:border-indigo-400/50'
+                    }`}
+                  >
+                    <img
+                      src={resItem.url}
+                      alt={resItem.label}
+                      className="w-full h-11 object-contain bg-slate-950 rounded-lg"
+                    />
+                    <div className="font-mono-num text-[9px] font-bold text-cyan-300 truncate mt-1 px-0.5">
+                      {resItem.label.split(' ')[0]}
+                    </div>
+                  </button>
+                ))}
               </div>
               <div className="flex items-center justify-between font-mono-num text-[10px] text-cyan-300 px-1">
-                <span>Fetched Preview Image (640x300 SVG/OG)</span>
+                <span>4 HD Image Resources (960×500 SVG/OG)</span>
                 <span>Score: {inspectedUrlData.security_score || 99}/100</span>
               </div>
             </div>
@@ -1208,7 +1258,12 @@ export default function AppStoreView({
             { type: 'manifest', name: 'nex-app-manifest.json', size: app.size || '18 MB' }
           ]);
           const aiCaps = safeParseArray(app.ai_capabilities_json, ['AI Zero-Trust Sandbox Verified']);
-          const bannerImg = app.image_url || `/api/app-art/${app.id}.svg`;
+          const activeAppView = selectedAppCardViews[app.id] || 'hero';
+          const bannerImg = getAppArtUrl(app, {
+            view: activeAppView,
+            preferGenerated: activeAppView !== 'hero'
+          });
+          const visualResList = getAppVisualResources(app);
           const scanResult = verifiedScanIds[app.id];
 
           return (
@@ -1217,23 +1272,59 @@ export default function AppStoreView({
               className="flex flex-col justify-between rounded-3xl p-5 space-y-4 transition-all duration-300 hover:-translate-y-1 theme-card"
             >
               <div className="space-y-3">
-                {/* Fetched App Preview Banner Image */}
-                <div
-                  onClick={() => {
-                    onPlaySound?.('click');
-                    setSandboxMode('container');
-                    setPreviewApp(app);
-                  }}
-                  className="relative overflow-hidden rounded-2xl border border-indigo-500/25 bg-slate-950 cursor-pointer group"
-                >
-                  <img
-                    src={bannerImg}
-                    alt={app.name}
-                    loading="lazy"
-                    className="w-full h-32 object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                  <div className="absolute bottom-2 right-2 rounded-lg bg-slate-950/85 border border-cyan-500/40 px-2 py-0.5 font-mono-num text-[9px] font-bold text-cyan-300">
-                    🔒 DRM PROTECTED • {resources.length} RESOURCES
+                {/* High-Resolution App Preview Banner & 4-Resource Switcher */}
+                <div className="space-y-1.5">
+                  <div
+                    onClick={() =>
+                      setLightboxResource({
+                        app,
+                        view: activeAppView,
+                        title: `${app.name} — High-Resolution Visual Resource`
+                      })
+                    }
+                    className="relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-950 cursor-zoom-in group"
+                  >
+                    <img
+                      src={bannerImg}
+                      alt={app.name}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = getAppArtUrl(app, {
+                          view: 'hero',
+                          preferGenerated: true
+                        });
+                      }}
+                      className="w-full h-44 object-contain bg-slate-950 transition-transform duration-300 group-hover:scale-[1.03]"
+                    />
+                    <div className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/40 px-2.5 py-1 font-mono-num text-[9px] font-bold text-cyan-300">
+                      <Maximize2 className="h-3 w-3" />
+                      <span>FULL HD • {visualResList.length} VISUAL RESOURCES</span>
+                    </div>
+                  </div>
+
+                  {/* 4-View Visual Resource Switcher on App Card */}
+                  <div className="grid grid-cols-4 gap-1">
+                    {[
+                      { id: 'hero', label: 'Banner' },
+                      { id: 'ui', label: 'UI View' },
+                      { id: 'arch', label: 'Arch Map' },
+                      { id: 'spec', label: 'Security' }
+                    ].map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedAppCardViews((prev) => ({ ...prev, [app.id]: v.id }))
+                        }
+                        className={`rounded-lg py-1 font-mono-num text-[10px] font-bold uppercase transition cursor-pointer ${
+                          activeAppView === v.id
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'theme-subtle text-slate-400 hover:text-cyan-300'
+                        }`}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -2096,6 +2187,65 @@ export default function AppStoreView({
               </form>
             ) : (
               <>
+                {/* Full-Resolution App Visual Resources Gallery inside Details Modal */}
+                <div className="rounded-2xl p-4 theme-subtle border border-cyan-500/35 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                      HIGH-RESOLUTION VISUAL IMAGE RESOURCES (960×500 STUDIO ASSETS)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLightboxResource({
+                          app: detailsModalData.app,
+                          view: detailsActiveView,
+                          title: `${detailsModalData.app.name} — Fullscreen HD Resource`
+                        })
+                      }
+                      className="inline-flex items-center gap-1 rounded-lg bg-cyan-500/20 border border-cyan-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-cyan-300 cursor-pointer"
+                    >
+                      <Maximize2 className="h-3 w-3" />
+                      <span>Expand Fullscreen HD</span>
+                    </button>
+                  </div>
+
+                  <div className="overflow-hidden rounded-2xl border border-indigo-500/35 bg-slate-950">
+                    <img
+                      src={getAppArtUrl(detailsModalData.app, {
+                        view: detailsActiveView,
+                        preferGenerated: detailsActiveView !== 'hero'
+                      })}
+                      alt={detailsModalData.app.name}
+                      className="w-full h-60 sm:h-72 object-contain bg-slate-950"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {getAppVisualResources(detailsModalData.app).map((resItem) => (
+                      <button
+                        key={resItem.id}
+                        type="button"
+                        onClick={() => setDetailsActiveView(resItem.id)}
+                        className={`overflow-hidden rounded-xl border p-1.5 text-left transition cursor-pointer ${
+                          detailsActiveView === resItem.id
+                            ? 'border-cyan-400 bg-cyan-500/20 ring-1 ring-cyan-400/50'
+                            : 'border-white/10 bg-slate-950/80 hover:border-indigo-400/50'
+                        }`}
+                      >
+                        <img
+                          src={resItem.url}
+                          alt={resItem.label}
+                          className="w-full h-16 object-contain bg-slate-950 rounded-lg mb-1"
+                        />
+                        <div className="font-mono-num text-[9px] text-cyan-300 truncate">
+                          {resItem.resolution} • {resItem.size}
+                        </div>
+                        <div className="text-[11px] font-bold truncate">{resItem.label}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Developer Profile Card */}
                   <div className="rounded-2xl p-4 theme-subtle space-y-2 border border-indigo-500/25">
@@ -2177,6 +2327,77 @@ export default function AppStoreView({
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Full-Resolution App Visual Resource Lightbox */}
+      {lightboxResource && (
+        <div
+          onClick={() => setLightboxResource(null)}
+          className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl p-4 sm:p-8"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-5xl space-y-4"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="font-mono-num text-xs font-bold text-cyan-400">
+                  960×500 HIGH-RESOLUTION PRODUCTION ASSET • {lightboxResource.app?.source_provider || 'NEX Official'}
+                </span>
+                <h3 className="font-display text-lg sm:text-xl font-bold text-white">
+                  {lightboxResource.title || lightboxResource.app?.name}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLightboxResource(null)}
+                className="rounded-xl border border-white/20 bg-slate-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer"
+              >
+                Close Fullscreen ✕
+              </button>
+            </div>
+
+            <div className="overflow-hidden rounded-3xl border border-indigo-500/40 bg-slate-950 p-3 shadow-2xl">
+              <img
+                src={getAppArtUrl(lightboxResource.app, {
+                  view: lightboxResource.view || 'hero',
+                  preferGenerated: lightboxResource.view !== 'hero'
+                })}
+                alt={lightboxResource.title}
+                className="w-full max-h-[65vh] object-contain mx-auto"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {getAppVisualResources(lightboxResource.app).map((resItem) => (
+                <button
+                  key={resItem.id}
+                  type="button"
+                  onClick={() =>
+                    setLightboxResource((prev) => ({ ...prev, view: resItem.id }))
+                  }
+                  className={`flex items-center gap-2.5 rounded-2xl border p-2 text-left transition cursor-pointer ${
+                    lightboxResource.view === resItem.id
+                      ? 'border-cyan-400 bg-cyan-500/20 text-white'
+                      : 'border-white/10 bg-slate-900/80 text-slate-300 hover:border-indigo-400'
+                  }`}
+                >
+                  <img
+                    src={resItem.url}
+                    alt={resItem.label}
+                    className="h-12 w-18 rounded-lg object-contain bg-slate-950 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <div className="font-mono-num text-[10px] text-cyan-300 truncate">
+                      {resItem.resolution}
+                    </div>
+                    <div className="text-xs font-bold truncate">{resItem.label}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

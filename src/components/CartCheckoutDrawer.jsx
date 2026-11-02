@@ -325,7 +325,7 @@ export default function CartCheckoutDrawer({
                     <img
                       src={getProductArtUrl(item)}
                       alt={item.name}
-                      className="h-16 w-20 rounded-xl object-cover bg-slate-900"
+                      className="h-16 w-20 rounded-xl object-contain bg-slate-950"
                     />
                     <div className="flex-1 min-w-0">
                       <h4 className="text-xs font-bold truncate">{item.name}</h4>
@@ -427,7 +427,7 @@ export default function CartCheckoutDrawer({
                       <img
                         src={getProductArtUrl(item)}
                         alt={item.name}
-                        className="h-16 w-20 rounded-xl object-cover bg-slate-900 shrink-0"
+                        className="h-16 w-20 rounded-xl object-contain bg-slate-950 shrink-0"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
