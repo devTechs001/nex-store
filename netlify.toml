@@ -1,10 +1,51 @@
+# © 2026 NEX STORE & DEVTECHS001 LABS — STRICTLY PROPRIETARY NETLIFY CONFIGURATION
+# DO NOT SHARE, REDISTRIBUTE, OR PIRATE THIS CONFIGURATION.
+
 [build]
-  command = "npm run build"
+  command = "npm install --include=dev --no-audit --no-fund && npm run build"
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
+  NPM_FLAGS = "--include=dev --no-audit --no-fund"
+  NETLIFY = "true"
+  NETLIFY_SITE_NAME = "nex-store-global"
+  VITE_NEX_APP_NAME = "NEX Store Enterprise Hub"
+  VITE_NEX_APP_ENV = "production"
+  VITE_API_BASE_URL = "https://nex-store-api.onrender.com"
+  VITE_WS_URL = "wss://nex-store-api.onrender.com/ws"
+  VITE_RENDER_BACKEND_URL = "https://nex-store-api.onrender.com"
 
+# Context-specific Environment Overrides for Production, Deploy Previews & Branch Deploys
+[context.production.environment]
+  VITE_NEX_APP_ENV = "production"
+  VITE_API_BASE_URL = "https://nex-store-api.onrender.com"
+  VITE_WS_URL = "wss://nex-store-api.onrender.com/ws"
+
+[context.deploy-preview.environment]
+  VITE_NEX_APP_ENV = "staging-preview"
+  VITE_API_BASE_URL = "https://nex-store-api.onrender.com"
+
+[context.branch-deploy.environment]
+  VITE_NEX_APP_ENV = "branch-deploy"
+
+# Security & Anti-Piracy DRM Headers on Netlify Edge CDN
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-NEX-DRM-Protection = "STRICTLY-PROPRIETARY-DO-NOT-SHARE-OR-PIRATE"
+
+# Proxy /api/* requests from Netlify Edge CDN directly to Render Backend Web Service
+[[redirects]]
+  from = "/api/*"
+  to = "https://nex-store-api.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+# Single-Page Application (SPA) Fallback Routing
 [[redirects]]
   from = "/*"
   to = "/index.html"

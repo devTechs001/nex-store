@@ -22,6 +22,8 @@ import { executePolyglotAutomation, aiEnhancePolyglotScript } from './polyglotAu
 import { formatSubscriptionPlan } from './mobileAndSubscriptions.js';
 import {
   getEnvAdminConfig,
+  getHostingEnvAndBlueprintsConfig,
+  updateHostingEnvVariables,
   hashPassword,
   createSessionToken,
   verifySessionToken,
@@ -638,6 +640,28 @@ app.get('/api/developer/my-progress', (req, res) => {
 });
 
 // 2a-ii. Multi-Cloud Hosting (Netlify, Render, Vercel, Fly.io, Railway, Cloudflare) & Auto-Scaling Endpoints
+app.get('/api/hosting/env-config', (_req, res) => {
+  res.json(getHostingEnvAndBlueprintsConfig());
+});
+
+app.post('/api/hosting/env-config', (req, res) => {
+  if (req.actor && req.actor.role !== 'admin') {
+    return res.status(403).json({
+      error: 'RBAC Restriction: Only Root Admin (.env) can modify global Render & Netlify .env variables.'
+    });
+  }
+  const updates = req.body?.updates || req.body || {};
+  const updatedConfig = updateHostingEnvVariables(updates);
+  const activity = recordActivityEvent({
+    event_type: 'stock_update',
+    title: 'Render & Netlify .env Config Updated',
+    message: `Updated ${Object.keys(updates).length} cloud environment variable(s) in .env`,
+    meta: { keys: Object.keys(updates) }
+  });
+  broadcast('hosting:env_updated', { envConfig: updatedConfig, activity });
+  res.json({ ...updatedConfig, activity });
+});
+
 app.get('/api/hosting/deployments', (_req, res) => {
   const hostingDeployments = db
     .prepare('SELECT * FROM hosting_deployments ORDER BY last_deployed_at DESC')

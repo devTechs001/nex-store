@@ -122,6 +122,59 @@ export default function AdminDashboardView({
     fetchDevProgress(activeAccount.username);
   }, [activeAccount.username]);
 
+  const [hostingEnvConfig, setHostingEnvConfig] = useState(null);
+  const [envStudioTab, setEnvStudioTab] = useState('render');
+  const [envCopiedLabel, setEnvCopiedLabel] = useState('');
+  const [customEnvKey, setCustomEnvKey] = useState('');
+  const [customEnvVal, setCustomEnvVal] = useState('');
+
+  useEffect(() => {
+    fetch('/api/hosting/env-config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) setHostingEnvConfig(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleCopyCloudEnv = (text, label) => {
+    if (!text) return;
+    navigator.clipboard?.writeText(text);
+    setEnvCopiedLabel(label);
+    setTimeout(() => setEnvCopiedLabel(''), 2500);
+  };
+
+  const handleSaveCloudEnvVar = async (e) => {
+    e.preventDefault();
+    if (!customEnvKey.trim()) return;
+    try {
+      const res = await fetch('/api/hosting/env-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
+        body: JSON.stringify({
+          updates: { [customEnvKey.trim().toUpperCase()]: customEnvVal }
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthFeedback({ type: 'error', message: data.error || 'Failed to update .env' });
+        return;
+      }
+      setHostingEnvConfig(data);
+      setCustomEnvKey('');
+      setCustomEnvVal('');
+      setAuthFeedback({
+        type: 'success',
+        message: `Updated ${customEnvKey.trim().toUpperCase()} in .env for Render & Netlify!`
+      });
+    } catch (err) {
+      setAuthFeedback({ type: 'error', message: err.message });
+    }
+  };
+
   const handleLoginSubmit = async (e) => {
     e?.preventDefault();
     try {
@@ -1276,7 +1329,132 @@ export default function AdminDashboardView({
 
       {/* 6. Multi-Cloud Hosting & Auto-Scaling Hub (Netlify, Render, Vercel, Fly.io, Railway) */}
       {adminSection === 'hosting' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="space-y-6">
+          {/* Render & Netlify .env + Blueprint Configuration Studio */}
+          <div className="rounded-3xl p-5 sm:p-6 theme-card space-y-4 border border-cyan-500/30">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                  RENDER &amp; NETLIFY ENVIRONMENT (.env) &amp; BLUEPRINT STUDIO (`render.yaml` • `netlify.toml`)
+                </div>
+                <h3 className="font-display text-base sm:text-lg font-bold">
+                  Production Environment Variables for Render Backend &amp; Netlify Edge CDN
+                </h3>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { id: 'render', label: 'Render .env' },
+                  { id: 'netlify', label: 'Netlify .env' },
+                  { id: 'render-yaml', label: 'render.yaml Blueprint' },
+                  { id: 'netlify-toml', label: 'netlify.toml Config' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setEnvStudioTab(tab.id)}
+                    className={`rounded-xl px-3 py-1.5 font-mono-num text-xs font-bold cursor-pointer transition ${
+                      envStudioTab === tab.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'theme-subtle hover:border-indigo-500/40'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {hostingEnvConfig && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div className="lg:col-span-7 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono-num text-[11px] text-slate-400">
+                      {envStudioTab === 'render' && 'Paste directly into Render Dashboard → Environment → Add from .env'}
+                      {envStudioTab === 'netlify' && 'Paste directly into Netlify → Site Configuration → Environment Variables'}
+                      {envStudioTab === 'render-yaml' && 'Infrastructure-as-Code Blueprint (/render.yaml)'}
+                      {envStudioTab === 'netlify-toml' && 'Netlify Edge Build & Proxy Redirects (/netlify.toml)'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const textMap = {
+                          render: hostingEnvConfig.renderEnvText,
+                          netlify: hostingEnvConfig.netlifyEnvText,
+                          'render-yaml': hostingEnvConfig.renderYaml,
+                          'netlify-toml': hostingEnvConfig.netlifyToml
+                        };
+                        handleCopyCloudEnv(textMap[envStudioTab], envStudioTab);
+                      }}
+                      className="rounded-xl bg-emerald-500/20 border border-emerald-500/40 px-3 py-1 font-mono-num text-[11px] font-bold text-emerald-300 cursor-pointer"
+                    >
+                      {envCopiedLabel === envStudioTab ? '✓ Copied to Clipboard' : 'Copy Block'}
+                    </button>
+                  </div>
+                  <pre className="rounded-2xl bg-slate-950/90 border border-slate-800 p-3.5 font-mono-num text-[11px] text-cyan-300 overflow-x-auto max-h-64 overflow-y-auto leading-relaxed">
+                    {envStudioTab === 'render' && hostingEnvConfig.renderEnvText}
+                    {envStudioTab === 'netlify' && hostingEnvConfig.netlifyEnvText}
+                    {envStudioTab === 'render-yaml' && hostingEnvConfig.renderYaml}
+                    {envStudioTab === 'netlify-toml' && hostingEnvConfig.netlifyToml}
+                  </pre>
+                </div>
+
+                <div className="lg:col-span-5 rounded-2xl p-4 theme-subtle space-y-3 flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
+                      LIVE .ENV KEY-VALUE INSPECTOR &amp; UPDATER (ROOT ADMIN)
+                    </div>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {(envStudioTab === 'netlify' ? hostingEnvConfig.netlifyVars : hostingEnvConfig.renderVars || []).map((item) => (
+                        <div key={item.key} className="rounded-xl px-2.5 py-1.5 bg-slate-950/50 border border-slate-800/80 flex items-center justify-between gap-2 text-[11px]">
+                          <div className="truncate">
+                            <span className="font-mono-num font-bold text-emerald-400">{item.key}</span>
+                            <span className="text-slate-400 font-mono-num">={item.value}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomEnvKey(item.key);
+                              setCustomEnvVal(item.value);
+                            }}
+                            className="text-[10px] font-mono-num text-indigo-400 hover:underline shrink-0 cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleSaveCloudEnvVar} className="space-y-2 pt-2 border-t border-slate-700/40">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={customEnvKey}
+                        onChange={(e) => setCustomEnvKey(e.target.value.toUpperCase())}
+                        placeholder="ENV_KEY (e.g. VITE_API_BASE_URL)"
+                        className="rounded-xl px-2.5 py-1.5 text-xs font-mono-num theme-input"
+                      />
+                      <input
+                        type="text"
+                        value={customEnvVal}
+                        onChange={(e) => setCustomEnvVal(e.target.value)}
+                        placeholder="Value"
+                        className="rounded-xl px-2.5 py-1.5 text-xs font-mono-num theme-input"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-500 py-1.5 text-xs font-bold text-white cursor-pointer"
+                    >
+                      Save Variable to .env &amp; Sync Render/Netlify Config
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8 space-y-3">
             {resolvedDeployments.map((dep) => (
               <div key={dep.id} className="rounded-3xl p-4 sm:p-5 theme-card flex flex-wrap items-center justify-between gap-4">
@@ -1378,6 +1556,7 @@ export default function AdminDashboardView({
               Deploy &amp; Enable Auto-Scaling
             </button>
           </form>
+          </div>
         </div>
       )}
 

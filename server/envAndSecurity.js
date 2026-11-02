@@ -17,8 +17,10 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 const ENV_PATH = path.join(ROOT_DIR, '.env');
 const ENV_EXAMPLE_PATH = path.join(ROOT_DIR, '.env.example');
+const RENDER_YAML_PATH = path.join(ROOT_DIR, 'render.yaml');
+const NETLIFY_TOML_PATH = path.join(ROOT_DIR, 'netlify.toml');
 
-export function loadDotEnvFile() {
+export function loadDotEnvFile(forceReload = false) {
   try {
     if (!fs.existsSync(ENV_PATH) && fs.existsSync(ENV_EXAMPLE_PATH)) {
       fs.copyFileSync(ENV_EXAMPLE_PATH, ENV_PATH);
@@ -35,7 +37,7 @@ export function loadDotEnvFile() {
           .slice(eqIdx + 1)
           .trim()
           .replace(/^["']|["']$/g, '');
-        if (key && process.env[key] === undefined) {
+        if (key && (forceReload || process.env[key] === undefined)) {
           process.env[key] = val;
         }
       }
@@ -46,6 +48,106 @@ export function loadDotEnvFile() {
 }
 
 loadDotEnvFile();
+
+export function getHostingEnvAndBlueprintsConfig() {
+  loadDotEnvFile(true);
+  const renderVars = [
+    { key: 'PORT', value: process.env.PORT || '3000', desc: 'Render HTTP & WebSocket listening port' },
+    { key: 'HOST', value: process.env.HOST || '0.0.0.0', desc: 'Bind interface for Render container' },
+    { key: 'NODE_ENV', value: process.env.NODE_ENV || 'production', desc: 'Node.js runtime environment mode' },
+    { key: 'RENDER', value: process.env.RENDER || 'true', desc: 'Render platform detection flag' },
+    { key: 'RENDER_SERVICE_NAME', value: process.env.RENDER_SERVICE_NAME || 'nex-store-fullstack-api', desc: 'Render Web Service identifier' },
+    { key: 'RENDER_SERVICE_TYPE', value: process.env.RENDER_SERVICE_TYPE || 'web', desc: 'Render service architecture type' },
+    { key: 'RENDER_REGION', value: process.env.RENDER_REGION || 'frankfurt', desc: 'Render deployment data center region' },
+    { key: 'RENDER_INSTANCE_TYPE', value: process.env.RENDER_INSTANCE_TYPE || 'standard', desc: 'Render compute instance tier' },
+    { key: 'RENDER_EXTERNAL_URL', value: process.env.RENDER_EXTERNAL_URL || 'https://nex-store-api.onrender.com', desc: 'Public HTTPS URL for Render service' },
+    { key: 'NEX_SQLITE_DB_PATH', value: process.env.NEX_SQLITE_DB_PATH || '/var/data/nex-store.sqlite', desc: 'Persistent SQLite WAL disk path on Render' },
+    { key: 'NEX_RENDER_SERVICE_ID', value: process.env.NEX_RENDER_SERVICE_ID || 'srv-nexstore-live-2026', desc: 'Render API service ID' },
+    { key: 'NEX_RENDER_API_KEY', value: process.env.NEX_RENDER_API_KEY || 'rnd_live_nexstore_98a7b6c5d4e3f210', desc: 'Render REST API deployment key' },
+    { key: 'NEX_RENDER_DEPLOY_HOOK', value: process.env.NEX_RENDER_DEPLOY_HOOK || 'https://api.render.com/deploy/srv-nexstore-live', desc: 'Render zero-downtime webhook trigger URL' },
+    { key: 'NEX_ADMIN_USERNAME', value: process.env.NEX_ADMIN_USERNAME || 'nex_root_admin', desc: 'Root Admin username (.env RBAC)' },
+    { key: 'NEX_ADMIN_EMAIL', value: process.env.NEX_ADMIN_EMAIL || 'admin@nexstore.dev', desc: 'Root Admin email (.env RBAC)' },
+    { key: 'NEX_ADMIN_PASSWORD', value: process.env.NEX_ADMIN_PASSWORD || 'NEX-Root-Admin-2026!#', desc: 'Root Admin password (.env RBAC)' },
+    { key: 'NEX_ADMIN_MASTER_TOKEN', value: process.env.NEX_ADMIN_MASTER_TOKEN || 'nex_adm_live_99f8a7d6c5b4e3210fedcba987654321', desc: 'Root Admin bearer master token' },
+    { key: 'NEX_PAYMENT_GATEWAY_MODE', value: process.env.NEX_PAYMENT_GATEWAY_MODE || 'LIVE_SETTLEMENT', desc: 'Payment gateway settlement mode' },
+    { key: 'NEX_PAYMENT_WEBHOOK_SECRET', value: process.env.NEX_PAYMENT_WEBHOOK_SECRET || 'whsec_nex_pay_live_84729103847', desc: 'Stripe/M-Pesa/ApplePay webhook signing secret' },
+    { key: 'CORS_ALLOWED_ORIGINS', value: process.env.CORS_ALLOWED_ORIGINS || 'https://nex-store-global.netlify.app,https://nex-store-api.onrender.com', desc: 'Allowed origins for Netlify -> Render CORS' }
+  ];
+
+  const netlifyVars = [
+    { key: 'NETLIFY', value: process.env.NETLIFY || 'true', desc: 'Netlify build & edge detection flag' },
+    { key: 'NODE_VERSION', value: process.env.NODE_VERSION || '22', desc: 'Node.js 22 runtime for Netlify build image' },
+    { key: 'NPM_FLAGS', value: process.env.NPM_FLAGS || '--include=dev --no-audit --no-fund', desc: 'NPM install flags for Vite build on Netlify' },
+    { key: 'NETLIFY_SITE_NAME', value: process.env.NETLIFY_SITE_NAME || 'nex-store-global', desc: 'Netlify site subdomain name' },
+    { key: 'URL', value: process.env.URL || 'https://nex-store-global.netlify.app', desc: 'Primary production URL on Netlify Edge CDN' },
+    { key: 'DEPLOY_PRIME_URL', value: process.env.DEPLOY_PRIME_URL || 'https://main--nex-store-global.netlify.app', desc: 'Netlify branch/preview prime URL' },
+    { key: 'VITE_NEX_APP_NAME', value: process.env.VITE_NEX_APP_NAME || 'NEX Store Enterprise Hub', desc: 'Frontend application display title' },
+    { key: 'VITE_NEX_APP_ENV', value: process.env.VITE_NEX_APP_ENV || 'production', desc: 'Frontend Vite environment target' },
+    { key: 'VITE_API_BASE_URL', value: process.env.VITE_API_BASE_URL || 'https://nex-store-api.onrender.com', desc: 'Render backend REST API base URL for Netlify frontend' },
+    { key: 'VITE_WS_URL', value: process.env.VITE_WS_URL || 'wss://nex-store-api.onrender.com/ws', desc: 'Render WebSocket live telemetry URL for Netlify frontend' },
+    { key: 'VITE_RENDER_BACKEND_URL', value: process.env.VITE_RENDER_BACKEND_URL || 'https://nex-store-api.onrender.com', desc: 'Render backend origin for Netlify /api/* proxy redirects' },
+    { key: 'NEX_NETLIFY_SITE_ID', value: process.env.NEX_NETLIFY_SITE_ID || 'site_nexstore_edge_2026', desc: 'Netlify API Site ID' },
+    { key: 'NEX_NETLIFY_AUTH_TOKEN', value: process.env.NEX_NETLIFY_AUTH_TOKEN || 'nfp_live_nexstore_edge_token_2026', desc: 'Netlify Personal Access Token for CLI/CD' },
+    { key: 'NEX_NETLIFY_DEPLOY_HOOK', value: process.env.NEX_NETLIFY_DEPLOY_HOOK || 'https://api.netlify.com/build_hooks/nex_cluster_live', desc: 'Netlify build hook URL for instant edge rebuilds' }
+  ];
+
+  const renderEnvText = [
+    '# === RENDER CLOUD BACKEND ENVIRONMENT (.env) ===',
+    ...renderVars.map((v) => `${v.key}=${v.value}`)
+  ].join('\n');
+
+  const netlifyEnvText = [
+    '# === NETLIFY EDGE FRONTEND & BUILD ENVIRONMENT (.env) ===',
+    ...netlifyVars.map((v) => `${v.key}=${v.value}`)
+  ].join('\n');
+
+  const rawDotEnv = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : `${renderEnvText}\n\n${netlifyEnvText}`;
+  const renderYaml = fs.existsSync(RENDER_YAML_PATH) ? fs.readFileSync(RENDER_YAML_PATH, 'utf8') : '';
+  const netlifyToml = fs.existsSync(NETLIFY_TOML_PATH) ? fs.readFileSync(NETLIFY_TOML_PATH, 'utf8') : '';
+
+  return {
+    renderVars,
+    netlifyVars,
+    renderEnvText,
+    netlifyEnvText,
+    rawDotEnv,
+    renderYaml,
+    netlifyToml,
+    files: {
+      dotEnvPath: '.env',
+      dotEnvExamplePath: '.env.example',
+      renderBlueprintPath: 'render.yaml',
+      netlifyConfigPath: 'netlify.toml'
+    }
+  };
+}
+
+export function updateHostingEnvVariables(updates = {}) {
+  loadDotEnvFile(true);
+  let currentContent = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
+
+  for (const [rawKey, rawVal] of Object.entries(updates)) {
+    const key = String(rawKey).trim().replace(/[^A-Z0-9_]/gi, '').toUpperCase();
+    if (!key) continue;
+    const val = String(rawVal ?? '').replace(/\r?\n/g, '').trim();
+    process.env[key] = val;
+
+    const regex = new RegExp(`^${key}=.*$`, 'm');
+    if (regex.test(currentContent)) {
+      currentContent = currentContent.replace(regex, `${key}=${val}`);
+    } else {
+      currentContent = `${currentContent.trimEnd()}\n${key}=${val}\n`;
+    }
+  }
+
+  try {
+    fs.writeFileSync(ENV_PATH, currentContent, 'utf8');
+  } catch {
+    // Ignore write errors in read-only containers
+  }
+
+  return getHostingEnvAndBlueprintsConfig();
+}
 
 export function getEnvAdminConfig() {
   loadDotEnvFile();
