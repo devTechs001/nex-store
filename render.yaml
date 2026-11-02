@@ -1,10 +1,10 @@
 # © 2026 NEX STORE & DEVTECHS001 LABS — STRICTLY PROPRIETARY RENDER BLUEPRINT
-# DO NOT SHARE, REDISTRIBUTE, OR PIRATE THIS CONFIGURATION.
-# Deploy directly on Render via: New -> Blueprint -> Connect GitHub Repo
+# Live Render Backend: https://nex-store-lj5j.onrender.com/
+# Connected Netlify Frontend: https://nex-store-pro.netlify.app/
 
 services:
   - type: web
-    name: nex-store-fullstack-api
+    name: nex-store-lj5j
     runtime: node
     plan: standard
     region: frankfurt
@@ -29,7 +29,9 @@ services:
       - key: RENDER
         value: "true"
       - key: RENDER_SERVICE_NAME
-        value: nex-store-fullstack-api
+        value: nex-store-lj5j
+      - key: RENDER_EXTERNAL_URL
+        value: https://nex-store-lj5j.onrender.com
       - key: RENDER_REGION
         value: frankfurt
       - key: NEX_SQLITE_DB_PATH
@@ -55,8 +57,8 @@ services:
       - key: NEX_PAYMENT_WEBHOOK_SECRET
         generateValue: true
       - key: NEX_NETLIFY_DEPLOY_HOOK
-        value: https://api.netlify.com/build_hooks/nex_cluster_live
+        value: https://api.netlify.com/build_hooks/nex_store_pro_live
       - key: NEX_RENDER_DEPLOY_HOOK
-        value: https://api.render.com/deploy/srv-nexstore-live
+        value: https://api.render.com/deploy/srv-nex-store-lj5j
       - key: CORS_ALLOWED_ORIGINS
-        value: https://nex-store-global.netlify.app,https://nex-store-api.onrender.com
+        value: https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com

@@ -1,5 +1,6 @@
 # © 2026 NEX STORE & DEVTECHS001 LABS — STRICTLY PROPRIETARY NETLIFY CONFIGURATION
-# DO NOT SHARE, REDISTRIBUTE, OR PIRATE THIS CONFIGURATION.
+# Live Netlify Site: https://nex-store-pro.netlify.app/
+# Connected Render Backend: https://nex-store-lj5j.onrender.com/
 
 [build]
   command = "npm install --include=dev --no-audit --no-fund && npm run build"
@@ -9,22 +10,24 @@
   NODE_VERSION = "22"
   NPM_FLAGS = "--include=dev --no-audit --no-fund"
   NETLIFY = "true"
-  NETLIFY_SITE_NAME = "nex-store-global"
+  NETLIFY_SITE_NAME = "nex-store-pro"
+  URL = "https://nex-store-pro.netlify.app"
+  DEPLOY_PRIME_URL = "https://main--nex-store-pro.netlify.app"
   VITE_NEX_APP_NAME = "NEX Store Enterprise Hub"
   VITE_NEX_APP_ENV = "production"
-  VITE_API_BASE_URL = "https://nex-store-api.onrender.com"
-  VITE_WS_URL = "wss://nex-store-api.onrender.com/ws"
-  VITE_RENDER_BACKEND_URL = "https://nex-store-api.onrender.com"
+  VITE_API_BASE_URL = "https://nex-store-lj5j.onrender.com"
+  VITE_WS_URL = "wss://nex-store-lj5j.onrender.com/ws"
+  VITE_RENDER_BACKEND_URL = "https://nex-store-lj5j.onrender.com"
 
 # Context-specific Environment Overrides for Production, Deploy Previews & Branch Deploys
 [context.production.environment]
   VITE_NEX_APP_ENV = "production"
-  VITE_API_BASE_URL = "https://nex-store-api.onrender.com"
-  VITE_WS_URL = "wss://nex-store-api.onrender.com/ws"
+  VITE_API_BASE_URL = "https://nex-store-lj5j.onrender.com"
+  VITE_WS_URL = "wss://nex-store-lj5j.onrender.com/ws"
 
 [context.deploy-preview.environment]
   VITE_NEX_APP_ENV = "staging-preview"
-  VITE_API_BASE_URL = "https://nex-store-api.onrender.com"
+  VITE_API_BASE_URL = "https://nex-store-lj5j.onrender.com"
 
 [context.branch-deploy.environment]
   VITE_NEX_APP_ENV = "branch-deploy"
@@ -38,10 +41,10 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-NEX-DRM-Protection = "STRICTLY-PROPRIETARY-DO-NOT-SHARE-OR-PIRATE"
 
-# Proxy /api/* requests from Netlify Edge CDN directly to Render Backend Web Service
+# Proxy /api/* requests from https://nex-store-pro.netlify.app directly to https://nex-store-lj5j.onrender.com
 [[redirects]]
   from = "/api/*"
-  to = "https://nex-store-api.onrender.com/api/:splat"
+  to = "https://nex-store-lj5j.onrender.com/api/:splat"
   status = 200
   force = true
 
