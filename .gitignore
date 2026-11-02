@@ -5,3 +5,4 @@ data/*.db-shm
 data/*.db-wal
 .env
 .DS_Store
+server/nex-mongo-bson-store.json

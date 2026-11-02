@@ -162,6 +162,41 @@ export default function AdminDashboardView({
       .catch(() => {});
   }, []);
 
+  // Automated Verification & Integration Test Suite Runner State
+  const [testReport, setTestReport] = useState(null);
+  const [runningTestSuites, setRunningTestSuites] = useState(false);
+
+  const handleRunTestSuites = async () => {
+    setRunningTestSuites(true);
+    try {
+      const res = await fetch('/api/tests/run', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTestReport(data);
+        setAuthFeedback({
+          type: 'success',
+          message: `Executed ${data.totalPassed}/${data.totalTests} automated tests across ${data.totalSuites} suites in ${data.durationMs}ms!`
+        });
+      }
+    } catch (err) {
+      setAuthFeedback({ type: 'error', message: err.message });
+    } finally {
+      setRunningTestSuites(false);
+    }
+  };
+
+  useEffect(() => {
+    if (adminSection === 'test-suites' && !testReport && !runningTestSuites) {
+      handleRunTestSuites();
+    }
+  }, [adminSection]);
+
   const handleCopyCloudEnv = (text, label) => {
     if (!text) return;
     navigator.clipboard?.writeText(text);
@@ -775,7 +810,8 @@ export default function AdminDashboardView({
           { id: 'payments', label: `Real-Time Payments (${resolvedPayments.length})`, icon: CreditCard },
           { id: 'orders', label: `Orders (${orders.length})`, icon: Truck },
           { id: 'coupons', label: `Coupons (${coupons.length})`, icon: Tag },
-          { id: 'logs', label: `Logs (${inventoryLogs.length})`, icon: History }
+          { id: 'logs', label: `Logs (${inventoryLogs.length})`, icon: History },
+          { id: 'test-suites', label: `Automated Tests (6 Suites)`, icon: ShieldCheck }
         ].map((tab) => {
           const Icon = tab.icon;
           const active = adminSection === tab.id;
@@ -1881,6 +1917,96 @@ export default function AdminDashboardView({
               Authorize &amp; Settle Payment Now
             </button>
           </form>
+        </div>
+      )}
+
+      {/* 8. Automated Verification & Integration Test Suites Runner */}
+      {adminSection === 'test-suites' && (
+        <div className="space-y-4">
+          <div className="rounded-3xl p-5 theme-card border border-emerald-500/35 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="font-mono-num text-[10px] font-bold uppercase text-emerald-400">
+                AUTOMATED FULL-STACK VERIFICATION ENGINE (POST /api/tests/run • npm test)
+              </div>
+              <h2 className="font-display text-lg font-bold mt-0.5">
+                6-Suite End-to-End Integration &amp; Security Test Runner
+              </h2>
+              <p className="text-xs theme-text-muted mt-0.5">
+                Tests Fetching Netlify App Resources, Uploading/Sandboxing Apps, 5-Stage Anti-Malware &amp; XSS/IP Firewall Security, Server Nodes &amp; Cloud Hosting, System Logs, and Admin (.env) / Dev / User RBAC.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={runningTestSuites}
+              onClick={handleRunTestSuites}
+              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 px-5 py-3 text-xs font-extrabold text-slate-950 cursor-pointer transition shadow-lg shadow-emerald-500/20"
+            >
+              <RefreshCw className={`h-4 w-4 ${runningTestSuites ? 'animate-spin' : ''}`} />
+              <span>{runningTestSuites ? 'Running 6 Suites...' : 'Run All 6 Test Suites Now'}</span>
+            </button>
+          </div>
+
+          {testReport && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="rounded-2xl p-4 theme-card border border-emerald-500/30">
+                  <div className="text-[10px] font-mono-num uppercase theme-text-muted">Suite Status</div>
+                  <div className="mt-1 font-mono-num text-lg font-extrabold text-emerald-400">
+                    {testReport.status}
+                  </div>
+                </div>
+                <div className="rounded-2xl p-4 theme-card">
+                  <div className="text-[10px] font-mono-num uppercase theme-text-muted">Total Suites</div>
+                  <div className="mt-1 font-mono-num text-lg font-extrabold text-cyan-400">
+                    {testReport.totalSuites} Suites
+                  </div>
+                </div>
+                <div className="rounded-2xl p-4 theme-card">
+                  <div className="text-[10px] font-mono-num uppercase theme-text-muted">Assertions Passed</div>
+                  <div className="mt-1 font-mono-num text-lg font-extrabold text-emerald-400">
+                    {testReport.totalPassed} / {testReport.totalTests}
+                  </div>
+                </div>
+                <div className="rounded-2xl p-4 theme-card">
+                  <div className="text-[10px] font-mono-num uppercase theme-text-muted">Execution Latency</div>
+                  <div className="mt-1 font-mono-num text-lg font-extrabold text-indigo-400">
+                    {testReport.durationMs} ms
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {(testReport.suites || []).map((suite) => (
+                  <div key={suite.id} className="rounded-3xl p-5 theme-card space-y-3">
+                    <div className="flex items-center justify-between gap-2 border-b pb-2.5 border-white/10">
+                      <div>
+                        <span className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                          {suite.category}
+                        </span>
+                        <h3 className="font-display text-sm font-bold">{suite.title}</h3>
+                      </div>
+                      <span className="rounded-lg bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-emerald-300">
+                        {suite.passedCount}/{suite.totalCount} PASSED ({suite.durationMs}ms)
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {(suite.cases || []).map((tc, idx) => (
+                        <div key={idx} className="rounded-xl p-2.5 theme-subtle text-xs space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-emerald-400">✔ {tc.name}</span>
+                            <span className="font-mono-num text-[10px] theme-text-muted">{tc.durationMs}ms</span>
+                          </div>
+                          <div className="font-mono-num text-[11px] theme-text-muted break-all">
+                            ↳ {tc.detail}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
