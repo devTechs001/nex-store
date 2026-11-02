@@ -297,8 +297,13 @@ export default function App() {
     const connectWs = () => {
       if (isUnmounted) return;
       try {
+        const isNetlifyHost =
+          typeof window !== 'undefined' &&
+          window.location.hostname.toLowerCase().includes('netlify.app');
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        const wsUrl = isNetlifyHost
+          ? import.meta.env.VITE_WS_URL || 'wss://nex-store-lj5j.onrender.com/ws'
+          : `${protocol}//${window.location.host}/ws`;
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 

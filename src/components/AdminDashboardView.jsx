@@ -122,7 +122,31 @@ export default function AdminDashboardView({
     fetchDevProgress(activeAccount.username);
   }, [activeAccount.username]);
 
-  const [hostingEnvConfig, setHostingEnvConfig] = useState(null);
+  const [hostingEnvConfig, setHostingEnvConfig] = useState({
+    renderVars: [
+      { key: 'PORT', value: '3000' },
+      { key: 'HOST', value: '0.0.0.0' },
+      { key: 'NODE_ENV', value: 'production' },
+      { key: 'RENDER_SERVICE_NAME', value: 'nex-store-lj5j' },
+      { key: 'RENDER_EXTERNAL_URL', value: 'https://nex-store-lj5j.onrender.com' },
+      { key: 'MONGODB_URI', value: 'mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority' },
+      { key: 'NEX_ADMIN_USERNAME', value: 'nex_root_admin' },
+      { key: 'CORS_ALLOWED_ORIGINS', value: 'https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com' }
+    ],
+    netlifyVars: [
+      { key: 'NETLIFY', value: 'true' },
+      { key: 'NODE_VERSION', value: '22' },
+      { key: 'NETLIFY_SITE_NAME', value: 'nex-store-pro' },
+      { key: 'URL', value: 'https://nex-store-pro.netlify.app' },
+      { key: 'VITE_API_BASE_URL', value: 'https://nex-store-lj5j.onrender.com' },
+      { key: 'VITE_WS_URL', value: 'wss://nex-store-lj5j.onrender.com/ws' },
+      { key: 'VITE_RENDER_BACKEND_URL', value: 'https://nex-store-lj5j.onrender.com' }
+    ],
+    renderEnvText: `# === RENDER CLOUD BACKEND ENVIRONMENT (https://nex-store-lj5j.onrender.com) ===\nPORT=3000\nHOST=0.0.0.0\nNODE_ENV=production\nRENDER=true\nRENDER_SERVICE_NAME=nex-store-lj5j\nRENDER_EXTERNAL_URL=https://nex-store-lj5j.onrender.com\nMONGODB_URI=mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority\nNEX_ADMIN_USERNAME=nex_root_admin\nNEX_ADMIN_EMAIL=admin@nexstore.dev\nNEX_ADMIN_PASSWORD=NEX-Root-Admin-2026!#\nCORS_ALLOWED_ORIGINS=https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com`,
+    netlifyEnvText: `# === NETLIFY EDGE FRONTEND ENVIRONMENT (https://nex-store-pro.netlify.app) ===\nNETLIFY=true\nNODE_VERSION=22\nNPM_FLAGS=--include=dev --no-audit --no-fund\nNETLIFY_SITE_NAME=nex-store-pro\nURL=https://nex-store-pro.netlify.app\nDEPLOY_PRIME_URL=https://main--nex-store-pro.netlify.app\nVITE_API_BASE_URL=https://nex-store-lj5j.onrender.com\nVITE_WS_URL=wss://nex-store-lj5j.onrender.com/ws\nVITE_RENDER_BACKEND_URL=https://nex-store-lj5j.onrender.com`,
+    renderYaml: `services:\n  - type: web\n    name: nex-store-lj5j\n    runtime: node\n    buildCommand: npm install --include=dev --no-audit --no-fund && npm run build\n    startCommand: npm start\n    healthCheckPath: /api/health`,
+    netlifyToml: `[build]\n  command = "npm install --include=dev --no-audit --no-fund && npm run build"\n  publish = "dist"\n\n[[redirects]]\n  from = "/api/*"\n  to = "https://nex-store-lj5j.onrender.com/api/:splat"\n  status = 200\n  force = true`
+  });
   const [envStudioTab, setEnvStudioTab] = useState('render');
   const [envCopiedLabel, setEnvCopiedLabel] = useState('');
   const [customEnvKey, setCustomEnvKey] = useState('');
@@ -1330,6 +1354,59 @@ export default function AdminDashboardView({
       {/* 6. Multi-Cloud Hosting & Auto-Scaling Hub (Netlify, Render, Vercel, Fly.io, Railway) */}
       {adminSection === 'hosting' && (
         <div className="space-y-6">
+          {/* Live Production Deployments Bridge Strip */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <a
+              href="https://nex-store-pro.netlify.app/"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-3xl p-4 sm:p-5 theme-card border border-cyan-500/40 hover:border-cyan-400 flex items-center justify-between gap-3 transition"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-md bg-cyan-500/20 px-2 py-0.5 font-mono-num text-[10px] font-bold text-cyan-300">
+                    NETLIFY EDGE PRODUCTION
+                  </span>
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                </div>
+                <div className="font-display text-sm sm:text-base font-bold">
+                  https://nex-store-pro.netlify.app/
+                </div>
+                <div className="font-mono-num text-[11px] theme-text-muted">
+                  Proxies `/api/*` → `https://nex-store-lj5j.onrender.com/api/:splat`
+                </div>
+              </div>
+              <span className="rounded-xl bg-cyan-500/15 border border-cyan-500/35 px-3 py-1.5 font-mono-num text-xs font-bold text-cyan-300 shrink-0">
+                Open Live ↗
+              </span>
+            </a>
+
+            <a
+              href="https://nex-store-lj5j.onrender.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-3xl p-4 sm:p-5 theme-card border border-indigo-500/40 hover:border-indigo-400 flex items-center justify-between gap-3 transition"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-md bg-indigo-500/20 px-2 py-0.5 font-mono-num text-[10px] font-bold text-indigo-300">
+                    RENDER CLOUD BACKEND &amp; WS
+                  </span>
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                </div>
+                <div className="font-display text-sm sm:text-base font-bold">
+                  https://nex-store-lj5j.onrender.com/
+                </div>
+                <div className="font-mono-num text-[11px] theme-text-muted">
+                  Express + WebSocket (`wss://`) + SQLite WAL + MongoDB Atlas
+                </div>
+              </div>
+              <span className="rounded-xl bg-indigo-500/15 border border-indigo-500/35 px-3 py-1.5 font-mono-num text-xs font-bold text-indigo-300 shrink-0">
+                Open Live ↗
+              </span>
+            </a>
+          </div>
+
           {/* Render & Netlify .env + Blueprint Configuration Studio */}
           <div className="rounded-3xl p-5 sm:p-6 theme-card space-y-4 border border-cyan-500/30">
             <div className="flex flex-wrap items-center justify-between gap-3">

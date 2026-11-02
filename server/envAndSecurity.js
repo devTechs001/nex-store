@@ -56,43 +56,43 @@ export function getHostingEnvAndBlueprintsConfig() {
     { key: 'HOST', value: process.env.HOST || '0.0.0.0', desc: 'Bind interface for Render container' },
     { key: 'NODE_ENV', value: process.env.NODE_ENV || 'production', desc: 'Node.js runtime environment mode' },
     { key: 'RENDER', value: process.env.RENDER || 'true', desc: 'Render platform detection flag' },
-    { key: 'RENDER_SERVICE_NAME', value: process.env.RENDER_SERVICE_NAME || 'nex-store-fullstack-api', desc: 'Render Web Service identifier' },
+    { key: 'RENDER_SERVICE_NAME', value: process.env.RENDER_SERVICE_NAME || 'nex-store-lj5j', desc: 'Render Web Service identifier' },
     { key: 'RENDER_SERVICE_TYPE', value: process.env.RENDER_SERVICE_TYPE || 'web', desc: 'Render service architecture type' },
     { key: 'RENDER_REGION', value: process.env.RENDER_REGION || 'frankfurt', desc: 'Render deployment data center region' },
     { key: 'RENDER_INSTANCE_TYPE', value: process.env.RENDER_INSTANCE_TYPE || 'standard', desc: 'Render compute instance tier' },
-    { key: 'RENDER_EXTERNAL_URL', value: process.env.RENDER_EXTERNAL_URL || 'https://nex-store-api.onrender.com', desc: 'Public HTTPS URL for Render service' },
+    { key: 'RENDER_EXTERNAL_URL', value: process.env.RENDER_EXTERNAL_URL || 'https://nex-store-lj5j.onrender.com', desc: 'Public HTTPS URL for Render service' },
     { key: 'NEX_SQLITE_DB_PATH', value: process.env.NEX_SQLITE_DB_PATH || '/var/data/nex-store.sqlite', desc: 'Persistent SQLite WAL disk path on Render' },
     { key: 'MONGODB_URI', value: process.env.MONGODB_URI || 'mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority', desc: 'MongoDB Atlas ReplicaSet connection string' },
     { key: 'MONGODB_DB_NAME', value: process.env.MONGODB_DB_NAME || 'nex_store', desc: 'MongoDB Atlas primary database name' },
     { key: 'MONGODB_CLUSTER_REGION', value: process.env.MONGODB_CLUSTER_REGION || 'aws-eu-central-1', desc: 'MongoDB Atlas shard cluster region' },
     { key: 'MONGODB_SYNC_MODE', value: process.env.MONGODB_SYNC_MODE || 'DUAL_WRITE_HYBRID', desc: 'Dual-Write Hybrid SQLite WAL + MongoDB BSON Sync' },
-    { key: 'NEX_RENDER_SERVICE_ID', value: process.env.NEX_RENDER_SERVICE_ID || 'srv-nexstore-live-2026', desc: 'Render API service ID' },
+    { key: 'NEX_RENDER_SERVICE_ID', value: process.env.NEX_RENDER_SERVICE_ID || 'srv-nex-store-lj5j', desc: 'Render API service ID' },
     { key: 'NEX_RENDER_API_KEY', value: process.env.NEX_RENDER_API_KEY || 'rnd_live_nexstore_98a7b6c5d4e3f210', desc: 'Render REST API deployment key' },
-    { key: 'NEX_RENDER_DEPLOY_HOOK', value: process.env.NEX_RENDER_DEPLOY_HOOK || 'https://api.render.com/deploy/srv-nexstore-live', desc: 'Render zero-downtime webhook trigger URL' },
+    { key: 'NEX_RENDER_DEPLOY_HOOK', value: process.env.NEX_RENDER_DEPLOY_HOOK || 'https://api.render.com/deploy/srv-nex-store-lj5j', desc: 'Render zero-downtime webhook trigger URL' },
     { key: 'NEX_ADMIN_USERNAME', value: process.env.NEX_ADMIN_USERNAME || 'nex_root_admin', desc: 'Root Admin username (.env RBAC)' },
     { key: 'NEX_ADMIN_EMAIL', value: process.env.NEX_ADMIN_EMAIL || 'admin@nexstore.dev', desc: 'Root Admin email (.env RBAC)' },
     { key: 'NEX_ADMIN_PASSWORD', value: process.env.NEX_ADMIN_PASSWORD || 'NEX-Root-Admin-2026!#', desc: 'Root Admin password (.env RBAC)' },
     { key: 'NEX_ADMIN_MASTER_TOKEN', value: process.env.NEX_ADMIN_MASTER_TOKEN || 'nex_adm_live_99f8a7d6c5b4e3210fedcba987654321', desc: 'Root Admin bearer master token' },
     { key: 'NEX_PAYMENT_GATEWAY_MODE', value: process.env.NEX_PAYMENT_GATEWAY_MODE || 'LIVE_SETTLEMENT', desc: 'Payment gateway settlement mode' },
     { key: 'NEX_PAYMENT_WEBHOOK_SECRET', value: process.env.NEX_PAYMENT_WEBHOOK_SECRET || 'whsec_nex_pay_live_84729103847', desc: 'Stripe/M-Pesa/ApplePay webhook signing secret' },
-    { key: 'CORS_ALLOWED_ORIGINS', value: process.env.CORS_ALLOWED_ORIGINS || 'https://nex-store-global.netlify.app,https://nex-store-api.onrender.com', desc: 'Allowed origins for Netlify -> Render CORS' }
+    { key: 'CORS_ALLOWED_ORIGINS', value: process.env.CORS_ALLOWED_ORIGINS || 'https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com', desc: 'Allowed origins for Netlify -> Render CORS' }
   ];
 
   const netlifyVars = [
     { key: 'NETLIFY', value: process.env.NETLIFY || 'true', desc: 'Netlify build & edge detection flag' },
     { key: 'NODE_VERSION', value: process.env.NODE_VERSION || '22', desc: 'Node.js 22 runtime for Netlify build image' },
     { key: 'NPM_FLAGS', value: process.env.NPM_FLAGS || '--include=dev --no-audit --no-fund', desc: 'NPM install flags for Vite build on Netlify' },
-    { key: 'NETLIFY_SITE_NAME', value: process.env.NETLIFY_SITE_NAME || 'nex-store-global', desc: 'Netlify site subdomain name' },
-    { key: 'URL', value: process.env.URL || 'https://nex-store-global.netlify.app', desc: 'Primary production URL on Netlify Edge CDN' },
-    { key: 'DEPLOY_PRIME_URL', value: process.env.DEPLOY_PRIME_URL || 'https://main--nex-store-global.netlify.app', desc: 'Netlify branch/preview prime URL' },
+    { key: 'NETLIFY_SITE_NAME', value: process.env.NETLIFY_SITE_NAME || 'nex-store-pro', desc: 'Netlify site subdomain name' },
+    { key: 'URL', value: process.env.URL || 'https://nex-store-pro.netlify.app', desc: 'Primary production URL on Netlify Edge CDN' },
+    { key: 'DEPLOY_PRIME_URL', value: process.env.DEPLOY_PRIME_URL || 'https://main--nex-store-pro.netlify.app', desc: 'Netlify branch/preview prime URL' },
     { key: 'VITE_NEX_APP_NAME', value: process.env.VITE_NEX_APP_NAME || 'NEX Store Enterprise Hub', desc: 'Frontend application display title' },
     { key: 'VITE_NEX_APP_ENV', value: process.env.VITE_NEX_APP_ENV || 'production', desc: 'Frontend Vite environment target' },
-    { key: 'VITE_API_BASE_URL', value: process.env.VITE_API_BASE_URL || 'https://nex-store-api.onrender.com', desc: 'Render backend REST API base URL for Netlify frontend' },
-    { key: 'VITE_WS_URL', value: process.env.VITE_WS_URL || 'wss://nex-store-api.onrender.com/ws', desc: 'Render WebSocket live telemetry URL for Netlify frontend' },
-    { key: 'VITE_RENDER_BACKEND_URL', value: process.env.VITE_RENDER_BACKEND_URL || 'https://nex-store-api.onrender.com', desc: 'Render backend origin for Netlify /api/* proxy redirects' },
-    { key: 'NEX_NETLIFY_SITE_ID', value: process.env.NEX_NETLIFY_SITE_ID || 'site_nexstore_edge_2026', desc: 'Netlify API Site ID' },
+    { key: 'VITE_API_BASE_URL', value: process.env.VITE_API_BASE_URL || 'https://nex-store-lj5j.onrender.com', desc: 'Render backend REST API base URL for Netlify frontend' },
+    { key: 'VITE_WS_URL', value: process.env.VITE_WS_URL || 'wss://nex-store-lj5j.onrender.com/ws', desc: 'Render WebSocket live telemetry URL for Netlify frontend' },
+    { key: 'VITE_RENDER_BACKEND_URL', value: process.env.VITE_RENDER_BACKEND_URL || 'https://nex-store-lj5j.onrender.com', desc: 'Render backend origin for Netlify /api/* proxy redirects' },
+    { key: 'NEX_NETLIFY_SITE_ID', value: process.env.NEX_NETLIFY_SITE_ID || 'site_nex_store_pro_2026', desc: 'Netlify API Site ID' },
     { key: 'NEX_NETLIFY_AUTH_TOKEN', value: process.env.NEX_NETLIFY_AUTH_TOKEN || 'nfp_live_nexstore_edge_token_2026', desc: 'Netlify Personal Access Token for CLI/CD' },
-    { key: 'NEX_NETLIFY_DEPLOY_HOOK', value: process.env.NEX_NETLIFY_DEPLOY_HOOK || 'https://api.netlify.com/build_hooks/nex_cluster_live', desc: 'Netlify build hook URL for instant edge rebuilds' }
+    { key: 'NEX_NETLIFY_DEPLOY_HOOK', value: process.env.NEX_NETLIFY_DEPLOY_HOOK || 'https://api.netlify.com/build_hooks/nex_store_pro_live', desc: 'Netlify build hook URL for instant edge rebuilds' }
   ];
 
   const renderEnvText = [
@@ -436,14 +436,14 @@ export const INITIAL_USER_ACCOUNTS = [
 export const INITIAL_HOSTING_DEPLOYMENTS = [
   {
     id: 'host-netlify-01',
-    app_id: 'app-netlify-synth',
-    app_name: 'SynthWave DSP Audio Lab',
-    owner_username: 'aether_labs',
+    app_id: 'nex-store-pro',
+    app_name: 'NEX Store Pro Edge Frontend (Netlify)',
+    owner_username: 'nex_root_admin',
     provider: 'Netlify',
     environment: 'production',
     region: 'Global Edge CDN (Anycast)',
-    deploy_url: 'https://synthwave-dsp-lab.netlify.app',
-    build_command: 'npm run build',
+    deploy_url: 'https://nex-store-pro.netlify.app',
+    build_command: 'npm install --include=dev --no-audit --no-fund && npm run build',
     min_instances: 2,
     max_instances: 16,
     current_instances: 4,
@@ -452,18 +452,18 @@ export const INITIAL_HOSTING_DEPLOYMENTS = [
     auto_scale: 1,
     ssl_verified: 1,
     status: 'HEALTHY',
-    last_deployed_at: '2026-10-31T08:30:00Z'
+    last_deployed_at: '2026-11-02T08:30:00Z'
   },
   {
     id: 'host-render-01',
-    app_id: 'app-dataflow-pro',
-    app_name: 'DataFlow Pro Tensor Studio',
-    owner_username: 'rustcore_sys',
+    app_id: 'nex-store-lj5j',
+    app_name: 'NEX Store Full-Stack API & WebSocket Engine (Render)',
+    owner_username: 'nex_root_admin',
     provider: 'Render',
     environment: 'production',
     region: 'eu-central (Frankfurt)',
-    deploy_url: 'https://dataflow-pro-tensor.onrender.com',
-    build_command: 'cargo build --release && ./target/release/server',
+    deploy_url: 'https://nex-store-lj5j.onrender.com',
+    build_command: 'npm install --include=dev --no-audit --no-fund && npm run build && npm start',
     min_instances: 2,
     max_instances: 24,
     current_instances: 6,
@@ -472,7 +472,7 @@ export const INITIAL_HOSTING_DEPLOYMENTS = [
     auto_scale: 1,
     ssl_verified: 1,
     status: 'HEALTHY',
-    last_deployed_at: '2026-10-31T09:15:00Z'
+    last_deployed_at: '2026-11-02T09:15:00Z'
   },
   {
     id: 'host-vercel-01',
