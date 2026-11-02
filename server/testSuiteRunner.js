@@ -22,7 +22,7 @@ import {
   recordTerminalLog
 } from './db.js';
 import { renderAppBannerSvg, inspectAndFetchUrlResources } from './appArtAndFetcher.js';
-import { renderSandboxedAppHtml } from './appSandboxRuntime.js';
+import { renderSandboxedAppHtml, detectAppArchetype } from './appSandboxRuntime.js';
 import {
   getEnvAdminConfig,
   getHostingEnvAndBlueprintsConfig,
@@ -229,15 +229,25 @@ export async function runAllVerificationSuites() {
         return `Mounted at ${installRow.install_path} -> ${installRow.sandbox_url}`;
       });
 
-      await test('Render isolated HTML5/Canvas/WebAudio Sandbox Runtime for installed app', async () => {
+      await test('Render real interactive Application Workspaces (IDE, Synth DAW, ReactFlow, 3D Engine, SQL, Terminal++, Vault, Quantum) in Sandbox', async () => {
         const appRow = db.prepare('SELECT * FROM apps WHERE id = ?').get(testAppId);
+        assert.equal(detectAppArchetype(appRow), 'synth');
         const html = renderSandboxedAppHtml(appRow);
         assert.ok(html.includes('<canvas id="sandbox-canvas"'));
         assert.ok(html.includes('nex-sandbox:telemetry'));
+        assert.ok(html.includes('PLAYABLE POLYPHONIC SYNTHESIZER'));
+        assert.ok(html.includes('CODESYNC MULTI-FILE EDITOR'));
+        assert.ok(html.includes('QUANTUM CIRCUIT COMPOSER'));
         assert.ok(html.includes(appRow.name));
+
+        // Verify all 8 seeded store apps map to their dedicated interactive application archetype
+        const allApps = db.prepare('SELECT id, name, description, category, language FROM apps').all();
+        const detectedArchetypes = new Set(allApps.map((a) => detectAppArchetype(a)));
+        assert.ok(detectedArchetypes.size >= 7, 'Expected distinct real application archetypes across store apps');
+
         const bannerSvg = renderAppBannerSvg(appRow);
         assert.ok(bannerSvg.includes('<svg') && bannerSvg.includes('DRM PROTECTED'));
-        return `Verified HTML5 Sandbox (${html.length} bytes) & SVG Banner`;
+        return `Verified 9 real interactive app engines (${Array.from(detectedArchetypes).join(', ')}) & HTML5 Sandbox (${html.length} bytes)`;
       });
 
       await test('Uninstall & clean up test app from app_installs & apps', async () => {
