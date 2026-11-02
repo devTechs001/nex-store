@@ -20,7 +20,12 @@ import MobileBottomNav from './components/MobileBottomNav.jsx';
 import MobileAndSubscriptionsView from './components/MobileAndSubscriptionsView.jsx';
 import SplashScreen from './components/SplashScreen.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
-import { getFallbackBootstrapData, getProductArtUrl } from './utils/storeEngine.js';
+import {
+  getFallbackBootstrapData,
+  getProductArtUrl,
+  hydrateProduct,
+  hydrateApp
+} from './utils/storeEngine.js';
 import {
   playSound,
   requestDesktopPushPermission,
@@ -213,10 +218,24 @@ export default function App() {
       if (!isJsonResponse(res)) return;
       const data = await res.json();
       if (Array.isArray(data.categories) && data.categories.length > 0) setCategories(data.categories);
-      if (Array.isArray(data.products) && data.products.length > 0) setProducts(data.products);
-      if (Array.isArray(data.apps) && data.apps.length > 0) setApps(data.apps);
+      if (Array.isArray(data.products) && data.products.length > 0) {
+        setProducts(data.products.map(hydrateProduct));
+      }
+      if (Array.isArray(data.apps) && data.apps.length > 0) {
+        setApps(data.apps.map(hydrateApp));
+      }
       if (Array.isArray(data.coupons) && data.coupons.length > 0) setCoupons(data.coupons);
-      if (Array.isArray(data.orders) && data.orders.length > 0) setOrders(data.orders);
+      if (Array.isArray(data.orders) && data.orders.length > 0) {
+        setOrders(
+          data.orders.map((o) => ({
+            ...o,
+            items: (o.items || []).map((item) => ({
+              ...item,
+              product_image: getProductArtUrl(item.product_id, { view: 'hero' })
+            }))
+          }))
+        );
+      }
       if (Array.isArray(data.inventoryLogs)) setInventoryLogs(data.inventoryLogs);
       if (Array.isArray(data.activityEvents) && data.activityEvents.length > 0) setActivityEvents(data.activityEvents);
       if (Array.isArray(data.chatMessages) && data.chatMessages.length > 0) setChatMessages(data.chatMessages);

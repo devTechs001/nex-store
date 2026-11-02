@@ -238,7 +238,7 @@ export default function HardwareBuilderModal({
                           color: selectedFinish.hex
                         })}
                         alt={current.name}
-                        className="h-14 w-18 rounded-xl object-cover bg-slate-950 border border-white/10 shrink-0"
+                        className="h-14 w-20 rounded-xl object-contain bg-slate-950 border border-white/10 shrink-0"
                       />
                     ) : (
                       <div className="flex h-14 w-18 items-center justify-center rounded-xl bg-slate-900 border border-white/10 text-slate-400 shrink-0">

@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   Globe
 } from 'lucide-react';
+import { getProductArtUrl } from '../utils/storeEngine.js';
 
 const BACKGROUND_PRESETS = [
   {
@@ -24,12 +25,12 @@ const BACKGROUND_PRESETS = [
   {
     id: 'cad-blueprint',
     label: 'Aether Pro CAD Blueprint',
-    url: '/api/product-art/prod-aether-pro.svg?view=blueprint'
+    url: getProductArtUrl('prod-aether-pro', { view: 'blueprint' })
   },
   {
     id: 'titanium-core',
     label: 'Chronos Titanium Schematic',
-    url: '/api/product-art/prod-chronos-x1.svg?view=detail'
+    url: getProductArtUrl('prod-chronos-key', { view: 'detail' })
   }
 ];
 

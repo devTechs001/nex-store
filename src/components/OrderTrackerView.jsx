@@ -7,6 +7,7 @@ import {
   Zap
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
+import { getProductArtUrl } from '../utils/storeEngine.js';
 
 const STAGES = [
   { id: 'placed', label: 'Order Placed', desc: 'Verified & allocated in SQLite' },
@@ -268,9 +269,9 @@ export default function OrderTrackerView({
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
                       <img
-                        src={item.product_image || `/api/product-art/${item.product_id}.svg`}
+                        src={getProductArtUrl(item.product_id, { view: 'hero' })}
                         alt={item.product_name}
-                        className="h-14 w-18 rounded-xl object-cover bg-slate-900 shrink-0"
+                        className="h-14 w-20 rounded-xl object-contain bg-slate-950 shrink-0"
                       />
                       <div className="min-w-0">
                         <div className="font-mono-num text-[10px] font-bold text-indigo-400">

@@ -15,7 +15,8 @@ import {
   Sparkles,
   Upload,
   Plus,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Maximize2
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
 import { getProductArtUrl } from '../utils/storeEngine.js';
@@ -49,6 +50,7 @@ export default function ProductDetailModal({
   const [newImgUrlInput, setNewImgUrlInput] = useState('');
   const [newImgLabelInput, setNewImgLabelInput] = useState('Studio Photo');
   const [savingImage, setSavingImage] = useState(false);
+  const [fullScreenLightbox, setFullScreenLightbox] = useState(false);
 
   // Review Form State
   const [authorName, setAuthorName] = useState('');
@@ -250,17 +252,35 @@ export default function ProductDetailModal({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Left 7 Cols: 4-Angle Interactive CAD / Studio Viewer */}
             <div className="lg:col-span-7 space-y-4">
-              <div className="relative overflow-hidden rounded-3xl border border-indigo-500/25 bg-slate-950 shadow-xl">
+              <div
+                onClick={() => setFullScreenLightbox(true)}
+                className="group relative overflow-hidden rounded-3xl border border-indigo-500/35 bg-slate-950 shadow-xl cursor-zoom-in"
+              >
                 <img
                   src={imgUrl}
                   alt={product.name}
-                  className="w-full h-80 sm:h-96 object-cover"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = getProductArtUrl(product, { view: 'hero', preferCad: true });
+                  }}
+                  className="w-full h-80 sm:h-[420px] object-contain bg-slate-950 transition duration-300 group-hover:scale-[1.02]"
                 />
                 {product.badge && (
                   <span className="absolute left-4 top-4 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 px-3 py-1 font-mono-num text-xs font-bold text-white shadow-lg">
                     {product.badge}
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFullScreenLightbox(true);
+                  }}
+                  className="absolute right-4 bottom-4 inline-flex items-center gap-1.5 rounded-xl bg-slate-950/90 border border-cyan-500/40 px-3 py-1.5 font-mono-num text-[11px] font-bold text-cyan-300 shadow-lg hover:bg-slate-900 cursor-pointer"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  <span>Full-Resolution HD View</span>
+                </button>
               </div>
 
               {/* 4-Angle & Custom Photo Studio Switcher */}
@@ -346,20 +366,38 @@ export default function ProductDetailModal({
                       (g.view.startsWith('data:image/') ||
                         g.view.startsWith('http://') ||
                         g.view.startsWith('https://'));
+                    const angleImgSrc = getProductArtUrl(product, {
+                      view: g.view,
+                      color: selectedColor?.hex || null
+                    });
                     return (
                       <button
                         key={`${g.view}-${idx}`}
+                        type="button"
                         onClick={() => setSelectedView(g.view)}
-                        className={`rounded-2xl border px-3.5 py-2.5 text-left transition cursor-pointer ${
+                        className={`group overflow-hidden rounded-2xl border p-1.5 text-left transition cursor-pointer ${
                           selectedView === g.view
-                            ? 'border-indigo-500 bg-indigo-500/15 text-indigo-400 shadow-sm'
+                            ? 'border-indigo-500 bg-indigo-500/15 text-indigo-400 shadow-md ring-1 ring-indigo-500/50'
                             : 'theme-subtle hover:border-indigo-400/50'
                         }`}
                       >
-                        <div className="font-mono-num text-[10px] uppercase text-slate-400 truncate">
-                          {isCustomUrl ? 'CUSTOM PHOTO' : `ANGLE // ${g.view}`}
+                        <div className="overflow-hidden rounded-xl bg-slate-950 mb-1.5 border border-white/[0.06]">
+                          <img
+                            src={angleImgSrc}
+                            alt={g.label}
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = getProductArtUrl(product, { view: 'hero', preferCad: true });
+                            }}
+                            className="w-full h-20 object-contain transition duration-300 group-hover:scale-105"
+                          />
                         </div>
-                        <div className="mt-0.5 text-xs font-bold truncate">{g.label}</div>
+                        <div className="px-1">
+                          <div className="font-mono-num text-[9px] uppercase text-cyan-400 truncate">
+                            {isCustomUrl ? 'CUSTOM PHOTO' : `CAD // ${g.view}`}
+                          </div>
+                          <div className="text-xs font-bold truncate">{g.label}</div>
+                        </div>
                       </button>
                     );
                   })}
@@ -777,6 +815,78 @@ export default function ProductDetailModal({
           </div>
         </div>
       </div>
+
+      {/* Full-Resolution High-Definition Image Resource Lightbox */}
+      {fullScreenLightbox && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            setFullScreenLightbox(false);
+          }}
+          className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl p-4 sm:p-8"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-6xl space-y-4"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="font-mono-num text-xs font-bold text-cyan-400">
+                  {product.sku} • FULL-RESOLUTION STUDIO IMAGE RESOURCE
+                </span>
+                <h3 className="font-display text-lg sm:text-xl font-bold text-white">
+                  {product.name} — {selectedColor?.name}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFullScreenLightbox(false)}
+                className="rounded-xl border border-white/20 bg-slate-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer"
+              >
+                Close Fullscreen ✕
+              </button>
+            </div>
+
+            <div className="overflow-hidden rounded-3xl border border-indigo-500/40 bg-slate-950 p-2 sm:p-4 shadow-2xl">
+              <img
+                src={imgUrl}
+                alt={product.name}
+                className="w-full max-h-[68vh] object-contain mx-auto"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {galleryViews.map((g, idx) => (
+                <button
+                  key={`lb-${g.view}-${idx}`}
+                  type="button"
+                  onClick={() => setSelectedView(g.view)}
+                  className={`flex items-center gap-2.5 rounded-2xl border p-2 text-left transition cursor-pointer ${
+                    selectedView === g.view
+                      ? 'border-cyan-400 bg-cyan-500/20 text-white'
+                      : 'border-white/10 bg-slate-900/80 text-slate-300 hover:border-indigo-400'
+                  }`}
+                >
+                  <img
+                    src={getProductArtUrl(product, {
+                      view: g.view,
+                      color: selectedColor?.hex || null
+                    })}
+                    alt={g.label}
+                    className="h-12 w-16 rounded-lg object-contain bg-slate-950 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <div className="font-mono-num text-[10px] text-cyan-300 uppercase truncate">
+                      {g.view}
+                    </div>
+                    <div className="text-xs font-bold truncate">{g.label}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   Server
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
+import { getProductArtUrl } from '../utils/storeEngine.js';
 
 export default function AdminDashboardView({
   products,
@@ -834,9 +835,9 @@ export default function AdminDashboardView({
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <img
-                          src={prod.image_url}
+                          src={getProductArtUrl(prod, { view: 'hero' })}
                           alt={prod.name}
-                          className="h-11 w-14 rounded-xl object-cover bg-slate-950 shrink-0"
+                          className="h-12 w-16 rounded-xl object-contain bg-slate-950 shrink-0"
                         />
                         <div>
                           <div className="font-mono-num text-[10px] font-bold text-indigo-400">
