@@ -117,11 +117,33 @@ export default function AppStoreView({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [previewApp, setPreviewApp] = useState(null);
   const [sandboxMode, setSandboxMode] = useState('container'); // 'container' | 'external'
+  const [customExternalUrl, setCustomExternalUrl] = useState('');
   const [sandboxReloadKey, setSandboxReloadKey] = useState(0);
   const [isSandboxExpanded, setIsSandboxExpanded] = useState(false);
   const [sandboxTelemetry, setSandboxTelemetry] = useState(null);
   const [scanningId, setScanningId] = useState(null);
   const [verifiedScanIds, setVerifiedScanIds] = useState({});
+
+  const isSeededDemoUrl = (url = '') => {
+    const u = String(url).toLowerCase();
+    if (!u || u.includes('nex-store-pro.netlify.app') || u.includes('nex-store-lj5j.onrender.com')) {
+      return false;
+    }
+    return [
+      'codesync-cloud-ide.netlify.app',
+      'synthwave-dsp-lab.netlify.app',
+      'reactflow-studio-edge.netlify.app',
+      'terminal-plus-wasm.netlify.app',
+      'nexus-webgpu-raytracer.netlify.app',
+      'orbit-sql-visualizer.vercel.app',
+      'dataflow-pro-telemetry.netlify.app',
+      'cloudvault-zero-trust.netlify.app',
+      'quantum-circuit-studio.netlify.app',
+      'neural-stem-splitter.netlify.app',
+      'kubepulse-edge-monitor.vercel.app',
+      'shaderforge-webgpu.netlify.app'
+    ].some((host) => u.includes(host));
+  };
 
   // Live Link Metadata, Image & Resource Fetcher State
   const [quickLinkInput, setQuickLinkInput] = useState('https://github.com/devTechs001/nex-store');
@@ -1272,43 +1294,66 @@ export default function AppStoreView({
               className="flex flex-col justify-between rounded-3xl p-5 space-y-4 transition-all duration-300 hover:-translate-y-1 theme-card"
             >
               <div className="space-y-3">
-                {/* High-Resolution App Preview Banner & 4-Resource Switcher */}
+                {/* High-Resolution App Preview Banner, Inline Live App & 4-Resource Switcher */}
                 <div className="space-y-1.5">
-                  <div
-                    onClick={() =>
-                      setLightboxResource({
-                        app,
-                        view: activeAppView,
-                        title: `${app.name} — High-Resolution Visual Resource`
-                      })
-                    }
-                    className="relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-950 cursor-zoom-in group"
-                  >
-                    <img
-                      src={bannerImg}
-                      alt={app.name}
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = getAppArtUrl(app, {
-                          view: 'hero',
-                          preferGenerated: true
-                        });
-                      }}
-                      className="w-full h-44 object-contain bg-slate-950 transition-transform duration-300 group-hover:scale-[1.03]"
-                    />
-                    <div className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/40 px-2.5 py-1 font-mono-num text-[9px] font-bold text-cyan-300">
-                      <Maximize2 className="h-3 w-3" />
-                      <span>FULL HD • {visualResList.length} VISUAL RESOURCES</span>
+                  {activeAppView === 'live' ? (
+                    <div className="relative overflow-hidden rounded-2xl border border-emerald-500/45 bg-slate-950">
+                      <iframe
+                        title={`${app.name} Inline Live App`}
+                        sandbox="allow-scripts allow-forms allow-same-origin"
+                        srcDoc={renderSandboxedAppHtml(app)}
+                        className="w-full h-56 border-0 bg-slate-950"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSandboxMode('container');
+                          setPreviewApp(app);
+                        }}
+                        className="absolute top-2 right-2 flex items-center gap-1 rounded-lg bg-emerald-500 px-2.5 py-1 font-mono-num text-[9px] font-extrabold text-slate-950 shadow-md cursor-pointer"
+                      >
+                        <Maximize2 className="h-3 w-3" />
+                        <span>EXPAND LIVE APP</span>
+                      </button>
                     </div>
-                  </div>
+                  ) : (
+                    <div
+                      onClick={() =>
+                        setLightboxResource({
+                          app,
+                          view: activeAppView,
+                          title: `${app.name} — High-Resolution Visual Resource`
+                        })
+                      }
+                      className="relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-950 cursor-zoom-in group"
+                    >
+                      <img
+                        src={bannerImg}
+                        alt={app.name}
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = getAppArtUrl(app, {
+                            view: 'hero',
+                            preferGenerated: true
+                          });
+                        }}
+                        className="w-full h-44 object-contain bg-slate-950 transition-transform duration-300 group-hover:scale-[1.03]"
+                      />
+                      <div className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-lg bg-slate-950/90 border border-cyan-500/40 px-2.5 py-1 font-mono-num text-[9px] font-bold text-cyan-300">
+                        <Maximize2 className="h-3 w-3" />
+                        <span>FULL HD • {visualResList.length} VISUAL RESOURCES</span>
+                      </div>
+                    </div>
+                  )}
 
-                  {/* 4-View Visual Resource Switcher on App Card */}
-                  <div className="grid grid-cols-4 gap-1">
+                  {/* 5-Tab Switcher on App Card: 4 HD Visuals + Inline Live Interactive App */}
+                  <div className="grid grid-cols-5 gap-1">
                     {[
                       { id: 'hero', label: 'Banner' },
                       { id: 'ui', label: 'UI View' },
                       { id: 'arch', label: 'Arch Map' },
-                      { id: 'spec', label: 'Security' }
+                      { id: 'spec', label: 'Security' },
+                      { id: 'live', label: '▶ Live App' }
                     ].map((v) => (
                       <button
                         key={v.id}
@@ -1318,7 +1363,11 @@ export default function AppStoreView({
                         }
                         className={`rounded-lg py-1 font-mono-num text-[10px] font-bold uppercase transition cursor-pointer ${
                           activeAppView === v.id
-                            ? 'bg-indigo-600 text-white shadow-xs'
+                            ? v.id === 'live'
+                              ? 'bg-emerald-500 text-slate-950 shadow-xs'
+                              : 'bg-indigo-600 text-white shadow-xs'
+                            : v.id === 'live'
+                            ? 'bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 hover:bg-emerald-500/25'
                             : 'theme-subtle text-slate-400 hover:text-cyan-300'
                         }`}
                       >
@@ -1579,18 +1628,21 @@ export default function AppStoreView({
                         : 'theme-text-muted hover:text-white'
                     }`}
                   >
-                    Container Runtime
+                    Interactive Live App
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSandboxMode('external')}
+                    onClick={() => {
+                      setCustomExternalUrl(previewApp.live_url || 'https://nex-store-pro.netlify.app');
+                      setSandboxMode('external');
+                    }}
                     className={`rounded-lg px-2.5 py-1 font-mono-num text-[11px] font-bold transition cursor-pointer ${
                       sandboxMode === 'external'
                         ? 'bg-cyan-600 text-white'
                         : 'theme-text-muted hover:text-white'
                     }`}
                   >
-                    External URL
+                    Live Deployed URL
                   </button>
                 </div>
 
@@ -1633,8 +1685,8 @@ export default function AppStoreView({
                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
                   <span className="ml-1 text-cyan-400 truncate">
                     {sandboxMode === 'container'
-                      ? `sandbox://localhost:3000/api/sandbox/${previewApp.id}`
-                      : previewApp.live_url || `https://${previewApp.id}.netlify.app`}
+                      ? `nex-app://${previewApp.id}/live-workspace (${previewApp.name})`
+                      : customExternalUrl || previewApp.live_url || `https://nex-store-pro.netlify.app`}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-[11px]">
@@ -1654,39 +1706,81 @@ export default function AppStoreView({
               {sandboxMode === 'container' ? (
                 <iframe
                   key={`${previewApp.id}-container-${sandboxReloadKey}`}
-                  title={`${previewApp.name} Isolated Sandbox Runtime`}
+                  title={`${previewApp.name} Interactive Application Workspace`}
                   sandbox="allow-scripts allow-forms allow-same-origin"
                   srcDoc={renderSandboxedAppHtml(previewApp)}
                   className={`w-full border-0 bg-slate-950 ${
-                    isSandboxExpanded ? 'h-[510px]' : 'h-[400px]'
+                    isSandboxExpanded ? 'h-[580px]' : 'h-[470px]'
                   }`}
                 />
               ) : (
                 <div className="space-y-2 p-3 bg-slate-950">
-                  <div className="flex items-center justify-between px-2 py-1 text-xs text-slate-400">
-                    <span>
-                      Embedding external origin:{' '}
-                      <strong className="text-cyan-300">{previewApp.live_url}</strong>
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-1 text-xs text-slate-300">
+                    <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-[240px]">
+                      <span className="font-mono-num text-[10px] uppercase text-cyan-400">Live Origin:</span>
+                      <input
+                        type="text"
+                        value={customExternalUrl || previewApp.live_url || 'https://nex-store-pro.netlify.app'}
+                        onChange={(e) => setCustomExternalUrl(e.target.value)}
+                        className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 font-mono-num text-xs text-cyan-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCustomExternalUrl(previewApp.live_url || '')}
+                        className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2 py-1 font-mono-num text-[10px] text-indigo-300 cursor-pointer"
+                      >
+                        App Runtime
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomExternalUrl('https://nex-store-pro.netlify.app')}
+                        className="rounded-lg bg-teal-500/20 border border-teal-500/40 px-2 py-1 font-mono-num text-[10px] text-teal-300 cursor-pointer"
+                      >
+                        Netlify Live
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomExternalUrl('https://nex-store-lj5j.onrender.com')}
+                        className="rounded-lg bg-cyan-500/20 border border-cyan-500/40 px-2 py-1 font-mono-num text-[10px] text-cyan-300 cursor-pointer"
+                      >
+                        Render Live
+                      </button>
+                    </div>
                     <a
-                      href={previewApp.live_url}
+                      href={
+                        isSeededDemoUrl(customExternalUrl || previewApp.live_url)
+                          ? `/api/sandbox/${previewApp.id}`
+                          : customExternalUrl || previewApp.live_url
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-teal-400 hover:underline font-semibold"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
-                      Open in New Tab
+                      Open Full Tab
                     </a>
                   </div>
-                  <iframe
-                    key={`${previewApp.id}-ext-${sandboxReloadKey}`}
-                    title={`${previewApp.name} External Origin`}
-                    sandbox="allow-scripts allow-forms allow-same-origin"
-                    src={previewApp.live_url || `/api/sandbox/${previewApp.id}`}
-                    className={`w-full rounded-xl border border-slate-800 bg-slate-900 ${
-                      isSandboxExpanded ? 'h-[460px]' : 'h-[350px]'
-                    }`}
-                  />
+                  {isSeededDemoUrl(customExternalUrl || previewApp.live_url) ? (
+                    <iframe
+                      key={`${previewApp.id}-ext-sim-${sandboxReloadKey}`}
+                      title={`${previewApp.name} Deployed Runtime`}
+                      sandbox="allow-scripts allow-forms allow-same-origin"
+                      srcDoc={renderSandboxedAppHtml(previewApp)}
+                      className={`w-full rounded-xl border border-slate-800 bg-slate-950 ${
+                        isSandboxExpanded ? 'h-[530px]' : 'h-[430px]'
+                      }`}
+                    />
+                  ) : (
+                    <iframe
+                      key={`${previewApp.id}-ext-real-${customExternalUrl}-${sandboxReloadKey}`}
+                      title={`${previewApp.name} External Origin`}
+                      sandbox="allow-scripts allow-forms allow-same-origin"
+                      src={customExternalUrl || previewApp.live_url || `/api/sandbox/${previewApp.id}`}
+                      className={`w-full rounded-xl border border-slate-800 bg-slate-900 ${
+                        isSandboxExpanded ? 'h-[530px]' : 'h-[430px]'
+                      }`}
+                    />
+                  )}
                 </div>
               )}
             </div>
