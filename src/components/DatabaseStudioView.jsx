@@ -48,6 +48,73 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
   const [queryError, setQueryError] = useState('');
   const [resetting, setResetting] = useState(false);
 
+  // MongoDB Atlas Document Studio State
+  const [engineTab, setEngineTab] = useState('dual'); // 'dual' | 'mongodb' | 'sqlite'
+  const [mongoStatus, setMongoStatus] = useState(null);
+  const [mongoDocs, setMongoDocs] = useState([]);
+  const [mongoFilterInput, setMongoFilterInput] = useState('{}');
+  const [mongoInsertJson, setMongoInsertJson] = useState(
+    '{\n  "name": "NEX Quantum Neural Accelerator Card",\n  "category": "compute",\n  "price": 1899,\n  "stock": 24,\n  "badge": "MONGODB BSON"\n}'
+  );
+  const [mongoFeedback, setMongoFeedback] = useState('');
+
+  const fetchMongoStudio = async (collName = selectedTable, filterStr = mongoFilterInput) => {
+    try {
+      const [statusRes, queryRes] = await Promise.all([
+        fetch('/api/mongo/status'),
+        fetch('/api/mongo/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            collection: collName,
+            filter: filterStr || '{}',
+            limit: 20
+          })
+        })
+      ]);
+      if (statusRes.ok) {
+        const sData = await statusRes.json();
+        setMongoStatus(sData);
+      }
+      if (queryRes.ok) {
+        const qData = await queryRes.json();
+        setMongoDocs(qData.documents || []);
+      }
+    } catch {
+      // ignore offline
+    }
+  };
+
+  useEffect(() => {
+    fetchMongoStudio(selectedTable, mongoFilterInput);
+  }, [selectedTable]);
+
+  const handleInsertMongoDoc = async (e) => {
+    e.preventDefault();
+    setMongoFeedback('');
+    try {
+      const parsed = JSON.parse(mongoInsertJson);
+      const res = await fetch('/api/mongo/insert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          collection: selectedTable,
+          document: parsed
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMongoFeedback(`Error: ${data.error || 'Insert failed'}`);
+        return;
+      }
+      if (data.mongoStatus) setMongoStatus(data.mongoStatus);
+      setMongoFeedback(`✓ Inserted BSON ObjectId("${data.inserted?._id?.$oid}") into nex_store.${selectedTable}`);
+      fetchMongoStudio(selectedTable, mongoFilterInput);
+    } catch (err) {
+      setMongoFeedback(`JSON Error: ${err.message}`);
+    }
+  };
+
   const fetchTable = async (tableName) => {
     setLoadingTable(true);
     try {
@@ -168,18 +235,42 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
       {/* Top Database Engine Telemetry Header */}
       <div className={`flex flex-wrap items-center justify-between gap-4 rounded-3xl p-6 md:p-8 ${cardSurface}`}>
         <div className="space-y-1.5">
-          <div className="inline-flex items-center gap-2 rounded-full bg-cyan-500/15 border border-cyan-500/30 px-3 py-0.5 font-mono-num text-xs font-bold text-cyan-400">
-            <Database className="h-3.5 w-3.5" />
-            <span>RELATIONAL SQLITE 3 ENGINE • WAL PERSISTENCE</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full bg-cyan-500/15 border border-cyan-500/30 px-3 py-0.5 font-mono-num text-xs font-bold text-cyan-400">
+              <Database className="h-3.5 w-3.5" />
+              <span>SQLITE 3 WAL + MONGODB ATLAS 8.0 HYBRID ENGINE</span>
+            </div>
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/35 px-3 py-0.5 font-mono-num text-xs font-bold text-emerald-400">
+              <span>MONGODB REPLICA SET ONLINE</span>
+            </div>
           </div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold">
-            NEX Store SQLite Database Studio
+            NEX Store Dual-Engine Database Studio (SQLite + MongoDB)
           </h1>
           <p className={`text-xs sm:text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-            Inspect all {dbStats?.totalTables || 11} relational tables (`products`, `apps`,
-            `categories`, `orders`, `order_items`, `reviews`, `coupons`, `inventory_logs`,
-            `activity_events`, `chat_messages`, `subscribers`), view column schemas, and execute live SQL queries.
+            Inspect all {dbStats?.totalTables || 28} synchronized SQLite tables &amp; MongoDB Atlas BSON collections (`nex_store`), run MQL `db.collection.find()` filters, insert BSON `ObjectId` documents, or execute live SQL queries.
           </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            { id: 'dual', label: 'Dual-Engine (MongoDB + SQLite)' },
+            { id: 'mongodb', label: 'MongoDB Atlas Studio' },
+            { id: 'sqlite', label: 'SQLite 3 WAL Studio' }
+          ].map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setEngineTab(t.id)}
+              className={`rounded-xl px-3.5 py-2 font-mono-num text-xs font-bold cursor-pointer transition ${
+                engineTab === t.id
+                  ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow'
+                  : 'theme-subtle hover:border-indigo-500/40'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -216,6 +307,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
               await onResetDatabase();
               setQueryResult(null);
               await fetchTable(selectedTable);
+              await fetchMongoStudio(selectedTable, mongoFilterInput);
               setResetting(false);
             }}
             className="inline-flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-4 py-2.5 text-xs font-semibold text-amber-400 transition cursor-pointer"
@@ -225,6 +317,117 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
           </button>
         </div>
       </div>
+
+      {/* MongoDB Atlas 8.0 Document Cluster & BSON Studio */}
+      {(engineTab === 'dual' || engineTab === 'mongodb') && (
+        <div className={`rounded-3xl p-5 sm:p-6 space-y-5 border border-emerald-500/35 ${cardSurface}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-mono-num text-[10px] font-bold uppercase text-emerald-400">
+                MONGODB ATLAS 8.0 BSON DOCUMENT CLUSTER (`MONGODB_URI` • DUAL-WRITE HYBRID)
+              </div>
+              <h2 className="font-display text-lg font-bold">
+                MongoDB Atlas ReplicaSet (`{mongoStatus?.dbName || 'nex_store'}.{selectedTable}`)
+              </h2>
+              <div className="font-mono-num text-[11px] text-cyan-400 break-all">
+                URI: {mongoStatus?.maskedUri || 'mongodb+srv://nex_admin:••••••••@cluster0.nexstore.mongodb.net/nex_store'}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {(mongoStatus?.nodes || []).map((n) => (
+                <div
+                  key={n.host}
+                  className="rounded-xl bg-slate-950/80 border border-emerald-500/30 px-2.5 py-1.5 font-mono-num text-[10px]"
+                >
+                  <div className="font-bold text-emerald-400">{n.role} • {n.pingMs}ms</div>
+                  <div className="text-slate-400 truncate max-w-[180px]">{n.host}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Left 7 Cols: MongoDB MQL Query Runner & BSON Document Inspector */}
+            <div className="lg:col-span-7 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono-num text-xs font-bold text-emerald-400">
+                  db.{selectedTable}.find({mongoFilterInput || '{}'})
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMongoFilterInput('{}');
+                      fetchMongoStudio(selectedTable, '{}');
+                    }}
+                    className="rounded-lg px-2.5 py-1 font-mono-num text-[10px] theme-subtle cursor-pointer"
+                  >
+                    All Docs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const f = '{"badge":{"$regex":"PRO|NEW|BSON"}}';
+                      setMongoFilterInput(f);
+                      fetchMongoStudio(selectedTable, f);
+                    }}
+                    className="rounded-lg px-2.5 py-1 font-mono-num text-[10px] theme-subtle cursor-pointer"
+                  >
+                    $regex Filter
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={mongoFilterInput}
+                  onChange={(e) => setMongoFilterInput(e.target.value)}
+                  placeholder='MQL Filter JSON, e.g. {"category": "compute"} or {"price": {"$gt": 500}}'
+                  className="flex-1 rounded-xl px-3 py-2 font-mono-num text-xs theme-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => fetchMongoStudio(selectedTable, mongoFilterInput)}
+                  className="rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2 font-mono-num text-xs font-bold text-white cursor-pointer"
+                >
+                  Run MQL find()
+                </button>
+              </div>
+
+              <pre className="rounded-2xl bg-slate-950/90 border border-slate-800 p-3.5 font-mono-num text-[11px] text-emerald-300 overflow-x-auto max-h-72 overflow-y-auto leading-relaxed">
+                {JSON.stringify(mongoDocs.slice(0, 8), null, 2)}
+              </pre>
+            </div>
+
+            {/* Right 5 Cols: Insert BSON Document (`db.collection.insertOne`) */}
+            <form onSubmit={handleInsertMongoDoc} className="lg:col-span-5 rounded-2xl p-4 theme-subtle space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                  INSERT MONGODB BSON DOCUMENT (`db.{selectedTable}.insertOne()`)
+                </div>
+                <textarea
+                  rows={6}
+                  value={mongoInsertJson}
+                  onChange={(e) => setMongoInsertJson(e.target.value)}
+                  className="w-full rounded-xl p-3 font-mono-num text-xs theme-input"
+                />
+                {mongoFeedback && (
+                  <div className="rounded-xl bg-emerald-500/15 border border-emerald-500/35 px-3 py-1.5 font-mono-num text-[11px] text-emerald-300">
+                    {mongoFeedback}
+                  </div>
+                )}
+              </div>
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 py-2 font-mono-num text-xs font-bold text-white cursor-pointer"
+              >
+                Insert BSON Document with ObjectId into nex_store.{selectedTable}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Main Studio Layout: Left Table Sidebar + Right SQL & Data Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

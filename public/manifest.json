@@ -1,20 +1,26 @@
 {
-  "name": "NEX Store — Hardware, Sandboxed Apps, Mobile SDK & Subscriptions",
+  "name": "NEX Store — Hardware, MongoDB + SQLite, Sandboxed Apps & Polyglot AI",
   "short_name": "NEX Store",
-  "description": "Real-time hardware commerce, multi-source developer app & system store, Polyglot AI studio, Flutter/Native mobile SDK bridge, and customizable subscriptions.",
+  "description": "Real-time hardware commerce, dual-engine SQLite + MongoDB Atlas document cluster, multi-source developer app store, Polyglot AI studio, and customizable subscriptions.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
-  "background_color": "#060913",
+  "background_color": "#030611",
   "theme_color": "#6366f1",
   "orientation": "any",
   "icons": [
     {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
       "src": "/api/product-art/prod-aether-pro.svg",
       "sizes": "192x192 512x512",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
   "shortcuts": [
@@ -25,16 +31,16 @@
       "url": "/?tab=store"
     },
     {
+      "name": "MongoDB & SQLite Studio",
+      "short_name": "Databases",
+      "description": "Inspect MongoDB Atlas BSON collections and 28 SQLite tables",
+      "url": "/?tab=database"
+    },
+    {
       "name": "Developer App & System Store",
       "short_name": "App Store",
       "description": "Publish and install verified apps & system packages",
       "url": "/?tab=apps"
-    },
-    {
-      "name": "Mobile SDK & Subscriptions",
-      "short_name": "Mobile & Plans",
-      "description": "Manage Flutter/Native mobile add-ons and subscription plans",
-      "url": "/?tab=mobile-subs"
     }
   ],
   "categories": ["shopping", "developer", "utilities", "productivity"]

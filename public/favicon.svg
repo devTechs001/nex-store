@@ -1,14 +1,45 @@
-<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
   <defs>
-    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#00eeff;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0099ff;stop-opacity:1" />
+    <linearGradient id="nexBg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#090d1f"/>
+      <stop offset="50%" stop-color="#111836"/>
+      <stop offset="100%" stop-color="#050814"/>
     </linearGradient>
+    <linearGradient id="nexGlow" x1="12" y1="12" x2="116" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="nexBolt" x1="40" y1="24" x2="88" y2="104" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="45%" stop-color="#67e8f9"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <filter id="dropGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#06b6d4" flood-opacity="0.65"/>
+    </filter>
   </defs>
-  <!-- Main bag/store shape -->
-  <path d="M8 16L10 8H38L40 16V40C40 42.2091 38.2091 44 36 44H12C9.79086 44 8 42.2091 8 40V16Z" fill="url(#grad1)"/>
-  <!-- Handle -->
-  <path d="M18 8V6C18 3.79086 19.7909 2 22 2H26C28.2091 2 30 3.79086 30 6V8" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round"/>
-  <!-- N letter -->
-  <text x="24" y="34" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="sans-serif">N</text>
+
+  <!-- Rounded Quantum Hexagon Shield -->
+  <rect x="6" y="6" width="116" height="116" rx="30" fill="url(#nexBg)" stroke="url(#nexGlow)" stroke-width="5"/>
+
+  <!-- Outer Orbital Circuit Ring -->
+  <circle cx="64" cy="64" r="44" stroke="url(#nexGlow)" stroke-width="2" stroke-dasharray="10 6" opacity="0.7"/>
+  <circle cx="64" cy="64" r="34" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.35"/>
+
+  <!-- Corner Telemetry Nodes -->
+  <circle cx="24" cy="24" r="3.5" fill="#10b981"/>
+  <circle cx="104" cy="24" r="3.5" fill="#06b6d4"/>
+  <circle cx="24" cy="104" r="3.5" fill="#6366f1"/>
+  <circle cx="104" cy="104" r="3.5" fill="#10b981"/>
+
+  <!-- Central NEX Quantum Lightning Core -->
+  <path
+    d="M70 22L36 68H62L56 106L92 58H66L70 22Z"
+    fill="url(#nexBolt)"
+    filter="url(#dropGlow)"
+    stroke="#e0f2fe"
+    stroke-width="1.5"
+    stroke-linejoin="round"
+  />
 </svg>

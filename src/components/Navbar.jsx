@@ -49,7 +49,8 @@ export default function Navbar({
   onOpenTerminal,
   onOpenHardwareBuilder,
   onToggleSideNav,
-  onOpenMobileMenu
+  onOpenMobileMenu,
+  onOpenSplash
 }) {
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const activeTheme = THEMES[themeId] || THEMES.obsidian;
@@ -87,19 +88,16 @@ export default function Navbar({
             className="group flex items-center gap-2 text-left cursor-pointer"
           >
             <div
-              className="flex h-8 w-8 items-center justify-center rounded-xl text-white shadow-sm ring-1 ring-white/20 transition duration-200 group-hover:scale-105"
-              style={{
-                background: `linear-gradient(135deg, var(--accent), var(--accent-secondary))`
-              }}
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-white shadow-sm ring-1 ring-white/20 transition duration-200 group-hover:scale-105 overflow-hidden bg-slate-900"
             >
-              <Sparkles className="h-4 w-4" />
+              <img src="/favicon.svg" alt="NEX Store Icon" className="h-7 w-7 object-contain" />
             </div>
             <div className="flex items-center gap-1.5">
               <span className="font-display text-sm sm:text-base font-bold tracking-tight">
                 NEX STORE
               </span>
               <span
-                title={wsConnected ? 'WebSocket & 23-Table SQLite Synced' : 'Live Store Active'}
+                title={wsConnected ? 'WebSocket, SQLite WAL & MongoDB Atlas Synced' : 'Live Store Active'}
                 className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 font-mono-num text-[9px] font-bold text-emerald-400"
               >
                 <span
@@ -111,6 +109,18 @@ export default function Navbar({
               </span>
             </div>
           </button>
+
+          {onOpenSplash && (
+            <button
+              type="button"
+              onClick={onOpenSplash}
+              title="Launch Animated Quantum Splash Screen"
+              className="theme-subtle hidden xl:inline-flex items-center gap-1 rounded-lg px-2 py-1 font-mono-num text-[10px] font-bold text-cyan-400 hover:border-cyan-400/50 cursor-pointer transition"
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>Splash</span>
+            </button>
+          )}
         </div>
 
         {/* Center: Standard Compact Global Search & Command Palette Bar (⌘K) */}

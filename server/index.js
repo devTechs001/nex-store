@@ -31,6 +31,11 @@ import {
   sanitizeObjectPayloads,
   verifyAppRealnessAndMalware
 } from './envAndSecurity.js';
+import {
+  getMongoClusterStatus,
+  queryMongoCollection,
+  insertMongoBsonDocument
+} from './mongoEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2868,7 +2873,59 @@ app.post('/api/chat', (req, res) => {
   res.status(201).json({ message: msgObj });
 });
 
-// 8. Database Inspector & SQL Studio API ("add dbs nd more")
+// 8. Database Inspector, SQL Studio & MongoDB Atlas Document Engine API
+app.get('/api/mongo/status', (_req, res) => {
+  res.json(getMongoClusterStatus(db, ALLOWED_TABLES));
+});
+
+app.get('/api/mongo/collections/:collectionName', (req, res) => {
+  const { collectionName } = req.params;
+  if (!ALLOWED_TABLES.includes(collectionName)) {
+    return res.status(400).json({ error: `Invalid MongoDB collection "${collectionName}"` });
+  }
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
+  res.json(queryMongoCollection(db, ALLOWED_TABLES, collectionName, {}, limit));
+});
+
+app.post('/api/mongo/query', (req, res) => {
+  try {
+    const { collection = 'products', filter = {}, limit = 25 } = req.body || {};
+    const parsedFilter = typeof filter === 'string' ? JSON.parse(filter || '{}') : filter || {};
+    const startTime = performance.now();
+    const result = queryMongoCollection(db, ALLOWED_TABLES, collection, parsedFilter, limit);
+    const durationMs = Number((performance.now() - startTime).toFixed(2));
+    res.json({ ...result, durationMs });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Invalid MongoDB MQL filter syntax' });
+  }
+});
+
+app.post('/api/mongo/insert', (req, res) => {
+  try {
+    const { collection = 'products', document = {} } = req.body || {};
+    const parsedDoc = typeof document === 'string' ? JSON.parse(document || '{}') : document || {};
+    const inserted = insertMongoBsonDocument(db, ALLOWED_TABLES, collection, parsedDoc);
+    const activity = recordActivityEvent({
+      event_type: 'stock_update',
+      title: `MongoDB BSON Document Inserted (${collection})`,
+      message: `Inserted ObjectId("${inserted._id.$oid}") into nex_store.${collection}`,
+      meta: { collection, oid: inserted._id.$oid }
+    });
+    broadcast('mongo:inserted', {
+      collection,
+      document: inserted,
+      mongoStatus: getMongoClusterStatus(db, ALLOWED_TABLES),
+      activity
+    });
+    res.status(201).json({
+      inserted,
+      mongoStatus: getMongoClusterStatus(db, ALLOWED_TABLES)
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to insert MongoDB BSON document' });
+  }
+});
+
 app.get('/api/db/overview', (_req, res) => {
   res.json({ dbStats: getDatabaseStats() });
 });
