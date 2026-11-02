@@ -1737,6 +1737,10 @@ export default function App() {
           handlePlaySound('click');
           setMobileMenuOpen((prev) => !prev);
         }}
+        onOpenSplash={() => {
+          handlePlaySound('click');
+          setShowSplash(true);
+        }}
       />
 
       {/* Desktop Side Navigation Rail + Main Active Workspace View */}

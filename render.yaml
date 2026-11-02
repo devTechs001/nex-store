@@ -34,6 +34,14 @@ services:
         value: frankfurt
       - key: NEX_SQLITE_DB_PATH
         value: /var/data/nex-store.sqlite
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: nex_store
+      - key: MONGODB_CLUSTER_REGION
+        value: aws-eu-central-1
+      - key: MONGODB_SYNC_MODE
+        value: DUAL_WRITE_HYBRID
       - key: NEX_ADMIN_USERNAME
         value: nex_root_admin
       - key: NEX_ADMIN_EMAIL

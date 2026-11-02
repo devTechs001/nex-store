@@ -325,6 +325,84 @@ html.light-theme .border-white\/\[0\.1\] {
   animation: pulseGlow 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Splash Screen Quantum Animations */
+@keyframes nexBgPanZoom {
+  0% {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: scale(1.07) translate3d(-1%, -1%, 0);
+  }
+  100% {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+}
+
+@keyframes nexOrbitClockwise {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes nexOrbitCounter {
+  0% {
+    transform: rotate(360deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes nexScanLineSweep {
+  0% {
+    top: -10%;
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.75;
+  }
+  80% {
+    opacity: 0.75;
+  }
+  100% {
+    top: 110%;
+    opacity: 0;
+  }
+}
+
+@keyframes nexShimmerWave {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-splash-bg {
+  animation: nexBgPanZoom 16s ease-in-out infinite;
+}
+
+.animate-orbit-cw {
+  animation: nexOrbitClockwise 12s linear infinite;
+}
+
+.animate-orbit-ccw {
+  animation: nexOrbitCounter 9s linear infinite;
+}
+
+.animate-scanline {
+  animation: nexScanLineSweep 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-shimmer-bar {
+  background-size: 200% 100%;
+  animation: nexShimmerWave 1.8s linear infinite;
+}
+
 /* Cross-browser range slider styling */
 input[type='range'] {
   -webkit-appearance: none;
