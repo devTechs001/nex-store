@@ -36,6 +36,7 @@ import {
   queryMongoCollection,
   insertMongoBsonDocument
 } from './mongoEngine.js';
+import { runAllVerificationSuites } from './testSuiteRunner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -4419,9 +4420,42 @@ app.get('/api/endpoints', (_req, res) => {
       { method: 'POST', path: '/api/orders', category: 'Commerce', desc: 'Process hardware checkout, deduct stock, and broadcast live order event' },
       { method: 'GET', path: '/api/reviews', category: 'Reviews', desc: 'List verified buyer hardware reviews from SQLite' },
       { method: 'POST', path: '/api/reviews', category: 'Reviews', desc: 'Submit a review and recalculate product rating in SQLite' },
-      { method: 'GET', path: '/api/export/:table', category: 'Data Export', desc: 'Export any of the 18 SQLite tables as live JSON or CSV (?format=csv)' }
+      { method: 'GET', path: '/api/export/:table', category: 'Data Export', desc: 'Export any of the 28 SQLite tables as live JSON or CSV (?format=csv)' },
+      { method: 'POST', path: '/api/tests/run', category: 'Automated Testing', desc: 'Execute all 6 automated verification & integration test suites across Netlify resources, App Uploads, Security, Servers, Logs & RBAC' }
     ]
   });
+});
+
+// 21. Live Automated Verification & Integration Test Suite Runner Endpoint
+app.get('/api/tests/run', async (_req, res) => {
+  try {
+    const report = await runAllVerificationSuites();
+    res.json(report);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Test suite execution failed' });
+  }
+});
+
+app.post('/api/tests/run', async (req, res) => {
+  try {
+    const report = await runAllVerificationSuites();
+    recordTerminalLog({
+      command: 'nex test --run-all-suites',
+      output: `[PASS] ${report.totalPassed}/${report.totalTests} tests across ${report.totalSuites} suites (${report.durationMs}ms)`,
+      exit_code: report.totalFailed === 0 ? 0 : 1,
+      actor: req.actor ? `${req.actor.username}@nex-store` : 'qa-runner@nex-store',
+      duration_ms: report.durationMs
+    });
+    const terminalLogs = db.prepare('SELECT * FROM terminal_logs ORDER BY created_at DESC LIMIT 60').all();
+    broadcast('terminal:executed', { terminalLogs, dbStats: getDatabaseStats() });
+    res.json({
+      ...report,
+      terminalLogs,
+      dbStats: getDatabaseStats()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Test suite execution failed' });
+  }
 });
 
 // Always serve frontend build from dist/ or snapshot-persisted server/static/
@@ -4443,6 +4477,10 @@ app.use((req, res, next) => {
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`NEX Store Full-Stack Server (HTTP + WebSocket + SQLite) listening on http://0.0.0.0:${PORT}`);
-});
+if (process.env.NEX_TEST_NO_LISTEN !== '1') {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`NEX Store Full-Stack Server (HTTP + WebSocket + SQLite) listening on http://0.0.0.0:${PORT}`);
+  });
+}
+
+export { app, server };
