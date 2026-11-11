@@ -659,7 +659,81 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.equal(runRes.data.status, 'ALL_PASSED');
       assert.equal(runRes.data.totalSuites, 6);
       assert.equal(runRes.data.totalFailed, 0);
-      assert.ok(runRes.data.totalPassed >= 22);
+      assert.ok(runRes.data.totalPassed >= 23);
+    });
+
+    it('verifies connected Overview Dashboard (/api/overview/dashboard & /api/db/overview)', async () => {
+      const ovRes = await apiRequest('/api/overview/dashboard');
+      assert.equal(ovRes.status, 200);
+      assert.equal(ovRes.data.connected, true);
+      assert.ok(ovRes.data.analytics && ovRes.data.dbOverview && ovRes.data.appsSummary);
+      assert.equal(ovRes.data.roleSeparation.strictlySeparated, true);
+      assert.ok(
+        ovRes.data.roleSeparation.adminSystem &&
+          ovRes.data.roleSeparation.developerPortal &&
+          ovRes.data.roleSeparation.userPortal
+      );
+
+      const dbOvRes = await apiRequest('/api/db/overview');
+      assert.equal(dbOvRes.status, 200);
+      assert.ok((dbOvRes.data.totalTables || dbOvRes.data.tableCount) >= 28);
+    });
+
+    it('enforces strict 3-Tier Root Admin (.env) vs Developer vs System User separation & Zero-Canvas Profile Image Upload', async () => {
+      // 1. Developer & Normal User are blocked (403) from Root Admin System Overview
+      const devBlockedAdmin = await apiRequest('/api/admin/system-overview', {
+        token: devAetherToken
+      });
+      assert.equal(devBlockedAdmin.status, 403);
+
+      const userBlockedAdmin = await apiRequest('/api/admin/system-overview', {
+        token: userAmaraToken
+      });
+      assert.equal(userBlockedAdmin.status, 403);
+
+      // Root Admin (.env) succeeds (200) on Root Admin System Overview
+      const adminOk = await apiRequest('/api/admin/system-overview', {
+        token: adminToken
+      });
+      assert.equal(adminOk.status, 200);
+      assert.equal(adminOk.data.portal, 'ROOT_ADMIN_SYSTEM');
+      assert.equal(adminOk.data.unrestrictedAccess, true);
+
+      // 2. Normal System User can access /api/user/my-dashboard but is blocked (403) from Developer app publishing
+      const userDashRes = await apiRequest('/api/user/my-dashboard?username=amara_nbo', {
+        token: userAmaraToken
+      });
+      assert.equal(userDashRes.status, 200);
+      assert.equal(userDashRes.data.portal, 'SYSTEM_USER_PORTAL');
+      assert.equal(userDashRes.data.restrictedFromAdminAndDev, true);
+
+      const userBlockedPublish = await apiRequest('/api/developer/publish', {
+        method: 'POST',
+        token: userAmaraToken,
+        body: {
+          name: 'Unauthorized User App',
+          description: 'Normal user attempting developer publish'
+        }
+      });
+      assert.equal(userBlockedPublish.status, 403);
+
+      // 3. Zero-Canvas Profile Image File Upload normalizes octet-stream base64 to valid data:image/png;base64
+      const samplePngOctet =
+        'data:application/octet-stream;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const uploadRes = await apiRequest('/api/auth/profile/avatar', {
+        method: 'POST',
+        token: devAetherToken,
+        body: {
+          username: 'aether_labs',
+          avatar: samplePngOctet,
+          fileName: 'aether-profile.png',
+          mimeType: 'image/png'
+        }
+      });
+      assert.equal(uploadRes.status, 200);
+      assert.equal(uploadRes.data.updated, true);
+      assert.equal(uploadRes.data.verifiedImageFile, true);
+      assert.ok(uploadRes.data.account.avatar.startsWith('data:image/png;base64,'));
     });
   });
 });

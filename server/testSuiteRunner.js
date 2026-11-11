@@ -31,6 +31,7 @@ import {
   verifySessionToken,
   detectXssAttempt,
   sanitizeObjectPayloads,
+  normalizeUploadedImageDataUrl,
   verifyAppRealnessAndMalware
 } from './envAndSecurity.js';
 import {
@@ -527,6 +528,20 @@ export async function runAllVerificationSuites() {
         assert.equal(canAetherModifyRustcore, false, 'Developer must be blocked from modifying another developer deployment');
         assert.equal(canAdminModifyRustcore, true, 'Root Admin (.env) must be allowed to modify any deployment');
         return 'Verified RBAC enforcement: Developer blocked from cross-owner mutation; Root Admin (.env) permitted';
+      });
+
+      await test('Verify Zero-Canvas Profile Image File Upload & Base64 MIME Normalization without XSS corruption', async () => {
+        const rawOctetPng =
+          'data:application/octet-stream;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+        const normalized = normalizeUploadedImageDataUrl(rawOctetPng, 'avatar.png', 'image/png');
+        assert.ok(normalized.startsWith('data:image/png;base64,'), 'Must normalize octet-stream to data:image/png;base64');
+
+        // Ensure XSS detector & sanitizer never false-positive or corrupt base64 image data URIs
+        const xssCheck = detectXssAttempt({ avatar: normalized, username: 'aether_labs' });
+        assert.equal(xssCheck, null, 'Valid base64 image file must not trigger XSS detector');
+        const sanitized = sanitizeObjectPayloads({ avatar: normalized });
+        assert.equal(sanitized.avatar, normalized, 'Valid base64 image file must remain bit-exact after sanitization');
+        return 'Verified zero-canvas image file upload normalization & bit-exact XSS pass-through';
       });
     }
   );

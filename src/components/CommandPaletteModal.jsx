@@ -57,12 +57,22 @@ export default function CommandPaletteModal({
 
   const quickCommands = [
     {
+      id: 'cmd-overview',
+      label: 'Open Connected Overview Dashboard',
+      hint: 'Unified live ecosystem telemetry & quick-launch hub',
+      icon: Sparkles,
+      action: () => {
+        setActiveTab('overview');
+        onClose();
+      }
+    },
+    {
       id: 'cmd-store',
       label: 'Go to Hardware Storefront',
       hint: 'Browse catalog & flash deals',
       icon: Store,
       action: () => {
-        setActiveTab('store');
+        setActiveTab('storefront');
         onClose();
       }
     },
@@ -78,8 +88,8 @@ export default function CommandPaletteModal({
     },
     {
       id: 'cmd-admin',
-      label: 'Open Admin Operations Command Center',
-      hint: 'Manage stock, orders, products & coupons',
+      label: 'Open Root Admin System (.env Only)',
+      hint: 'Isolated Root Admin operations, WAF & stock command',
       icon: ShieldCheck,
       action: () => {
         setActiveTab('admin');
@@ -87,9 +97,29 @@ export default function CommandPaletteModal({
       }
     },
     {
+      id: 'cmd-dev-portal',
+      label: 'Open Scoped Developer Portal',
+      hint: 'Manage own published apps & cloud instances',
+      icon: Command,
+      action: () => {
+        setActiveTab('developer-portal');
+        onClose();
+      }
+    },
+    {
+      id: 'cmd-user-portal',
+      label: 'Open Normal System User Portal',
+      hint: 'Buyer profile image, orders & installed apps',
+      icon: Tag,
+      action: () => {
+        setActiveTab('user-portal');
+        onClose();
+      }
+    },
+    {
       id: 'cmd-db',
-      label: 'Open SQLite Database Studio',
-      hint: 'Inspect all 10 tables & run live SQL queries',
+      label: 'Open SQLite + MongoDB Database Studio',
+      hint: 'Inspect all 28 tables & run live SQL/BSON queries',
       icon: Database,
       action: () => {
         setActiveTab('database');

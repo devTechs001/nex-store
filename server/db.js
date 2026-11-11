@@ -475,6 +475,7 @@ export function initSchema() {
     ['developer_email', "TEXT DEFAULT 'dev@nexstore.dev'"],
     ['developer_website', "TEXT DEFAULT 'https://github.com/devTechs001/nex-store'"],
     ['developer_bio', "TEXT DEFAULT 'Verified NEX Ecosystem & Open-Source Systems Publisher'"],
+    ['developer_avatar', "TEXT DEFAULT ''"],
     ['install_command', "TEXT DEFAULT ''"],
     ['system_requirements_json', "TEXT DEFAULT '{}'"],
     ['changelog', "TEXT DEFAULT 'v1.0.0 — Verified SHA-256 sandbox runtime & anti-piracy DRM lock.'"]
@@ -483,6 +484,21 @@ export function initSchema() {
     if (!appCols.includes(colName)) {
       try {
         db.exec(`ALTER TABLE apps ADD COLUMN ${colName} ${colDef}`);
+      } catch {
+        // column already exists
+      }
+    }
+  }
+
+  const uaCols = db.prepare('PRAGMA table_info(user_accounts)').all().map((c) => c.name);
+  const uaAlterCols = [
+    ['bio', "TEXT DEFAULT 'Verified NEX Ecosystem Account'"],
+    ['avatar_updated_at', "TEXT DEFAULT ''"]
+  ];
+  for (const [colName, colDef] of uaAlterCols) {
+    if (!uaCols.includes(colName)) {
+      try {
+        db.exec(`ALTER TABLE user_accounts ADD COLUMN ${colName} ${colDef}`);
       } catch {
         // column already exists
       }

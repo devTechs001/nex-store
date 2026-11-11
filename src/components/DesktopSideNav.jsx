@@ -56,6 +56,14 @@ export default function DesktopSideNav({
 
   const primaryNav = [
     {
+      id: 'overview',
+      label: 'Overview Dashboard',
+      sub: 'Connected KPIs & Portals',
+      icon: Activity,
+      badge: 'Live',
+      badgeColor: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+    },
+    {
       id: 'store',
       label: 'Hardware Store',
       sub: 'Flagship SKUs & CAD',
@@ -97,14 +105,30 @@ export default function DesktopSideNav({
     },
     {
       id: 'admin',
-      label: 'Admin Ops',
-      sub: 'Inventory & Revenue',
+      label: 'Admin System (.env)',
+      sub: 'Root Ops (Admin Only)',
       icon: ShieldCheck,
-      badge: lowStockCount > 0 ? `${lowStockCount} Low` : 'Healthy',
+      badge: lowStockCount > 0 ? `${lowStockCount} Low` : '.env Root',
       badgeColor:
         lowStockCount > 0
           ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
           : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+    },
+    {
+      id: 'developer-portal',
+      label: 'Developer Portal',
+      sub: 'Scoped Dev Apps & Cloud',
+      icon: Cpu,
+      badge: 'Devs',
+      badgeColor: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+    },
+    {
+      id: 'user-portal',
+      label: 'User Account Portal',
+      sub: 'Profile, Orders & Apps',
+      icon: CheckCircle2,
+      badge: 'Users',
+      badgeColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
     },
     {
       id: 'database',

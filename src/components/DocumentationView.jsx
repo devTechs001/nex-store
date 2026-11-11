@@ -107,7 +107,8 @@ export default function DocumentationView({
   terminalScripts = [],
   onOpenTerminal,
   onRunCommandInTerminal,
-  onOpenRigBuilder
+  onOpenRigBuilder,
+  onNavigateTab
 }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
@@ -247,56 +248,132 @@ export default function DocumentationView({
 
       {/* SECTION 1: ARCHITECTURE & STACK */}
       {activeSection === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
-            <div className="flex items-center gap-2 text-cyan-400 font-mono text-xs font-bold uppercase tracking-wider">
-              <Server className="w-4 h-4" />
-              1. Full-Stack Real-Time Engine
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/70 via-slate-900 to-cyan-950/70 border border-cyan-500/35 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-mono font-bold uppercase text-cyan-400">
+                CONNECTED OVERVIEW &amp; EXECUTIVE DASHBOARD BRIDGE
+              </div>
+              <div className="text-sm font-bold text-white mt-0.5">
+                Jump directly from Architecture Overview to any live operational dashboard:
+              </div>
             </div>
-            <h3 className="text-base font-bold text-white">
-              Express + WebSocket + SQLite 3 (WAL)
-            </h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              The backend (<code className="text-cyan-300">server/index.js</code> &amp;{' '}
-              <code className="text-cyan-300">server/db.js</code>) runs on <code className="text-emerald-300">0.0.0.0:3000</code>,
-              combining REST endpoints, a real-time WebSocket broadcast bus (<code className="text-cyan-300">/ws</code>),
-              and a 17-table SQLite database. When deployed to static hosts (Netlify/Vercel),{' '}
-              <code className="text-cyan-300">src/utils/storeEngine.js</code> provides automatic client-side fallback persistence.
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onNavigateTab?.('overview')}
+                className="px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-extrabold cursor-pointer transition"
+              >
+                Open Overview Dashboard →
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigateTab?.('admin')}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs font-bold cursor-pointer transition"
+              >
+                Root Admin System →
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigateTab?.('database')}
+                className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-mono text-xs font-bold cursor-pointer transition"
+              >
+                Database Studio →
+              </button>
+            </div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
-            <div className="flex items-center gap-2 text-purple-400 font-mono text-xs font-bold uppercase tracking-wider">
-              <Terminal className="w-4 h-4" />
-              2. NEX-SH v3.0 &amp; .nexsh Playbooks
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between space-y-3">
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-2 text-cyan-400 font-mono text-xs font-bold uppercase tracking-wider">
+                  <Server className="w-4 h-4" />
+                  1. Full-Stack Real-Time Engine
+                </div>
+                <h3 className="text-base font-bold text-white">
+                  Express + WebSocket + SQLite 3 (WAL) + MongoDB
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  The backend (<code className="text-cyan-300">server/index.js</code> &amp;{' '}
+                  <code className="text-cyan-300">server/db.js</code>) runs on <code className="text-emerald-300">0.0.0.0:3000</code>,
+                  combining REST endpoints, a real-time WebSocket broadcast bus (<code className="text-cyan-300">/ws</code>),
+                  and a 28-table SQLite + MongoDB hybrid database.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigateTab?.('database')}
+                className="w-full py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/35 text-cyan-300 font-mono text-xs font-bold cursor-pointer transition"
+              >
+                Connect to SQLite + MongoDB Studio →
+              </button>
             </div>
-            <h3 className="text-base font-bold text-white">
-              Unix Pipes, Chaining &amp; SQLite Scripts
-            </h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Press <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono">⌘J</kbd> or click{' '}
-              <code className="text-cyan-300">&gt;_ CLI</code> to open the NEX-SH v3.0 Power Shell. Supports pipe operators (
-              <code className="text-purple-300">| grep</code>, <code className="text-purple-300">| head</code>,{' '}
-              <code className="text-purple-300">| tail</code>, <code className="text-purple-300">| count</code>,{' '}
-              <code className="text-purple-300">| sort</code>, <code className="text-purple-300">| upper</code>),{' '}
-              <code className="text-cyan-300">&amp;&amp;</code> command chaining, and multi-line{' '}
-              <code className="text-emerald-300">.nexsh</code> playbooks stored in SQLite.
-            </p>
-          </div>
 
-          <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
-            <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs font-bold uppercase tracking-wider">
-              <Globe className="w-4 h-4" />
-              3. 6-Theme &amp; Cross-Browser Hardened
+            <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between space-y-3">
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-2 text-purple-400 font-mono text-xs font-bold uppercase tracking-wider">
+                  <Terminal className="w-4 h-4" />
+                  2. NEX-SH v4.0 &amp; Separated 3-Tier Portals
+                </div>
+                <h3 className="text-base font-bold text-white">
+                  Root Admin (.env) • Developer Portal • User Portal
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Strict role separation isolates the <code className="text-emerald-300">.env Root Admin System</code> from the{' '}
+                  <code className="text-indigo-300">Developer Publishing Portal</code> and the{' '}
+                  <code className="text-cyan-300">System User Account Portal</code>.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab?.('overview')}
+                  className="flex-1 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-mono text-xs font-bold cursor-pointer transition"
+                >
+                  Open Overview →
+                </button>
+                {onOpenTerminal && (
+                  <button
+                    type="button"
+                    onClick={onOpenTerminal}
+                    className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono text-xs font-bold cursor-pointer transition"
+                  >
+                    Launch CLI →
+                  </button>
+                )}
+              </div>
             </div>
-            <h3 className="text-base font-bold text-white">
-              Chrome, Safari, Firefox, Edge &amp; Brave
-            </h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              All colors dynamically bind to CSS custom properties (<code className="text-cyan-300">--nex-bg-primary</code>,{' '}
-              <code className="text-cyan-300">--nex-accent</code>) across 6 instant themes (Cyber Dark, Arctic Daylight,
-              Emerald Matrix, Crimson Forge, Solar Gold, Amethyst Void) with WebKit/Blink/Gecko prefixes and PWA Service Worker v6 caching.
-            </p>
+
+            <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between space-y-3">
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs font-bold uppercase tracking-wider">
+                  <Globe className="w-4 h-4" />
+                  3. Subsystems, App Sandboxes &amp; Hardware Store
+                </div>
+                <h3 className="text-base font-bold text-white">
+                  6 Edge Nodes, 9 Live Sandbox Apps &amp; 12 SKUs
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Explore live hardware SKUs, interactive sandboxed applications, and 6-region Anycast edge servers with real-time WAF telemetry.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab?.('subsystems')}
+                  className="flex-1 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-mono text-xs font-bold cursor-pointer transition"
+                >
+                  Subsystems Hub →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab?.('apps')}
+                  className="flex-1 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-300 font-mono text-xs font-bold cursor-pointer transition"
+                >
+                  App Store →
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

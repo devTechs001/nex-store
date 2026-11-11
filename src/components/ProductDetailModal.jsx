@@ -19,7 +19,12 @@ import {
   Maximize2
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
-import { getProductArtUrl } from '../utils/storeEngine.js';
+import {
+  getProductArtUrl,
+  isLikelyImageFile,
+  readImageFileAsDataUrl,
+  normalizeImageDataUrl
+} from '../utils/storeEngine.js';
 
 export default function ProductDetailModal({
   product,
@@ -104,7 +109,7 @@ export default function ProductDetailModal({
         ];
 
   const handleSaveNewProductImage = async (rawUrl, rawLabel) => {
-    const cleanUrl = String(rawUrl || '').trim();
+    const cleanUrl = normalizeImageDataUrl(String(rawUrl || '').trim());
     if (!cleanUrl) return;
     const cleanLabel = String(rawLabel || newImgLabelInput || 'Studio Photo').trim();
     setSavingImage(true);
@@ -131,6 +136,12 @@ export default function ProductDetailModal({
         ];
         setCustomGallery(nextGal);
         setSelectedView(cleanUrl);
+        onProductUpdated?.({
+          ...product,
+          image_url: cleanUrl,
+          custom_image_url: cleanUrl,
+          gallery: nextGal
+        });
       }
       setNewImgUrlInput('');
       setShowImageAdder(false);
@@ -141,24 +152,29 @@ export default function ProductDetailModal({
       ];
       setCustomGallery(nextGal);
       setSelectedView(cleanUrl);
+      onProductUpdated?.({
+        ...product,
+        image_url: cleanUrl,
+        custom_image_url: cleanUrl,
+        gallery: nextGal
+      });
       setShowImageAdder(false);
     } finally {
       setSavingImage(false);
     }
   };
 
-  const handleUploadModalImageFile = (fileList) => {
-    const file = Array.from(fileList || []).find((f) => f.type.startsWith('image/'));
+  const handleUploadModalImageFile = async (fileList) => {
+    const file = Array.from(fileList || []).find(isLikelyImageFile);
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || '');
+    try {
+      const { dataUrl, label } = await readImageFileAsDataUrl(file);
       if (dataUrl) {
-        const label = file.name.replace(/\.[^.]+$/, '').slice(0, 22) || 'Uploaded Photo';
-        handleSaveNewProductImage(dataUrl, label);
+        await handleSaveNewProductImage(dataUrl, label || 'Uploaded Photo');
       }
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      // ignore unreadable file
+    }
   };
 
   const imgUrl = getProductArtUrl(product, {

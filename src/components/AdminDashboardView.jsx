@@ -17,18 +17,35 @@ import {
   ShieldAlert,
   CreditCard,
   Key,
-  Server
+  Server,
+  Upload,
+  CheckCircle2,
+  Activity,
+  Terminal,
+  Database,
+  Cpu
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
-import { getProductArtUrl } from '../utils/storeEngine.js';
+import {
+  getProductArtUrl,
+  isCustomImageSource,
+  isLikelyImageFile,
+  readImageFileAsDataUrl,
+  normalizeImageDataUrl
+} from '../utils/storeEngine.js';
 
 export default function AdminDashboardView({
-  products,
-  categories,
-  orders,
-  coupons,
-  inventoryLogs,
-  activityEvents,
+  portalMode = 'admin',
+  products = [],
+  apps = [],
+  appInstalls = [],
+  serverNodes = [],
+  dbStats,
+  categories = [],
+  orders = [],
+  coupons = [],
+  inventoryLogs = [],
+  activityEvents = [],
   analytics,
   presence,
   currency,
@@ -45,13 +62,43 @@ export default function AdminDashboardView({
   onDeleteProduct,
   onAdvanceOrderStatus,
   onCreateCoupon,
-  onToggleCoupon
+  onToggleCoupon,
+  onNavigateTab
 }) {
-  const [adminSection, setAdminSection] = useState('inventory');
+  const [adminSection, setAdminSection] = useState(
+    portalMode === 'overview'
+      ? 'overview'
+      : portalMode === 'developer-portal'
+      ? 'developer-portal'
+      : portalMode === 'user-portal'
+      ? 'user-portal'
+      : 'overview'
+  );
   const [showNewProductModal, setShowNewProductModal] = useState(false);
   const [restockingLow, setRestockingLow] = useState(false);
 
-  // Root Admin (.env) & Developer RBAC Auth State
+  // Sync adminSection when top/side nav switches between overview, admin, developer-portal, user-portal
+  useEffect(() => {
+    if (portalMode === 'overview') {
+      setAdminSection('overview');
+    } else if (portalMode === 'developer-portal') {
+      setAdminSection('developer-portal');
+      if (activeAccount.role !== 'developer') {
+        handleQuickSwitchAccount('aether_labs', 'DevPass2026!', 'developer');
+      }
+    } else if (portalMode === 'user-portal') {
+      setAdminSection('user-portal');
+      if (activeAccount.role !== 'user') {
+        handleQuickSwitchAccount('amara_nbo', 'Shopper2026!', 'user');
+      }
+    } else if (portalMode === 'admin') {
+      setAdminSection((prev) =>
+        ['developer-portal', 'user-portal'].includes(prev) ? 'inventory' : prev
+      );
+    }
+  }, [portalMode]);
+
+  // Root Admin (.env), Developer & System User RBAC Auth State
   const [activeAccount, setActiveAccount] = useState({
     id: 'admin-root-env',
     username: 'nex_root_admin',
@@ -59,6 +106,7 @@ export default function AdminDashboardView({
     display_name: 'NEX Root Administrator (.env)',
     role: 'admin',
     company: 'NEX Store Root Operations',
+    avatar: '🛡️',
     permissions: ['*'],
     source: '.env'
   });
@@ -67,6 +115,10 @@ export default function AdminDashboardView({
   const [loginPassword, setLoginPassword] = useState('NEX-Root-Admin-2026!#');
   const [authFeedback, setAuthFeedback] = useState(null);
   const [devProgress, setDevProgress] = useState(null);
+  const [userDashboardData, setUserDashboardData] = useState(null);
+  const [overviewData, setOverviewData] = useState(null);
+  const [profileAvatarUrlDraft, setProfileAvatarUrlDraft] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // Register Developer / User Account Form
   const [regUsername, setRegUsername] = useState('');
@@ -74,6 +126,7 @@ export default function AdminDashboardView({
   const [regPassword, setRegPassword] = useState('DevPass2026!');
   const [regCompany, setRegCompany] = useState('Quantum Foundry Labs');
   const [regRole, setRegRole] = useState('developer');
+  const [regAvatarUrl, setRegAvatarUrl] = useState('');
   const [localAccounts, setLocalAccounts] = useState([]);
 
   // Multi-Cloud Hosting (Netlify / Render / Vercel / Fly.io / Railway) State
@@ -107,6 +160,31 @@ export default function AdminDashboardView({
   const resolvedReports = localReports.length > 0 ? localReports : securityReports;
   const resolvedPayments = localPayments.length > 0 ? localPayments : paymentTransactions;
 
+  const fetchOverviewDashboard = async () => {
+    try {
+      const res = await fetch('/api/overview/dashboard');
+      if (res.ok) {
+        const data = await res.json();
+        setOverviewData(data);
+        if (Array.isArray(data?.accountsSummary?.userAccounts)) {
+          setLocalAccounts(data.accountsSummary.userAccounts);
+        }
+      }
+    } catch {}
+  };
+
+  const fetchUserDashboard = async (uname) => {
+    try {
+      const res = await fetch(`/api/user/my-dashboard?username=${encodeURIComponent(uname)}`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUserDashboardData(data);
+      }
+    } catch {}
+  };
+
   const fetchDevProgress = async (uname) => {
     try {
       const res = await fetch(`/api/developer/my-progress?username=${encodeURIComponent(uname)}`, {
@@ -120,8 +198,173 @@ export default function AdminDashboardView({
   };
 
   useEffect(() => {
-    fetchDevProgress(activeAccount.username);
-  }, [activeAccount.username]);
+    fetchOverviewDashboard();
+    if (activeAccount.role === 'user') {
+      fetchUserDashboard(activeAccount.username);
+    } else {
+      fetchDevProgress(activeAccount.username);
+    }
+  }, [activeAccount.username, activeAccount.role]);
+
+  // Zero-Canvas Profile Image File Upload for Active Account (Root Admin, Developer, or User)
+  const handleUploadActiveProfileImageFile = async (fileList) => {
+    const file = Array.from(fileList || []).find(isLikelyImageFile);
+    if (!file) return;
+    setUploadingAvatar(true);
+    try {
+      const { dataUrl, fileName, mimeType } = await readImageFileAsDataUrl(file);
+      if (!dataUrl) return;
+      const res = await fetch('/api/auth/profile/avatar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
+        body: JSON.stringify({
+          accountId: activeAccount.id,
+          username: activeAccount.username,
+          avatar: dataUrl,
+          fileName,
+          mimeType
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.account) {
+        setActiveAccount(data.account);
+        if (Array.isArray(data.userAccounts)) setLocalAccounts(data.userAccounts);
+        setAuthFeedback({
+          type: 'success',
+          message: `Uploaded profile image file (${fileName}) for @${data.account.username} (Zero-Canvas direct file upload)`
+        });
+      } else {
+        setActiveAccount((prev) => ({ ...prev, avatar: dataUrl }));
+        setLocalAccounts((prev) =>
+          (prev.length ? prev : userAccounts).map((u) =>
+            u.id === activeAccount.id || u.username === activeAccount.username
+              ? { ...u, avatar: dataUrl }
+              : u
+          )
+        );
+        setAuthFeedback({
+          type: 'success',
+          message: `Uploaded profile image file (${fileName}) for @${activeAccount.username}`
+        });
+      }
+    } catch (err) {
+      setAuthFeedback({ type: 'error', message: err.message || 'Failed to read image file' });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleSaveActiveProfileImageUrl = async () => {
+    const cleanUrl = normalizeImageDataUrl(profileAvatarUrlDraft.trim());
+    if (!cleanUrl) return;
+    setUploadingAvatar(true);
+    try {
+      const res = await fetch('/api/auth/profile/avatar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
+        body: JSON.stringify({
+          accountId: activeAccount.id,
+          username: activeAccount.username,
+          avatar: cleanUrl
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.account) {
+        setActiveAccount(data.account);
+        if (Array.isArray(data.userAccounts)) setLocalAccounts(data.userAccounts);
+      } else {
+        setActiveAccount((prev) => ({ ...prev, avatar: cleanUrl }));
+      }
+      setProfileAvatarUrlDraft('');
+      setAuthFeedback({
+        type: 'success',
+        message: `Updated profile image for @${activeAccount.username}`
+      });
+    } catch (err) {
+      setAuthFeedback({ type: 'error', message: err.message });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleUploadRegisterAvatarFile = async (fileList) => {
+    const file = Array.from(fileList || []).find(isLikelyImageFile);
+    if (!file) return;
+    try {
+      const { dataUrl } = await readImageFileAsDataUrl(file);
+      if (dataUrl) setRegAvatarUrl(dataUrl);
+    } catch {}
+  };
+
+  const handleUploadDirectoryAccountAvatar = async (targetAccount, fileList) => {
+    const file = Array.from(fileList || []).find(isLikelyImageFile);
+    if (!file || !targetAccount) return;
+    try {
+      const { dataUrl, fileName, mimeType } = await readImageFileAsDataUrl(file);
+      if (!dataUrl) return;
+      const res = await fetch(`/api/users/${targetAccount.id}/avatar`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
+        body: JSON.stringify({
+          accountId: targetAccount.id,
+          username: targetAccount.username,
+          avatar: dataUrl,
+          fileName,
+          mimeType
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthFeedback({ type: 'error', message: data.error || 'Avatar update restricted' });
+        return;
+      }
+      if (Array.isArray(data.userAccounts)) setLocalAccounts(data.userAccounts);
+      if (data.account && data.account.username === activeAccount.username) {
+        setActiveAccount(data.account);
+      }
+      setAuthFeedback({
+        type: 'success',
+        message: `Updated profile image file for @${targetAccount.username}`
+      });
+    } catch (err) {
+      setAuthFeedback({ type: 'error', message: err.message });
+    }
+  };
+
+  const handleAdminToggleAccountStatus = async (targetAccount) => {
+    const nextStatus = targetAccount.status === 'active' ? 'suspended' : 'active';
+    try {
+      const res = await fetch(`/api/admin/users/${targetAccount.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
+        body: JSON.stringify({ status: nextStatus })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthFeedback({ type: 'error', message: data.error });
+        return;
+      }
+      if (Array.isArray(data.userAccounts)) setLocalAccounts(data.userAccounts);
+      setAuthFeedback({
+        type: 'success',
+        message: `Root Admin updated @${targetAccount.username} status to ${nextStatus.toUpperCase()}`
+      });
+    } catch (err) {
+      setAuthFeedback({ type: 'error', message: err.message });
+    }
+  };
 
   const [hostingEnvConfig, setHostingEnvConfig] = useState({
     renderVars: [
@@ -257,13 +500,21 @@ export default function AdminDashboardView({
         type: 'success',
         message: `Authenticated as ${data.account.display_name} [${data.account.role.toUpperCase()}] via ${data.account.source}`
       });
-      fetchDevProgress(data.account.username);
+      if (data.account.role === 'user') {
+        fetchUserDashboard(data.account.username);
+        setAdminSection('user-portal');
+      } else if (data.account.role === 'developer') {
+        fetchDevProgress(data.account.username);
+        setAdminSection('developer-portal');
+      } else {
+        fetchDevProgress(data.account.username);
+      }
     } catch (err) {
       setAuthFeedback({ type: 'error', message: err.message });
     }
   };
 
-  const handleQuickSwitchAccount = async (identifier, pass, roleHint) => {
+  const handleQuickSwitchAccount = async (identifier, pass, roleHint, targetSection = null) => {
     setLoginIdentifier(identifier);
     setLoginPassword(pass);
     try {
@@ -278,9 +529,20 @@ export default function AdminDashboardView({
         setAuthToken(data.token || '');
         setAuthFeedback({
           type: 'success',
-          message: `Switched active RBAC session to ${data.account.display_name} (${data.account.role.toUpperCase()})`
+          message: `Switched active RBAC session to ${data.account.display_name} (${data.account.role.toUpperCase()} PORTAL)`
         });
-        fetchDevProgress(data.account.username);
+        if (targetSection) {
+          setAdminSection(targetSection);
+        } else if (data.account.role === 'developer') {
+          setAdminSection('developer-portal');
+        } else if (data.account.role === 'user') {
+          setAdminSection('user-portal');
+        }
+        if (data.account.role === 'user') {
+          fetchUserDashboard(data.account.username);
+        } else {
+          fetchDevProgress(data.account.username);
+        }
       }
     } catch {}
   };
@@ -298,7 +560,8 @@ export default function AdminDashboardView({
           password: regPassword,
           display_name: `${regUsername.trim()} (${regCompany.trim()})`,
           company: regCompany.trim(),
-          role: regRole
+          role: regRole,
+          avatar: regAvatarUrl ? normalizeImageDataUrl(regAvatarUrl) : ''
         })
       });
       const data = await res.json();
@@ -311,9 +574,11 @@ export default function AdminDashboardView({
       setAuthToken(data.token || '');
       setRegUsername('');
       setRegEmail('');
+      setRegAvatarUrl('');
+      setAdminSection(data.account.role === 'user' ? 'user-portal' : 'developer-portal');
       setAuthFeedback({
         type: 'success',
-        message: `Registered & logged in as @${data.account.username} (${data.account.role.toUpperCase()})`
+        message: `Registered & logged in as @${data.account.username} (${data.account.role.toUpperCase()} PORTAL)`
       });
     } catch (err) {
       setAuthFeedback({ type: 'error', message: err.message });
@@ -500,15 +765,13 @@ export default function AdminDashboardView({
   const [newProdFlash, setNewProdFlash] = useState(true);
   const [newProdImageUrl, setNewProdImageUrl] = useState('');
 
-  const handleAdminImageFile = (fileList) => {
-    const file = Array.from(fileList || []).find((f) => f.type.startsWith('image/'));
+  const handleAdminImageFile = async (fileList) => {
+    const file = Array.from(fileList || []).find(isLikelyImageFile);
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || '');
+    try {
+      const { dataUrl } = await readImageFileAsDataUrl(file);
       if (dataUrl) setNewProdImageUrl(dataUrl);
-    };
-    reader.readAsDataURL(file);
+    } catch {}
   };
 
   // New Coupon Form State
@@ -712,71 +975,168 @@ export default function AdminDashboardView({
         </div>
       </div>
 
-      {/* Active RBAC Identity & .env Admin / Developer Progress Bar */}
-      <div className="rounded-3xl p-4 sm:p-5 theme-card border border-indigo-500/35 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-500/20 border border-indigo-500/40 font-bold text-indigo-300">
-              <Key className="h-5 w-5" />
+      {/* Active 3-Tier RBAC Identity, Profile Image File Uploader & Portal Separation Bar */}
+      <div className="rounded-3xl p-4 sm:p-5 theme-card border border-indigo-500/35 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="relative h-14 w-14 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center overflow-hidden shrink-0">
+              {isCustomImageSource(activeAccount.avatar) ? (
+                <img
+                  src={activeAccount.avatar}
+                  alt={activeAccount.display_name}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-2xl">{activeAccount.avatar || '🛡️'}</span>
+              )}
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
-                  ACTIVE RBAC IDENTITY ({activeAccount.source || '.env'}):
+                  ACTIVE 3-TIER RBAC SESSION ({activeAccount.source || '.env'}):
                 </span>
-                <span className="font-display text-sm font-bold">{activeAccount.display_name}</span>
+                <span className="font-display text-sm sm:text-base font-bold">
+                  {activeAccount.display_name}
+                </span>
                 <span
-                  className={`rounded-lg px-2 py-0.5 font-mono-num text-[10px] font-bold uppercase ${
+                  className={`rounded-lg px-2.5 py-0.5 font-mono-num text-[10px] font-bold uppercase ${
                     activeAccount.role === 'admin'
                       ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                      : activeAccount.role === 'developer'
+                      ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
                       : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                   }`}
                 >
-                  {activeAccount.role === 'admin' ? 'ROOT ADMIN (.env • UNRESTRICTED *)' : `${activeAccount.role.toUpperCase()} (SCOPED RBAC)`}
+                  {activeAccount.role === 'admin'
+                    ? 'TIER 1: ROOT ADMIN SYSTEM (.env • UNRESTRICTED *)'
+                    : activeAccount.role === 'developer'
+                    ? 'TIER 2: DEVELOPER PORTAL (OWN APPS & CLOUD ONLY)'
+                    : 'TIER 3: SYSTEM USER PORTAL (BUYER & ACCOUNT ONLY)'}
                 </span>
               </div>
               <p className="text-xs theme-text-muted mt-0.5">
                 {activeAccount.role === 'admin'
-                  ? 'Authenticated via .env (NEX_ADMIN_USERNAME / NEX_ADMIN_PASSWORD) — Full global permissions across all products, apps, IP blocklists & DB.'
-                  : `Developer @${activeAccount.username} — Can track own app progress & scale own hosting, but restricted from modifying other devs' apps or root firewall rules.`}
+                  ? 'Authenticated via .env (NEX_ADMIN_USERNAME / NEX_ADMIN_PASSWORD) — Strictly separated Root Admin System with global store, WAF, & account governance.'
+                  : activeAccount.role === 'developer'
+                  ? `Scoped Developer @${activeAccount.username} — Separated from Root Admin System. Can publish/update own apps & scale own cloud deployments only.`
+                  : `Normal System User @${activeAccount.username} — Separated from Root Admin & Developer systems. Scoped to personal profile, orders, installed apps & security reports.`}
               </p>
+
+              {/* Direct Profile Image File Upload (Zero-Canvas FileReader) */}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 px-3 py-1 font-mono-num text-[11px] font-bold text-indigo-300 cursor-pointer transition">
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>{uploadingAvatar ? 'Uploading Image...' : 'Upload Profile Image File'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleUploadActiveProfileImageFile(e.target.files)}
+                    className="hidden"
+                  />
+                </label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="url"
+                    value={profileAvatarUrlDraft}
+                    onChange={(e) => setProfileAvatarUrlDraft(e.target.value)}
+                    placeholder="Or paste image URL (https://...)"
+                    className="rounded-xl px-2.5 py-1 text-[11px] font-mono-num theme-input w-48"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveActiveProfileImageUrl}
+                    className="rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-emerald-300 cursor-pointer"
+                  >
+                    Save Photo
+                  </button>
+                </div>
+                {isCustomImageSource(activeAccount.avatar) && (
+                  <span className="font-mono-num text-[10px] text-emerald-400">
+                    ✓ Real Image File Active (Zero-Canvas)
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => handleQuickSwitchAccount('nex_root_admin', 'NEX-Root-Admin-2026!#', 'admin')}
-              className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
-                activeAccount.role === 'admin'
-                  ? 'bg-emerald-500 text-slate-950'
-                  : 'theme-subtle hover:border-emerald-400'
-              }`}
-            >
-              🛡️ Root Admin (.env)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickSwitchAccount('aether_labs', 'DevPass2026!', 'developer')}
-              className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
-                activeAccount.username === 'aether_labs'
-                  ? 'bg-indigo-600 text-white'
-                  : 'theme-subtle hover:border-indigo-400'
-              }`}
-            >
-              👩‍💻 Dev: @aether_labs
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickSwitchAccount('rustcore_sys', 'RustCore2026!', 'developer')}
-              className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
-                activeAccount.username === 'rustcore_sys'
-                  ? 'bg-cyan-600 text-white'
-                  : 'theme-subtle hover:border-cyan-400'
-              }`}
-            >
-              🦀 Dev: @rustcore_sys
-            </button>
+          <div className="flex flex-col items-end gap-1.5">
+            <span className="font-mono-num text-[10px] uppercase text-slate-400">
+              Switch Separated System Role:
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() =>
+                  handleQuickSwitchAccount(
+                    'nex_root_admin',
+                    'NEX-Root-Admin-2026!#',
+                    'admin',
+                    'inventory'
+                  )
+                }
+                className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
+                  activeAccount.role === 'admin'
+                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                    : 'theme-subtle hover:border-emerald-400'
+                }`}
+              >
+                🛡️ Root Admin (.env)
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleQuickSwitchAccount(
+                    'aether_labs',
+                    'DevPass2026!',
+                    'developer',
+                    'developer-portal'
+                  )
+                }
+                className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
+                  activeAccount.username === 'aether_labs'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'theme-subtle hover:border-indigo-400'
+                }`}
+              >
+                👩‍💻 Dev: @aether_labs
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleQuickSwitchAccount(
+                    'rustcore_sys',
+                    'RustCore2026!',
+                    'developer',
+                    'developer-portal'
+                  )
+                }
+                className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
+                  activeAccount.username === 'rustcore_sys'
+                    ? 'bg-cyan-600 text-white shadow-sm'
+                    : 'theme-subtle hover:border-cyan-400'
+                }`}
+              >
+                🦀 Dev: @rustcore_sys
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleQuickSwitchAccount(
+                    'amara_nbo',
+                    'Shopper2026!',
+                    'user',
+                    'user-portal'
+                  )
+                }
+                className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
+                  activeAccount.role === 'user'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'theme-subtle hover:border-amber-400'
+                }`}
+              >
+                👤 User: @amara_nbo
+              </button>
+            </div>
           </div>
         </div>
 
@@ -800,18 +1160,21 @@ export default function AdminDashboardView({
         )}
       </div>
 
-      {/* Section Sub-Navigation Tabs */}
+      {/* Section Sub-Navigation Tabs (Overview + Separated Admin / Developer / User Portals) */}
       <div className="flex flex-wrap items-center gap-2">
         {[
-          { id: 'inventory', label: `Product & Stock (${products.length})`, icon: Package },
-          { id: 'auth-rbac', label: 'Admin (.env) & Dev Accounts', icon: Lock },
-          { id: 'hosting', label: `Netlify / Render / Cloud (${resolvedDeployments.length})`, icon: Globe },
-          { id: 'security-firewall', label: `XSS, IP Block & Reports (${resolvedBlockedIps.length})`, icon: ShieldAlert },
-          { id: 'payments', label: `Real-Time Payments (${resolvedPayments.length})`, icon: CreditCard },
-          { id: 'orders', label: `Orders (${orders.length})`, icon: Truck },
-          { id: 'coupons', label: `Coupons (${coupons.length})`, icon: Tag },
-          { id: 'logs', label: `Logs (${inventoryLogs.length})`, icon: History },
-          { id: 'test-suites', label: `Automated Tests (6 Suites)`, icon: ShieldCheck }
+          { id: 'overview', label: 'Overview Dashboard (Connected)', icon: Activity, tier: 'all' },
+          { id: 'developer-portal', label: 'Developer Portal (Scoped)', icon: Terminal, tier: 'developer' },
+          { id: 'user-portal', label: 'System User Portal', icon: Users, tier: 'user' },
+          { id: 'auth-rbac', label: `3-Tier RBAC & Profiles (${resolvedAccounts.length + 1})`, icon: Lock, tier: 'all' },
+          { id: 'inventory', label: `[Admin] Product & Stock (${products.length})`, icon: Package, tier: 'admin' },
+          { id: 'hosting', label: `[Admin] Cloud Hosting (${resolvedDeployments.length})`, icon: Globe, tier: 'admin' },
+          { id: 'security-firewall', label: `[Admin] WAF & IP Block (${resolvedBlockedIps.length})`, icon: ShieldAlert, tier: 'admin' },
+          { id: 'payments', label: `[Admin] Payments (${resolvedPayments.length})`, icon: CreditCard, tier: 'admin' },
+          { id: 'orders', label: `[Admin] Orders (${orders.length})`, icon: Truck, tier: 'admin' },
+          { id: 'coupons', label: `[Admin] Coupons (${coupons.length})`, icon: Tag, tier: 'admin' },
+          { id: 'logs', label: `[Admin] Audit Logs (${inventoryLogs.length})`, icon: History, tier: 'admin' },
+          { id: 'test-suites', label: `[Admin] Automated Tests (6 Suites)`, icon: ShieldCheck, tier: 'admin' }
         ].map((tab) => {
           const Icon = tab.icon;
           const active = adminSection === tab.id;
@@ -833,6 +1196,491 @@ export default function AdminDashboardView({
           );
         })}
       </div>
+
+      {/* 0. CONNECTED OVERVIEW DASHBOARD (`adminSection === 'overview'`) */}
+      {adminSection === 'overview' && (
+        <div className="space-y-6">
+          <div className="rounded-3xl p-6 theme-card border border-cyan-500/35 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-cyan-500/15 border border-cyan-500/35 px-3 py-0.5 font-mono-num text-[11px] font-bold text-cyan-400">
+                  <Activity className="h-3.5 w-3.5" />
+                  <span>LIVE ECOSYSTEM OVERVIEW TELEMETRY • GET /api/overview/dashboard</span>
+                </div>
+                <h2 className="font-display text-xl sm:text-2xl font-bold mt-1.5">
+                  NEX Store Unified Ecosystem Overview &amp; Quick-Launch Hub
+                </h2>
+                <p className="text-xs theme-text-muted mt-0.5">
+                  Real-time telemetry connecting Storefront Hardware SKUs, Sandbox App Registry, 28-Table SQLite + MongoDB Atlas Studio, 10 Subsystem Nodes, and 3-Tier RBAC Portals.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={fetchOverviewDashboard}
+                className="inline-flex items-center gap-2 rounded-2xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 px-4 py-2.5 font-mono-num text-xs font-bold text-cyan-300 cursor-pointer transition"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Sync Live Overview</span>
+              </button>
+            </div>
+
+            {/* 6 Connected Ecosystem Telemetry Cards with Direct Navigation */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="rounded-2xl p-4 theme-subtle border border-indigo-500/25 flex flex-col justify-between gap-3">
+                <div>
+                  <div className="flex items-center justify-between font-mono-num text-[10px] uppercase text-indigo-400 font-bold">
+                    <span>1. Hardware Storefront &amp; SKUs</span>
+                    <Package className="h-4 w-4" />
+                  </div>
+                  <div className="font-display text-2xl font-bold mt-1">
+                    {overviewData?.analytics?.totalProducts ?? products.length} SKUs •{' '}
+                    {overviewData?.analytics?.totalUnitsInStock ?? analytics?.totalUnitsInStock ?? 0} in stock
+                  </div>
+                  <p className="text-xs theme-text-muted mt-1">
+                    Gross revenue {formatPrice(overviewData?.analytics?.totalRevenue ?? analytics?.totalRevenue ?? 0, currency)} across {overviewData?.analytics?.totalOrders ?? orders.length} orders.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab?.('storefront')}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 font-mono-num text-[11px] font-bold text-white cursor-pointer"
+                  >
+                    Open Storefront →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdminSection('inventory')}
+                    className="rounded-xl theme-card px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer"
+                  >
+                    Manage Stock
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4 theme-subtle border border-cyan-500/25 flex flex-col justify-between gap-3">
+                <div>
+                  <div className="flex items-center justify-between font-mono-num text-[10px] uppercase text-cyan-400 font-bold">
+                    <span>2. App Store &amp; Live Sandboxes</span>
+                    <Terminal className="h-4 w-4" />
+                  </div>
+                  <div className="font-display text-2xl font-bold mt-1">
+                    {overviewData?.appsSummary?.totalApps ?? apps.length} Apps •{' '}
+                    {overviewData?.appsSummary?.installedAppsCount ?? appInstalls.length} Installed
+                  </div>
+                  <p className="text-xs theme-text-muted mt-1">
+                    {(overviewData?.appsSummary?.totalDownloads ?? 98400).toLocaleString()} total downloads across 9 interactive sandbox runtime engines.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab?.('apps')}
+                    className="rounded-xl bg-cyan-500 hover:bg-cyan-400 px-3 py-1.5 font-mono-num text-[11px] font-bold text-slate-950 cursor-pointer"
+                  >
+                    Launch App Store →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdminSection('developer-portal')}
+                    className="rounded-xl theme-card px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer"
+                  >
+                    Developer Portal
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4 theme-subtle border border-emerald-500/25 flex flex-col justify-between gap-3">
+                <div>
+                  <div className="flex items-center justify-between font-mono-num text-[10px] uppercase text-emerald-400 font-bold">
+                    <span>3. SQLite + MongoDB Atlas Studio</span>
+                    <Database className="h-4 w-4" />
+                  </div>
+                  <div className="font-display text-2xl font-bold mt-1">
+                    {overviewData?.dbOverview?.tableCount ?? dbStats?.tableCount ?? 28} Tables •{' '}
+                    {overviewData?.dbOverview?.totalRows ?? dbStats?.totalRows ?? 160}+ Rows
+                  </div>
+                  <p className="text-xs theme-text-muted mt-1">
+                    Dual-engine persistence: SQLite WAL ({overviewData?.dbOverview?.engine || 'SQLite 3'}) + MongoDB Atlas BSON cluster.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab?.('database')}
+                    className="rounded-xl bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 font-mono-num text-[11px] font-bold text-slate-950 cursor-pointer"
+                  >
+                    Open DB Studio →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab?.('docs')}
+                    className="rounded-xl theme-card px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer"
+                  >
+                    Architecture Docs
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4 theme-subtle border border-amber-500/25 flex flex-col justify-between gap-3">
+                <div>
+                  <div className="flex items-center justify-between font-mono-num text-[10px] uppercase text-amber-400 font-bold">
+                    <span>4. 10 Subsystem Nodes &amp; Mesh</span>
+                    <Server className="h-4 w-4" />
+                  </div>
+                  <div className="font-display text-2xl font-bold mt-1">
+                    {overviewData?.subsystemsSummary?.onlineNodes ?? serverNodes.length ?? 6}/
+                    {overviewData?.subsystemsSummary?.totalNodes ?? serverNodes.length ?? 6} Nodes Online
+                  </div>
+                  <p className="text-xs theme-text-muted mt-1">
+                    Avg CPU {overviewData?.subsystemsSummary?.avgCpuLoad ?? 32}% • {overviewData?.subsystemsSummary?.hostingDeploymentsCount ?? resolvedDeployments.length} multi-cloud deployments.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab?.('subsystems')}
+                    className="rounded-xl bg-amber-500 hover:bg-amber-400 px-3 py-1.5 font-mono-num text-[11px] font-bold text-slate-950 cursor-pointer"
+                  >
+                    Open Subsystems →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab?.('rig-builder')}
+                    className="rounded-xl theme-card px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer"
+                  >
+                    5-Slot Rig Builder
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4 theme-subtle border border-purple-500/25 flex flex-col justify-between gap-3">
+                <div>
+                  <div className="flex items-center justify-between font-mono-num text-[10px] uppercase text-purple-400 font-bold">
+                    <span>5. 3-Tier Admin / Dev / User RBAC</span>
+                    <Lock className="h-4 w-4" />
+                  </div>
+                  <div className="font-display text-2xl font-bold mt-1">
+                    1 Root (.env) • {overviewData?.accountsSummary?.developerCount ?? 2} Devs •{' '}
+                    {overviewData?.accountsSummary?.systemUserCount ?? 1} Users
+                  </div>
+                  <p className="text-xs theme-text-muted mt-1">
+                    Strict backend &amp; UI separation between `.env` Root Admin, Scoped Developers, and System Users.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdminSection('auth-rbac')}
+                    className="rounded-xl bg-purple-600 hover:bg-purple-500 px-3 py-1.5 font-mono-num text-[11px] font-bold text-white cursor-pointer"
+                  >
+                    3-Tier RBAC Studio →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdminSection('user-portal')}
+                    className="rounded-xl theme-card px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer"
+                  >
+                    User Portal
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4 theme-subtle border border-rose-500/25 flex flex-col justify-between gap-3">
+                <div>
+                  <div className="flex items-center justify-between font-mono-num text-[10px] uppercase text-rose-400 font-bold">
+                    <span>6. WAF, XSS Shield &amp; Test Suites</span>
+                    <ShieldCheck className="h-4 w-4" />
+                  </div>
+                  <div className="font-display text-2xl font-bold mt-1">
+                    {overviewData?.subsystemsSummary?.blockedIpsCount ?? resolvedBlockedIps.length} Blocked IPs • 6 Suites
+                  </div>
+                  <p className="text-xs theme-text-muted mt-1">
+                    Zero-canvas image upload validator, XSS firewall, &amp; live automated verification runner.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdminSection('security-firewall')}
+                    className="rounded-xl bg-rose-600 hover:bg-rose-500 px-3 py-1.5 font-mono-num text-[11px] font-bold text-white cursor-pointer"
+                  >
+                    WAF &amp; Security →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdminSection('test-suites')}
+                    className="rounded-xl theme-card px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer"
+                  >
+                    Run Test Suites
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SCOPED DEVELOPER PORTAL (`adminSection === 'developer-portal'`) — SEPARATED FROM ROOT ADMIN & NORMAL USERS */}
+      {adminSection === 'developer-portal' && (
+        <div className="space-y-6">
+          <div className="rounded-3xl p-6 theme-card border border-indigo-500/40 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
+                  TIER 2: ISOLATED DEVELOPER PORTAL • SCOPED TO @{activeAccount.username}
+                </div>
+                <h2 className="font-display text-xl font-bold mt-1">
+                  Developer App Publishing, Sandbox Telemetry &amp; Scoped Cloud Instances
+                </h2>
+                <p className="text-xs theme-text-muted mt-0.5">
+                  Separated from Root Admin System (.env) and normal buyer accounts. Developers can manage their own published apps, upload developer profile images, and scale their own cloud instances.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab?.('apps')}
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 font-mono-num text-xs font-bold text-white cursor-pointer"
+                >
+                  Publish / Edit Apps in App Store →
+                </button>
+              </div>
+            </div>
+
+            {devProgress && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="rounded-2xl p-3.5 theme-subtle">
+                    <div className="font-mono-num text-[10px] uppercase theme-text-muted">My Published Apps</div>
+                    <div className="font-mono-num text-2xl font-bold text-indigo-400">
+                      {devProgress.summary?.publishedAppsCount || 0}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl p-3.5 theme-subtle">
+                    <div className="font-mono-num text-[10px] uppercase theme-text-muted">Total Downloads</div>
+                    <div className="font-mono-num text-2xl font-bold text-emerald-400">
+                      {(devProgress.summary?.totalDownloads || 0).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl p-3.5 theme-subtle">
+                    <div className="font-mono-num text-[10px] uppercase theme-text-muted">Active Sandbox Mounts</div>
+                    <div className="font-mono-num text-2xl font-bold text-cyan-400">
+                      {devProgress.summary?.activeSandboxInstalls || 0}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl p-3.5 theme-subtle">
+                    <div className="font-mono-num text-[10px] uppercase theme-text-muted">My Cloud Instances</div>
+                    <div className="font-mono-num text-2xl font-bold text-amber-400">
+                      {devProgress.summary?.activeCloudInstances || 0}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl p-3.5 theme-subtle">
+                    <div className="font-mono-num text-[10px] uppercase theme-text-muted">Avg Security Score</div>
+                    <div className="font-mono-num text-2xl font-bold text-emerald-400">
+                      {devProgress.summary?.avgSecurityScore || 99}/100
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-2xl p-4 theme-subtle space-y-2.5">
+                    <div className="font-mono-num text-xs font-bold uppercase text-indigo-400">
+                      Scoped Developer Apps ({devProgress.apps?.length || 0})
+                    </div>
+                    {(devProgress.apps || []).map((a) => (
+                      <div key={a.id} className="flex items-center justify-between rounded-xl p-2.5 theme-card text-xs">
+                        <div className="flex items-center gap-2.5">
+                          {isCustomImageSource(a.icon) ? (
+                            <img src={a.icon} alt={a.name} className="h-8 w-8 rounded-lg object-cover" />
+                          ) : (
+                            <span className="text-lg">{a.icon || '⚡'}</span>
+                          )}
+                          <div>
+                            <div className="font-bold">{a.name}</div>
+                            <div className="font-mono-num text-[10px] theme-text-muted">
+                              v{a.version} • {(a.downloads || 0).toLocaleString()} DLs • {a.rating}★
+                            </div>
+                          </div>
+                        </div>
+                        <span className="rounded-lg bg-emerald-500/15 px-2 py-0.5 font-mono-num text-[10px] font-bold text-emerald-400">
+                          {a.installed ? 'MOUNTED' : 'PUBLISHED'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-2xl p-4 theme-subtle space-y-2.5">
+                    <div className="font-mono-num text-xs font-bold uppercase text-cyan-400">
+                      Scoped Cloud Deployments ({devProgress.deployments?.length || 0})
+                    </div>
+                    {(devProgress.deployments || []).map((dep) => (
+                      <div key={dep.id} className="flex items-center justify-between rounded-xl p-2.5 theme-card text-xs">
+                        <div>
+                          <div className="font-bold">{dep.app_name}</div>
+                          <div className="font-mono-num text-[10px] theme-text-muted">
+                            {dep.provider} • {dep.region} • {dep.current_instances}/{dep.max_instances} instances
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleScaleHosting(dep, -1)}
+                            className="rounded-lg px-2 py-1 font-mono-num text-[10px] font-bold theme-subtle cursor-pointer"
+                          >
+                            -1
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleScaleHosting(dep, 1)}
+                            className="rounded-lg px-2 py-1 font-mono-num text-[10px] font-bold theme-subtle cursor-pointer"
+                          >
+                            +1
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* NORMAL SYSTEM USER PORTAL (`adminSection === 'user-portal'`) — SEPARATED FROM ROOT ADMIN & DEVELOPERS */}
+      {adminSection === 'user-portal' && (
+        <div className="space-y-6">
+          <div className="rounded-3xl p-6 theme-card border border-amber-500/40 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-mono-num text-[10px] font-bold uppercase text-amber-400">
+                  TIER 3: NORMAL SYSTEM USER PORTAL • GET /api/user/my-dashboard?username={activeAccount.username}
+                </div>
+                <h2 className="font-display text-xl font-bold mt-1">
+                  Personal Buyer Account, Orders, Installed Apps &amp; Profile Photo Studio
+                </h2>
+                <p className="text-xs theme-text-muted mt-0.5">
+                  Strictly separated from Root Admin System (.env) and Developer publishing pipelines. Normal system users manage their profile image, hardware orders, installed sandbox apps, and security reports.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => fetchUserDashboard(activeAccount.username)}
+                className="rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-4 py-2 font-mono-num text-xs font-bold text-amber-300 cursor-pointer"
+              >
+                Refresh My Account
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-2xl p-3.5 theme-subtle">
+                <div className="font-mono-num text-[10px] uppercase theme-text-muted">My Orders</div>
+                <div className="font-mono-num text-2xl font-bold text-amber-400">
+                  {userDashboardData?.summary?.ordersCount ?? orders.length}
+                </div>
+              </div>
+              <div className="rounded-2xl p-3.5 theme-subtle">
+                <div className="font-mono-num text-[10px] uppercase theme-text-muted">Installed Apps</div>
+                <div className="font-mono-num text-2xl font-bold text-cyan-400">
+                  {userDashboardData?.summary?.installedAppsCount ?? appInstalls.length}
+                </div>
+              </div>
+              <div className="rounded-2xl p-3.5 theme-subtle">
+                <div className="font-mono-num text-[10px] uppercase theme-text-muted">Subscriptions</div>
+                <div className="font-mono-num text-2xl font-bold text-emerald-400">
+                  {userDashboardData?.summary?.activeSubscriptionsCount ?? 3}
+                </div>
+              </div>
+              <div className="rounded-2xl p-3.5 theme-subtle">
+                <div className="font-mono-num text-[10px] uppercase theme-text-muted">Security Reports</div>
+                <div className="font-mono-num text-2xl font-bold text-indigo-400">
+                  {userDashboardData?.summary?.submittedReportsCount ?? 1}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-2xl p-4 theme-subtle space-y-2.5">
+                <div className="font-mono-num text-xs font-bold uppercase text-amber-400">
+                  Recent Hardware Orders
+                </div>
+                {(userDashboardData?.orders || orders.slice(0, 4)).map((o) => (
+                  <div key={o.id} className="flex items-center justify-between rounded-xl p-2.5 theme-card text-xs">
+                    <div>
+                      <div className="font-mono-num font-bold text-indigo-400">#{o.order_number}</div>
+                      <div className="text-[11px] theme-text-muted">{o.customer_name} • {o.status.toUpperCase()}</div>
+                    </div>
+                    <div className="font-mono-num font-bold text-emerald-400">
+                      {formatPrice(o.total || 0, currency)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-2xl p-4 theme-subtle space-y-2.5">
+                <div className="font-mono-num text-xs font-bold uppercase text-cyan-400">
+                  Mounted Sandbox Applications
+                </div>
+                {(userDashboardData?.installedApps || appInstalls.slice(0, 4)).map((inst) => (
+                  <div key={inst.id || inst.app_id} className="flex items-center justify-between rounded-xl p-2.5 theme-card text-xs">
+                    <div>
+                      <div className="font-bold">{inst.name || inst.app_id}</div>
+                      <div className="font-mono-num text-[10px] theme-text-muted">
+                        Container: {inst.sandbox_container_id || 'sbx-isolated'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab?.('apps')}
+                      className="rounded-lg bg-cyan-500/15 border border-cyan-500/35 px-2.5 py-1 font-mono-num text-[10px] font-bold text-cyan-300 cursor-pointer"
+                    >
+                      Open App →
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ROOT ADMIN SYSTEM (.env) RBAC ISOLATION BANNER WHEN NON-ADMIN VIEWS ADMIN TABS */}
+      {activeAccount.role !== 'admin' &&
+        ['inventory', 'hosting', 'security-firewall', 'payments', 'orders', 'coupons', 'logs', 'test-suites'].includes(
+          adminSection
+        ) && (
+          <div className="rounded-3xl p-5 bg-rose-500/10 border border-rose-500/40 flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="font-mono-num text-xs font-bold uppercase text-rose-400">
+                🔒 ROOT ADMIN SYSTEM (.ENV) ISOLATION GUARD ACTIVE — CURRENT ROLE: {activeAccount.role.toUpperCase()}
+              </div>
+              <p className="text-xs text-slate-300">
+                The Root Admin System is strictly separated from normal Developers (<code>role: developer</code>) and System Users (<code>role: user</code>). Root mutations require <code>.env</code> Root Admin credentials.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setAdminSection(activeAccount.role === 'developer' ? 'developer-portal' : 'user-portal')
+                }
+                className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3.5 py-2 font-mono-num text-xs font-bold text-white cursor-pointer"
+              >
+                Go to My {activeAccount.role === 'developer' ? 'Developer' : 'User'} Portal →
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleQuickSwitchAccount('nex_root_admin', 'NEX-Root-Admin-2026!#', 'admin')
+                }
+                className="rounded-xl bg-emerald-500 hover:bg-emerald-400 px-3.5 py-2 font-mono-num text-xs font-bold text-slate-950 cursor-pointer"
+              >
+                Authenticate as Root Admin (.env)
+              </button>
+            </div>
+          </div>
+        )}
 
       {/* 1. Product & Stock Control Table */}
       {adminSection === 'inventory' && (
@@ -1335,6 +2183,42 @@ export default function AdminDashboardView({
                   <option value="user">User / Buyer (Orders &amp; Security Reports)</option>
                 </select>
               </div>
+
+              {/* Zero-Canvas Profile Image File Upload for New Developer / User Registration */}
+              <div className="rounded-2xl p-3 theme-subtle border border-indigo-500/25 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-10 w-10 rounded-xl bg-slate-950 border border-indigo-500/35 flex items-center justify-center overflow-hidden shrink-0">
+                    {isCustomImageSource(regAvatarUrl) ? (
+                      <img src={regAvatarUrl} alt="Preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-lg">{regRole === 'developer' ? '👩‍💻' : '👤'}</span>
+                    )}
+                  </div>
+                  <div>
+                    <div className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                      Profile Image File (No Canvas • Direct FileReader)
+                    </div>
+                    <input
+                      type="text"
+                      value={regAvatarUrl}
+                      onChange={(e) => setRegAvatarUrl(e.target.value)}
+                      placeholder="Upload file or paste image URL..."
+                      className="mt-1 rounded-lg px-2.5 py-1 text-[11px] font-mono-num theme-input w-56"
+                    />
+                  </div>
+                </div>
+                <label className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 px-3 py-1.5 font-mono-num text-[11px] font-bold text-indigo-300 cursor-pointer">
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>Choose Image File</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleUploadRegisterAvatarFile(e.target.files)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
               <button
                 type="submit"
                 className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-400 py-2.5 text-xs font-extrabold text-slate-950 cursor-pointer transition"
@@ -1342,6 +2226,96 @@ export default function AdminDashboardView({
                 Register Account in SQLite user_accounts
               </button>
             </form>
+          </div>
+
+          {/* 3-Tier Separated Account Directory, Profile Image Uploader & Root Admin Governance */}
+          <div className="rounded-3xl p-5 theme-card border border-indigo-500/30 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
+                  3-TIER SYSTEM ACCOUNT DIRECTORY &amp; ZERO-CANVAS PROFILE IMAGE STUDIO
+                </div>
+                <h3 className="font-display text-lg font-bold">
+                  Separated Root Admin (.env), Developer Accounts &amp; Normal System Users
+                </h3>
+              </div>
+              <span className="rounded-xl bg-indigo-500/15 border border-indigo-500/35 px-3 py-1 font-mono-num text-xs font-bold text-indigo-300">
+                {resolvedAccounts.length + 1} Total Ecosystem Accounts
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {resolvedAccounts.map((acc) => (
+                <div
+                  key={acc.id}
+                  className="rounded-2xl p-4 theme-subtle border border-white/[0.08] flex flex-wrap items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-2xl bg-slate-950 border border-indigo-500/35 flex items-center justify-center overflow-hidden shrink-0">
+                      {isCustomImageSource(acc.avatar) ? (
+                        <img
+                          src={acc.avatar}
+                          alt={acc.display_name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xl">
+                          {acc.avatar || (acc.role === 'developer' ? '👩‍💻' : '👤')}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-display text-sm font-bold">{acc.display_name}</span>
+                        <span
+                          className={`rounded-md px-2 py-0.5 font-mono-num text-[10px] font-bold uppercase ${
+                            acc.role === 'developer'
+                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/35'
+                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/35'
+                          }`}
+                        >
+                          {acc.role === 'developer' ? 'TIER 2: DEVELOPER' : 'TIER 3: SYSTEM USER'}
+                        </span>
+                        <span
+                          className={`rounded-md px-1.5 py-0.5 font-mono-num text-[9px] font-bold uppercase ${
+                            acc.status === 'active'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-rose-500/20 text-rose-400'
+                          }`}
+                        >
+                          {acc.status || 'active'}
+                        </span>
+                      </div>
+                      <div className="font-mono-num text-[11px] theme-text-muted">
+                        @{acc.username} • {acc.email} • {acc.company}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <label className="inline-flex items-center gap-1 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/35 px-2.5 py-1.5 font-mono-num text-[10px] font-bold text-indigo-300 cursor-pointer">
+                      <Upload className="h-3 w-3" />
+                      <span>Upload Photo</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleUploadDirectoryAccountAvatar(acc, e.target.files)}
+                        className="hidden"
+                      />
+                    </label>
+                    {activeAccount.role === 'admin' && (
+                      <button
+                        type="button"
+                        onClick={() => handleAdminToggleAccountStatus(acc)}
+                        className="rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 px-2.5 py-1.5 font-mono-num text-[10px] font-bold text-rose-300 cursor-pointer"
+                      >
+                        {acc.status === 'active' ? 'Suspend' : 'Activate'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Developer App Progress & Telemetry Tracker (`GET /api/developer/my-progress`) */}

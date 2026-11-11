@@ -1903,9 +1903,14 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'admin' && (
+        {['overview', 'admin', 'developer-portal', 'user-portal'].includes(activeTab) && (
           <AdminDashboardView
+            portalMode={activeTab}
             products={products}
+            apps={apps}
+            appInstalls={appInstalls}
+            serverNodes={serverNodes}
+            dbStats={dbStats}
             categories={categories}
             orders={orders}
             coupons={coupons}
@@ -1928,6 +1933,14 @@ export default function App() {
             onAdvanceOrderStatus={handleAdvanceOrderStatus}
             onCreateCoupon={handleCreateCoupon}
             onToggleCoupon={handleToggleCoupon}
+            onNavigateTab={(tab) => {
+              handlePlaySound('click');
+              if (tab === 'rig-builder') {
+                setHardwareBuilderOpen(true);
+              } else {
+                setActiveTab(tab);
+              }
+            }}
           />
         )}
 
@@ -1956,6 +1969,14 @@ export default function App() {
               onOpenRigBuilder={() => {
                 handlePlaySound('click');
                 setHardwareBuilderOpen(true);
+              }}
+              onNavigateTab={(tab) => {
+                handlePlaySound('click');
+                if (tab === 'rig-builder') {
+                  setHardwareBuilderOpen(true);
+                } else {
+                  setActiveTab(tab);
+                }
               }}
             />
           </div>

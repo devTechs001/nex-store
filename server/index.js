@@ -29,6 +29,7 @@ import {
   verifySessionToken,
   detectXssAttempt,
   sanitizeObjectPayloads,
+  normalizeUploadedImageDataUrl,
   verifyAppRealnessAndMalware
 } from './envAndSecurity.js';
 import {
@@ -435,6 +436,153 @@ app.get('/api/bootstrap', (_req, res) => {
   });
 });
 
+// Track custom uploaded avatar for .env Root Admin (persisted in memory + activity log)
+let rootAdminCustomAvatar = '';
+
+// 2a-0. Unified Connected Overview Dashboard Endpoint (GET /api/overview/dashboard)
+app.get('/api/overview/dashboard', (req, res) => {
+  const envAdmin = getEnvAdminConfig();
+  const analytics = getAnalyticsSummary();
+  const dbOverview = getDatabaseStats();
+  const apps = db.prepare('SELECT * FROM apps ORDER BY downloads DESC').all();
+  const appInstalls = db.prepare('SELECT * FROM app_installs ORDER BY installed_at DESC').all();
+  const serverNodes = db.prepare('SELECT * FROM server_nodes').all();
+  const integrations = db.prepare('SELECT * FROM integrations').all();
+  const blockedIps = db.prepare('SELECT * FROM blocked_ips ORDER BY created_at DESC').all();
+  const securityReports = db.prepare('SELECT * FROM security_reports ORDER BY created_at DESC').all();
+  const userAccounts = db
+    .prepare('SELECT id, username, email, display_name, role, company, avatar, status, permissions_json, created_at FROM user_accounts ORDER BY created_at DESC')
+    .all();
+  const recentOrders = getOrdersWithItems(8);
+  const recentActivity = db.prepare('SELECT * FROM activity_events ORDER BY created_at DESC LIMIT 12').all();
+
+  const onlineNodes = serverNodes.filter((n) => n.status === 'online').length;
+  const avgLatencyMs = serverNodes.length
+    ? Math.round(serverNodes.reduce((s, n) => s + (Number(n.latency_ms) || 15), 0) / serverNodes.length)
+    : 16;
+  const totalRps = serverNodes.reduce((s, n) => s + (Number(n.rps) || 0), 0);
+  const totalDownloads = apps.reduce((s, a) => s + (Number(a.downloads) || 0), 0);
+
+  const developers = userAccounts.filter((u) => u.role === 'developer');
+  const normalUsers = userAccounts.filter((u) => u.role === 'user');
+
+  res.json({
+    connected: true,
+    timestamp: new Date().toISOString(),
+    analytics,
+    dbOverview: {
+      totalTables: dbOverview.totalTables,
+      totalRows: dbOverview.totalRows,
+      sizeFormatted: dbOverview.sizeFormatted,
+      filePath: dbOverview.filePath,
+      tables: (dbOverview.tables || []).map((t) => ({ name: t.name, rowCount: t.rowCount }))
+    },
+    appsSummary: {
+      totalApps: apps.length,
+      installedCount: appInstalls.length,
+      verifiedCount: apps.filter((a) => Boolean(a.is_verified)).length,
+      totalDownloads,
+      topApps: apps.slice(0, 4)
+    },
+    subsystemsSummary: {
+      totalNodes: serverNodes.length,
+      onlineNodes,
+      avgLatencyMs,
+      totalRps,
+      connectedIntegrations: integrations.filter((i) => i.status === 'connected').length,
+      blockedIpsCount: blockedIps.length,
+      openSecurityReports: securityReports.filter((r) => r.status === 'OPEN').length
+    },
+    roleSeparation: {
+      strictlySeparated: true,
+      adminSystem: {
+        tier: 'ROOT_ADMIN_SYSTEM',
+        source: '.env (process.env.NEX_ADMIN_USERNAME / NEX_ADMIN_PASSWORD)',
+        username: envAdmin.username,
+        email: envAdmin.email,
+        avatar: rootAdminCustomAvatar || '🛡️',
+        permissions: ['*'],
+        exclusiveCapabilities: [
+          'Global Warehouse Inventory & SKU Pricing Control',
+          'Global Zero-Trust IP Firewall & CIDR Blocklist',
+          'Render & Netlify Production .env Variable Studio',
+          'Developer & System User Account Governance',
+          'Full SQLite & MongoDB Cluster Reset'
+        ]
+      },
+      developerPortal: {
+        tier: 'SCOPED_DEVELOPER_PORTAL',
+        source: 'sqlite:user_accounts (role = developer)',
+        count: developers.length,
+        permissions: ['publish_app', 'edit_own_app', 'deploy_hosting', 'view_own_analytics'],
+        restrictions: [
+          'Cannot access Root Admin (.env) system controls or firewall rules',
+          'Cannot edit or delete apps published by other developers'
+        ]
+      },
+      userPortal: {
+        tier: 'SYSTEM_USER_PORTAL',
+        source: 'sqlite:user_accounts (role = user)',
+        count: normalUsers.length,
+        permissions: ['purchase_hardware', 'install_verified_apps', 'submit_security_reports'],
+        restrictions: [
+          'Cannot access Root Admin (.env) system or Developer publishing studio',
+          'Scoped strictly to personal orders, installed workstation apps, subscriptions & profile'
+        ]
+      }
+    },
+    accountsSummary: {
+      totalAccounts: userAccounts.length,
+      developersCount: developers.length,
+      usersCount: normalUsers.length,
+      userAccounts
+    },
+    recentOrders,
+    recentActivity
+  });
+});
+
+// Direct Zero-Canvas Image File Upload & Validation Endpoint (POST /api/upload/image)
+app.post('/api/upload/image', (req, res) => {
+  const {
+    imageDataUrl = '',
+    dataUrl = '',
+    url = '',
+    fileName = 'uploaded-image.png',
+    mimeType = 'image/png'
+  } = req.body || {};
+
+  const rawInput = String(imageDataUrl || dataUrl || url || '').trim();
+  if (!rawInput) {
+    return res.status(400).json({
+      error: 'Please provide an image file (data:image/...;base64,...) or image URL.'
+    });
+  }
+
+  const normalizedUrl = normalizeUploadedImageDataUrl(rawInput, fileName, mimeType);
+  if (
+    !normalizedUrl.startsWith('data:image/') &&
+    !normalizedUrl.startsWith('http://') &&
+    !normalizedUrl.startsWith('https://') &&
+    !normalizedUrl.startsWith('blob:')
+  ) {
+    return res.status(400).json({
+      error: 'Invalid image format. Upload a PNG, JPG, WEBP, GIF, SVG, BMP, or AVIF image file.'
+    });
+  }
+
+  res.status(201).json({
+    uploaded: true,
+    verifiedImageFile: true,
+    canvasUsed: false,
+    fileName: String(fileName || 'uploaded-image.png'),
+    mimeType: normalizedUrl.startsWith('data:image/')
+      ? normalizedUrl.slice(5, normalizedUrl.indexOf(';'))
+      : mimeType || 'image/png',
+    imageUrl: normalizedUrl
+  });
+});
+
 // 2a. Root Admin (.env) Authentication, Multi-Developer RBAC Accounts & App Progress Tracking
 app.get('/api/auth/config', (_req, res) => {
   const envAdmin = getEnvAdminConfig();
@@ -445,7 +593,13 @@ app.get('/api/auth/config', (_req, res) => {
     envAdminConfigured: envAdmin.envLoaded,
     adminUsernameHint: envAdmin.username,
     adminEmailHint: envAdmin.email,
+    adminAvatar: rootAdminCustomAvatar || '🛡️',
     envSource: '.env (process.env.NEX_ADMIN_USERNAME / NEX_ADMIN_PASSWORD)',
+    roleSeparation: {
+      admin: 'Root Admin System (.env only)',
+      developer: 'Scoped Developer Portal (own apps & cloud instances)',
+      user: 'Normal System User Portal (orders, installed apps & profile)'
+    },
     accounts
   });
 });
@@ -478,9 +632,10 @@ app.post('/api/auth/login', (req, res) => {
         display_name: 'NEX Root Administrator (.env)',
         role: 'admin',
         company: 'NEX Store Root Operations',
-        avatar: '🛡️',
+        avatar: rootAdminCustomAvatar || '🛡️',
         permissions: ['*'],
-        source: '.env'
+        source: '.env',
+        portal: 'admin'
       };
       const token = createSessionToken(adminActor);
       recordSecurityEvent({
@@ -510,6 +665,9 @@ app.post('/api/auth/login', (req, res) => {
   if (!found) {
     return res.status(401).json({ error: `Account "${cleanId}" not found.` });
   }
+  if (found.status && found.status !== 'active') {
+    return res.status(403).json({ error: `Account "@${found.username}" is currently ${found.status}.` });
+  }
 
   const expectedHash = hashPassword(cleanPass);
   if (found.password_hash !== expectedHash && cleanPass !== 'demo-switch') {
@@ -525,7 +683,8 @@ app.post('/api/auth/login', (req, res) => {
     company: found.company,
     avatar: found.avatar,
     permissions: JSON.parse(found.permissions_json || '[]'),
-    source: 'sqlite:user_accounts'
+    source: 'sqlite:user_accounts',
+    portal: found.role === 'developer' ? 'developer' : 'user'
   };
   const token = createSessionToken(actor);
 
@@ -543,7 +702,9 @@ app.post('/api/auth/register', (req, res) => {
     password = '',
     display_name = '',
     role = 'developer',
-    company = 'Independent Studio'
+    company = 'Independent Studio',
+    avatar = '',
+    fileName = ''
   } = req.body || {};
 
   const cleanUser = String(username).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
@@ -560,6 +721,11 @@ app.post('/api/auth/register', (req, res) => {
   const safeRole = role === 'user' ? 'user' : 'developer';
   const id = `${safeRole === 'developer' ? 'dev' : 'usr'}-${Date.now().toString(36)}`;
   const now = new Date().toISOString();
+  const normalizedAvatar = avatar
+    ? normalizeUploadedImageDataUrl(String(avatar), fileName)
+    : safeRole === 'developer'
+    ? '🧑‍💻'
+    : '⚡';
   const perms =
     safeRole === 'developer'
       ? JSON.stringify(['publish_app', 'edit_own_app', 'deploy_hosting', 'view_own_analytics'])
@@ -577,8 +743,8 @@ app.post('/api/auth/register', (req, res) => {
       hashPassword(String(password)),
       display_name.trim() || cleanUser,
       safeRole,
-      company.trim() || 'Independent Studio',
-      safeRole === 'developer' ? '🧑‍💻' : '⚡',
+      company.trim() || (safeRole === 'developer' ? 'Independent Studio' : 'NEX System User'),
+      normalizedAvatar,
       perms,
       now
     );
@@ -590,7 +756,8 @@ app.post('/api/auth/register', (req, res) => {
     const actor = {
       ...created,
       permissions: JSON.parse(perms),
-      source: 'sqlite:user_accounts'
+      source: 'sqlite:user_accounts',
+      portal: safeRole === 'developer' ? 'developer' : 'user'
     };
     const token = createSessionToken(actor);
 
@@ -601,8 +768,261 @@ app.post('/api/auth/register', (req, res) => {
   }
 });
 
+// Profile Image & Account Profile Update Endpoints (Zero-Canvas Real Image File Support)
+function handleProfileUpdateAndAvatar(req, res) {
+  const {
+    accountId = '',
+    username = '',
+    avatar = '',
+    imageDataUrl = '',
+    fileName = 'profile-photo.png',
+    mimeType = '',
+    display_name,
+    company
+  } = req.body || {};
+
+  const rawAvatar = String(avatar || imageDataUrl || '').trim();
+  const normalizedAvatar = rawAvatar
+    ? normalizeUploadedImageDataUrl(rawAvatar, fileName, mimeType)
+    : '';
+
+  if (
+    rawAvatar &&
+    !normalizedAvatar.startsWith('data:image/') &&
+    !normalizedAvatar.startsWith('http://') &&
+    !normalizedAvatar.startsWith('https://') &&
+    !normalizedAvatar.startsWith('blob:') &&
+    normalizedAvatar.length > 16
+  ) {
+    return res.status(400).json({
+      error: 'Invalid profile image file. Please upload a valid PNG, JPG, WEBP, GIF, or SVG image file.'
+    });
+  }
+
+  const envAdmin = getEnvAdminConfig();
+  const targetUser = String(username || req.actor?.username || '').trim().toLowerCase();
+  const targetId = String(req.params.id || accountId || req.actor?.id || '').trim();
+
+  // Case 1: Updating Root Admin (.env) profile image
+  if (
+    targetId === 'admin-root-env' ||
+    targetUser === envAdmin.username.toLowerCase() ||
+    (req.actor?.role === 'admin' && (!targetId || targetId === 'admin-root-env'))
+  ) {
+    if (req.actor && req.actor.role !== 'admin') {
+      return res.status(403).json({
+        error: 'RBAC Restriction: Only Root Admin (.env) can update the Root Admin profile image.'
+      });
+    }
+    if (normalizedAvatar) {
+      rootAdminCustomAvatar = normalizedAvatar;
+    }
+    const adminAccount = {
+      id: 'admin-root-env',
+      username: envAdmin.username,
+      email: envAdmin.email,
+      display_name: display_name ? String(display_name).trim() : 'NEX Root Administrator (.env)',
+      role: 'admin',
+      company: company ? String(company).trim() : 'NEX Store Root Operations',
+      avatar: rootAdminCustomAvatar || '🛡️',
+      permissions: ['*'],
+      source: '.env',
+      portal: 'admin'
+    };
+    const userAccounts = db
+      .prepare('SELECT id, username, email, display_name, role, company, avatar, status, permissions_json, created_at FROM user_accounts ORDER BY created_at DESC')
+      .all();
+    return res.json({
+      updated: true,
+      verifiedImageFile: Boolean(normalizedAvatar),
+      account: adminAccount,
+      userAccounts
+    });
+  }
+
+  // Case 2: Updating a Developer or System User profile in SQLite user_accounts
+  const found =
+    db.prepare('SELECT * FROM user_accounts WHERE id = ?').get(targetId) ||
+    db.prepare('SELECT * FROM user_accounts WHERE LOWER(username) = LOWER(?)').get(targetUser);
+
+  if (!found) {
+    return res.status(404).json({ error: 'User or developer account not found.' });
+  }
+
+  // Enforce strict RBAC separation: normal devs/users can only update their own profile
+  if (
+    req.actor &&
+    req.actor.role !== 'admin' &&
+    req.actor.id !== found.id &&
+    String(req.actor.username || '').toLowerCase() !== found.username.toLowerCase()
+  ) {
+    return res.status(403).json({
+      error: `RBAC Isolation: @${req.actor.username} (${req.actor.role}) can only modify their own profile and avatar.`
+    });
+  }
+
+  const nextAvatar = normalizedAvatar || found.avatar;
+  const nextDisplay = display_name !== undefined ? String(display_name).trim() || found.display_name : found.display_name;
+  const nextCompany = company !== undefined ? String(company).trim() || found.company : found.company;
+
+  db.prepare(`
+    UPDATE user_accounts
+    SET avatar = ?, display_name = ?, company = ?
+    WHERE id = ?
+  `).run(nextAvatar, nextDisplay, nextCompany, found.id);
+
+  const userAccounts = db
+    .prepare('SELECT id, username, email, display_name, role, company, avatar, status, permissions_json, created_at FROM user_accounts ORDER BY created_at DESC')
+    .all();
+  const updatedRow = userAccounts.find((u) => u.id === found.id);
+  const updatedAccount = {
+    ...updatedRow,
+    permissions: JSON.parse(updatedRow.permissions_json || '[]'),
+    source: 'sqlite:user_accounts',
+    portal: updatedRow.role === 'developer' ? 'developer' : 'user'
+  };
+
+  broadcast('accounts:updated', { userAccounts, dbStats: getDatabaseStats() });
+  res.json({
+    updated: true,
+    verifiedImageFile: Boolean(normalizedAvatar),
+    account: updatedAccount,
+    userAccounts
+  });
+}
+
+app.post('/api/auth/profile/avatar', handleProfileUpdateAndAvatar);
+app.patch('/api/auth/profile', handleProfileUpdateAndAvatar);
+app.patch('/api/users/:id/avatar', handleProfileUpdateAndAvatar);
+
+// Strictly Separated Root Admin System Endpoint (Admin Only — 403 for Developers & Normal Users)
+app.get('/api/admin/system-overview', (req, res) => {
+  if (!req.actor || req.actor.role !== 'admin') {
+    return res.status(403).json({
+      error: 'RBAC Isolation: The Root Admin System is strictly restricted to .env Root Admin credentials. Developers and normal System Users must use their dedicated portals.'
+    });
+  }
+  const envAdmin = getEnvAdminConfig();
+  const userAccounts = db
+    .prepare('SELECT id, username, email, display_name, role, company, avatar, status, permissions_json, created_at FROM user_accounts ORDER BY created_at DESC')
+    .all();
+  const blockedIps = db.prepare('SELECT * FROM blocked_ips ORDER BY created_at DESC').all();
+  const securityReports = db.prepare('SELECT * FROM security_reports ORDER BY created_at DESC').all();
+  const hostingDeployments = db.prepare('SELECT * FROM hosting_deployments ORDER BY last_deployed_at DESC').all();
+
+  res.json({
+    portal: 'ROOT_ADMIN_SYSTEM',
+    unrestrictedAccess: true,
+    adminProfile: {
+      id: 'admin-root-env',
+      username: envAdmin.username,
+      email: envAdmin.email,
+      avatar: rootAdminCustomAvatar || '🛡️',
+      source: '.env'
+    },
+    analytics: getAnalyticsSummary(),
+    dbOverview: getDatabaseStats(),
+    userAccounts,
+    blockedIps,
+    securityReports,
+    hostingDeployments
+  });
+});
+
+app.patch('/api/admin/users/:id/status', (req, res) => {
+  if (!req.actor || req.actor.role !== 'admin') {
+    return res.status(403).json({
+      error: 'RBAC Isolation: Only Root Admin (.env) can govern developer or user account status/roles.'
+    });
+  }
+  const existing = db.prepare('SELECT * FROM user_accounts WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Account not found' });
+
+  const nextStatus = req.body?.status || (existing.status === 'active' ? 'suspended' : 'active');
+  const nextRole =
+    req.body?.role && ['developer', 'user'].includes(req.body.role)
+      ? req.body.role
+      : existing.role;
+  const nextPerms =
+    nextRole === 'developer'
+      ? JSON.stringify(['publish_app', 'edit_own_app', 'deploy_hosting', 'view_own_analytics'])
+      : JSON.stringify(['purchase_hardware', 'install_verified_apps', 'submit_security_reports']);
+
+  db.prepare(`
+    UPDATE user_accounts
+    SET status = ?, role = ?, permissions_json = ?
+    WHERE id = ?
+  `).run(nextStatus, nextRole, nextPerms, existing.id);
+
+  const userAccounts = db
+    .prepare('SELECT id, username, email, display_name, role, company, avatar, status, permissions_json, created_at FROM user_accounts ORDER BY created_at DESC')
+    .all();
+  const updated = userAccounts.find((u) => u.id === existing.id);
+  broadcast('accounts:updated', { userAccounts, dbStats: getDatabaseStats() });
+  res.json({ account: updated, userAccounts });
+});
+
+// Normal System User Portal Endpoint (Separated from Admin & Developer Systems)
+app.get('/api/user/my-dashboard', (req, res) => {
+  const username = String(req.query.username || req.actor?.username || 'maya_ops').trim().toLowerCase();
+  const userRow =
+    db.prepare('SELECT * FROM user_accounts WHERE LOWER(username) = LOWER(?)').get(username) ||
+    db.prepare("SELECT * FROM user_accounts WHERE role = 'user' LIMIT 1").get();
+
+  const orders = getOrdersWithItems(25);
+  const appInstalls = db.prepare('SELECT * FROM app_installs ORDER BY installed_at DESC').all();
+  const subscriptions = db.prepare('SELECT * FROM user_subscriptions ORDER BY subscribed_at DESC').all();
+  const securityReports = db
+    .prepare('SELECT * FROM security_reports ORDER BY created_at DESC LIMIT 15')
+    .all();
+
+  res.json({
+    portal: 'SYSTEM_USER_PORTAL',
+    role: 'user',
+    restrictedFromAdminAndDev: true,
+    profile: userRow
+      ? {
+          id: userRow.id,
+          username: userRow.username,
+          email: userRow.email,
+          display_name: userRow.display_name,
+          role: userRow.role,
+          company: userRow.company,
+          avatar: userRow.avatar,
+          status: userRow.status,
+          permissions: JSON.parse(userRow.permissions_json || '[]')
+        }
+      : {
+          id: 'usr-maya-ops',
+          username: 'maya_ops',
+          email: 'maya@nairobi-edge.ke',
+          display_name: 'Maya Njoroge (SecOps Lead)',
+          role: 'user',
+          company: 'Nairobi FinTech Cloud',
+          avatar: '⚡',
+          status: 'active',
+          permissions: ['purchase_hardware', 'install_verified_apps', 'submit_security_reports']
+        },
+    summary: {
+      ordersCount: orders.length,
+      installedAppsCount: appInstalls.length,
+      activeSubscriptionsCount: subscriptions.length,
+      submittedReportsCount: securityReports.length
+    },
+    orders: orders.slice(0, 6),
+    installedApps: appInstalls,
+    subscriptions,
+    securityReports: securityReports.slice(0, 6)
+  });
+});
+
 // Developer App Progress & Telemetry Endpoint
 app.get('/api/developer/my-progress', (req, res) => {
+  if (req.actor && req.actor.role === 'user') {
+    return res.status(403).json({
+      error: 'RBAC Isolation: Normal System Users cannot access the Developer Publishing Portal. Switch to a Developer account.'
+    });
+  }
   const username = String(req.query.username || req.actor?.username || 'aether_labs').trim().toLowerCase();
   const isAdmin = req.actor?.role === 'admin' || username === getEnvAdminConfig().username.toLowerCase();
 
@@ -1006,6 +1426,7 @@ app.get('/api/apps/:id/details', (req, res) => {
       email: found.developer_email || 'dev@nexstore.dev',
       website: found.developer_website || found.repo_url || 'https://github.com/devTechs001/nex-store',
       bio: found.developer_bio || 'Verified NEX Ecosystem & Open-Source Systems Publisher',
+      avatar: found.developer_avatar || '',
       verified: Boolean(found.is_verified),
       sourceProvider: found.source_provider || 'NEX Official'
     },
@@ -1040,6 +1461,12 @@ app.post('/api/apps/inspect-url', async (req, res) => {
 });
 
 function handlePublishDeveloperAppOrSystem(req, res) {
+  if (req.actor && req.actor.role === 'user') {
+    return res.status(403).json({
+      error: 'RBAC Isolation: Normal System Users cannot publish developer packages. Switch to a Developer account or Root Admin.'
+    });
+  }
+
   const {
     name,
     description = 'Enterprise & community application package',
@@ -1052,6 +1479,7 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     developer_email = 'publisher@nexstore.dev',
     developer_website = 'https://github.com/devTechs001/nex-store',
     developer_bio = 'Verified External Developer & Systems Architect',
+    developer_avatar = '',
     icon = '🚀',
     license = 'PROPRIETARY-NEX-DRM',
     source_provider = 'Netlify',
@@ -1079,10 +1507,15 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     .createHash('sha256')
     .update(`${id}:${name}:${version}:${cleanLiveUrl}`)
     .digest('hex');
+  const normalizedImg = image_url && String(image_url).trim()
+    ? normalizeUploadedImageDataUrl(String(image_url).trim())
+    : '';
+  const normalizedDevAvatar = developer_avatar && String(developer_avatar).trim()
+    ? normalizeUploadedImageDataUrl(String(developer_avatar).trim())
+    : '';
   const resolvedImageUrl =
-    image_url && String(image_url).trim()
-      ? String(image_url).trim()
-      : `/api/app-art/${id}.svg?name=${encodeURIComponent(String(name).trim())}&provider=${encodeURIComponent(source_provider)}&lang=${encodeURIComponent(language)}&dev=${encodeURIComponent(String(developer).trim())}&icon=${encodeURIComponent(icon)}`;
+    normalizedImg ||
+    `/api/app-art/${id}.svg?name=${encodeURIComponent(String(name).trim())}&provider=${encodeURIComponent(source_provider)}&lang=${encodeURIComponent(language)}&dev=${encodeURIComponent(String(developer).trim())}&icon=${encodeURIComponent(icon)}`;
   const resolvedResources =
     Array.isArray(resources) && resources.length > 0
       ? resources
@@ -1118,8 +1551,8 @@ function handlePublishDeveloperAppOrSystem(req, res) {
       rating, reviews_count, downloads, size, developer, icon, license, price,
       is_featured, is_verified, source_provider, live_url, repo_url,
       sha256_hash, security_score, permissions_json, image_url, resources_json, ai_capabilities_json,
-      package_type, developer_email, developer_website, developer_bio, install_command, system_requirements_json, changelog, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 5.0, 1, 1, ?, ?, ?, ?, 'Free', 1, 1, ?, ?, ?, ?, 99, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      package_type, developer_email, developer_website, developer_bio, developer_avatar, install_command, system_requirements_json, changelog, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 5.0, 1, 1, ?, ?, ?, ?, 'Free', 1, 1, ?, ?, ?, ?, 99, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     String(name).trim(),
@@ -1144,6 +1577,7 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     String(developer_email).trim(),
     String(developer_website).trim(),
     String(developer_bio).trim(),
+    normalizedDevAvatar,
     resolvedInstallCmd,
     JSON.stringify(resolvedSysReq),
     String(changelog).trim(),
@@ -1213,16 +1647,25 @@ app.patch('/api/apps/:id', (req, res) => {
     developer_email = existing.developer_email || 'dev@nexstore.dev',
     developer_website = existing.developer_website || existing.repo_url,
     developer_bio = existing.developer_bio || 'Verified NEX Publisher',
+    developer_avatar = existing.developer_avatar || '',
+    image_url = existing.image_url || '',
     package_type = existing.package_type || 'app',
     live_url = existing.live_url,
     repo_url = existing.repo_url,
     changelog = existing.changelog || 'Updated release notes'
   } = req.body || {};
 
+  const nextImageUrl = image_url
+    ? normalizeUploadedImageDataUrl(String(image_url).trim())
+    : existing.image_url;
+  const nextDevAvatar = developer_avatar
+    ? normalizeUploadedImageDataUrl(String(developer_avatar).trim())
+    : existing.developer_avatar || '';
+
   db.prepare(`
     UPDATE apps
     SET name = ?, description = ?, version = ?, developer = ?, developer_email = ?,
-        developer_website = ?, developer_bio = ?, package_type = ?, live_url = ?, repo_url = ?, changelog = ?
+        developer_website = ?, developer_bio = ?, developer_avatar = ?, image_url = ?, package_type = ?, live_url = ?, repo_url = ?, changelog = ?
     WHERE id = ?
   `).run(
     String(name).trim(),
@@ -1232,6 +1675,8 @@ app.patch('/api/apps/:id', (req, res) => {
     String(developer_email).trim(),
     String(developer_website).trim(),
     String(developer_bio).trim(),
+    nextDevAvatar,
+    nextImageUrl,
     String(package_type).trim(),
     String(live_url).trim(),
     String(repo_url).trim(),
@@ -1945,7 +2390,8 @@ app.post('/api/products', (req, res) => {
     const id = `prod-${Date.now().toString(36)}`;
     const cleanSku = (sku || `NEX-${Math.floor(100 + Math.random() * 900)}`).toUpperCase();
     const now = new Date().toISOString();
-    const providedCustomImg = String(custom_image_url || image_url || '').trim();
+    const rawCustomImg = String(custom_image_url || image_url || '').trim();
+    const providedCustomImg = rawCustomImg ? normalizeUploadedImageDataUrl(rawCustomImg) : '';
     const imageUrl = providedCustomImg || `/api/product-art/${id}.svg`;
     const numPrice = Number(price);
     const numOrig = original_price ? Number(original_price) : Math.round(numPrice * 1.15);
@@ -1961,7 +2407,8 @@ app.post('/api/products', (req, res) => {
     }
     if (Array.isArray(custom_gallery_images)) {
       custom_gallery_images.forEach((imgEntry, idx) => {
-        const urlStr = typeof imgEntry === 'string' ? imgEntry.trim() : String(imgEntry?.url || imgEntry?.view || '').trim();
+        const rawEntryUrl = typeof imgEntry === 'string' ? imgEntry.trim() : String(imgEntry?.url || imgEntry?.view || '').trim();
+        const urlStr = rawEntryUrl ? normalizeUploadedImageDataUrl(rawEntryUrl) : '';
         const labelStr = typeof imgEntry === 'object' && imgEntry?.label ? imgEntry.label : `Photo ${idx + 2}`;
         if (urlStr && urlStr !== providedCustomImg) {
           extraGalleryItems.push({ label: labelStr, view: urlStr, url: urlStr });
@@ -2095,7 +2542,10 @@ app.patch('/api/products/:id', (req, res) => {
     const newStock = Math.max(0, parseInt(stock, 10));
     const newPrice = Number(price);
 
-    let nextImageUrl = image_url !== undefined ? String(image_url).trim() : existing.image_url;
+    let nextImageUrl =
+      image_url !== undefined
+        ? normalizeUploadedImageDataUrl(String(image_url).trim())
+        : existing.image_url;
     let currentGallery = [];
     try {
       currentGallery = JSON.parse(existing.gallery_json || '[]');
@@ -2107,10 +2557,11 @@ app.patch('/api/products/:id', (req, res) => {
       currentGallery = gallery;
     }
     if (add_gallery_image) {
-      const urlStr =
+      const rawUrlStr =
         typeof add_gallery_image === 'string'
           ? add_gallery_image.trim()
           : String(add_gallery_image?.url || add_gallery_image?.view || '').trim();
+      const urlStr = rawUrlStr ? normalizeUploadedImageDataUrl(rawUrlStr) : '';
       const labelStr =
         typeof add_gallery_image === 'object' && add_gallery_image?.label
           ? add_gallery_image.label
@@ -2125,7 +2576,7 @@ app.patch('/api/products/:id', (req, res) => {
         }
       }
     } else if (image_url && !String(image_url).startsWith('/api/product-art/')) {
-      const cleanUrl = String(image_url).trim();
+      const cleanUrl = normalizeUploadedImageDataUrl(String(image_url).trim());
       if (!currentGallery.some((g) => g.view === cleanUrl || g.url === cleanUrl)) {
         currentGallery = [
           { label: 'Custom Photo', view: cleanUrl, url: cleanUrl },
@@ -2928,7 +3379,8 @@ app.post('/api/mongo/insert', (req, res) => {
 });
 
 app.get('/api/db/overview', (_req, res) => {
-  res.json({ dbStats: getDatabaseStats() });
+  const stats = getDatabaseStats();
+  res.json({ ...stats, dbStats: stats });
 });
 
 app.get('/api/db/table/:tableName', (req, res) => {
