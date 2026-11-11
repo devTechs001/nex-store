@@ -21,7 +21,13 @@ import {
   Trash2
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
-import { getProductArtUrl } from '../utils/storeEngine.js';
+import {
+  getProductArtUrl,
+  isCustomProductImage,
+  isLikelyImageFile,
+  readImageFileAsDataUrl,
+  normalizeImageDataUrl
+} from '../utils/storeEngine.js';
 
 const HARDWARE_SKU_PRESETS = [
   {
@@ -161,29 +167,28 @@ export default function StorefrontView({
   const [imageLabelDraft, setImageLabelDraft] = useState('Studio Photo');
   const [isDraggingImage, setIsDraggingImage] = useState(false);
 
-  const handleProductImageFiles = (fileList) => {
-    const files = Array.from(fileList || []).filter((f) => f.type.startsWith('image/'));
+  const handleProductImageFiles = async (fileList) => {
+    const files = Array.from(fileList || []).filter(isLikelyImageFile);
     if (files.length === 0) return;
 
-    files.forEach((file, idx) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = String(reader.result || '');
-        if (!dataUrl) return;
-        const cleanLabel = file.name.replace(/\.[^.]+$/, '').slice(0, 24) || `Photo ${idx + 1}`;
+    for (let idx = 0; idx < files.length; idx++) {
+      try {
+        const { dataUrl, label } = await readImageFileAsDataUrl(files[idx]);
+        if (!dataUrl) continue;
         setNewProdImageUrl((prev) => prev || dataUrl);
         setNewProdGalleryImages((prev) => [
           ...prev.filter((item) => item.url !== dataUrl),
-          { label: cleanLabel, url: dataUrl }
+          { label: label || `Photo ${idx + 1}`, url: dataUrl }
         ]);
         setModalCadView(dataUrl);
-      };
-      reader.readAsDataURL(file);
-    });
+      } catch {
+        // ignore unreadable file
+      }
+    }
   };
 
   const handleAddImageUrlToModal = () => {
-    const cleanUrl = imageUrlDraft.trim();
+    const cleanUrl = normalizeImageDataUrl(imageUrlDraft.trim());
     if (!cleanUrl) return;
     const label = imageLabelDraft.trim() || `Photo ${newProdGalleryImages.length + 1}`;
     if (!newProdImageUrl) {
@@ -1572,19 +1577,24 @@ export default function StorefrontView({
                   <div className="overflow-hidden rounded-2xl border border-indigo-500/35 bg-slate-950">
                     <img
                       src={
-                        modalCadView &&
-                        (modalCadView.startsWith('data:image/') ||
-                          modalCadView.startsWith('http://') ||
-                          modalCadView.startsWith('https://'))
+                        isCustomProductImage(modalCadView)
                           ? modalCadView
+                          : modalCadView === 'hero' && isCustomProductImage(newProdImageUrl)
+                          ? newProdImageUrl
                           : getProductArtUrl(
                               {
                                 id: 'prod-custom-preview',
                                 name: newProdName || 'NEX CUSTOM HARDWARE',
                                 sku: newProdSku || 'NEX-901',
-                                category: newProdCategory
+                                category: newProdCategory,
+                                image_url: newProdImageUrl,
+                                custom_image_url: newProdImageUrl
                               },
-                              { view: modalCadView, color: newProdColorHex, preferCad: true }
+                              {
+                                view: modalCadView,
+                                color: newProdColorHex,
+                                preferCad: modalCadView !== 'hero' || !isCustomProductImage(newProdImageUrl)
+                              }
                             )
                       }
                       alt="Live Product Preview"

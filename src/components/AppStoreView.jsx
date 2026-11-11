@@ -24,7 +24,14 @@ import {
   Minimize2
 } from 'lucide-react';
 import { renderSandboxedAppHtml } from '../../server/appSandboxRuntime.js';
-import { getAppArtUrl, getAppVisualResources } from '../utils/storeEngine.js';
+import {
+  getAppArtUrl,
+  getAppVisualResources,
+  isCustomImageSource,
+  isLikelyImageFile,
+  readImageFileAsDataUrl,
+  normalizeImageDataUrl
+} from '../utils/storeEngine.js';
 
 const COMMUNITY_NETLIFY_PRESETS = [
   {
@@ -211,6 +218,7 @@ export default function AppStoreView({
   const [devEmail, setDevEmail] = useState('publisher@nexstore.dev');
   const [devWebsite, setDevWebsite] = useState('https://github.com/devTechs001/nex-store');
   const [devBio, setDevBio] = useState('Verified External Developer & Systems Architect');
+  const [devAvatarUrl, setDevAvatarUrl] = useState('');
   const [installCmd, setInstallCmd] = useState('');
   const [appChangelog, setAppChangelog] = useState('v1.0.0 — Verified SHA-256 sandbox runtime & anti-piracy DRM lock.');
 
@@ -227,10 +235,81 @@ export default function AppStoreView({
     developer: '',
     developer_email: '',
     developer_website: '',
+    developer_avatar: '',
+    image_url: '',
     package_type: 'app',
     description: '',
     changelog: ''
   });
+
+  const handleUploadAppCoverImageFile = async (fileList, forEditModal = false) => {
+    const file = Array.from(fileList || []).find(isLikelyImageFile);
+    if (!file) return;
+    try {
+      const { dataUrl } = await readImageFileAsDataUrl(file);
+      if (!dataUrl) return;
+      onPlaySound?.('success');
+      if (forEditModal) {
+        setEditPkgForm((prev) => ({ ...prev, image_url: dataUrl }));
+      } else {
+        setAppImageUrl(dataUrl);
+      }
+    } catch {
+      // ignore unreadable file
+    }
+  };
+
+  const handleUploadDevAvatarFile = async (fileList, forEditModal = false) => {
+    const file = Array.from(fileList || []).find(isLikelyImageFile);
+    if (!file) return;
+    try {
+      const { dataUrl } = await readImageFileAsDataUrl(file);
+      if (!dataUrl) return;
+      onPlaySound?.('success');
+      if (forEditModal) {
+        setEditPkgForm((prev) => ({ ...prev, developer_avatar: dataUrl }));
+      } else {
+        setDevAvatarUrl(dataUrl);
+      }
+    } catch {
+      // ignore unreadable file
+    }
+  };
+
+  const handleDirectUpdateModalAvatar = async (fileList) => {
+    const file = Array.from(fileList || []).find(isLikelyImageFile);
+    if (!file || !detailsModalData?.app?.id) return;
+    try {
+      const { dataUrl } = await readImageFileAsDataUrl(file);
+      if (!dataUrl) return;
+      onPlaySound?.('success');
+      const targetId = detailsModalData.app.id;
+      const res = await fetch(`/api/apps/${targetId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ developer_avatar: dataUrl })
+      });
+      if (res.ok) {
+        const updatedDetails = await fetch(`/api/apps/${targetId}/details`).then((r) => r.json());
+        if (updatedDetails?.app) {
+          setDetailsModalData(updatedDetails);
+          setEditPkgForm((prev) => ({ ...prev, developer_avatar: dataUrl }));
+          return;
+        }
+      }
+      setDetailsModalData((prev) =>
+        prev
+          ? {
+              ...prev,
+              app: { ...prev.app, developer_avatar: dataUrl },
+              developerProfile: { ...prev.developerProfile, avatar: dataUrl }
+            }
+          : prev
+      );
+    } catch {
+      // ignore
+    }
+  };
 
   const sources = ['all', 'Netlify', 'Vercel', 'GitHub', 'PyPI', 'NPM', 'NEX Official', 'Community Dev'];
   const languages = ['all', 'python', 'typescript', 'rust', 'go', 'java', 'cpp', 'javascript'];
@@ -443,13 +522,14 @@ export default function AppStoreView({
       developer_email: devEmail.trim() || 'publisher@nexstore.dev',
       developer_website: devWebsite.trim() || repoUrl.trim() || 'https://github.com/devTechs001/nex-store',
       developer_bio: devBio.trim() || 'Verified External Developer & Systems Publisher',
+      developer_avatar: devAvatarUrl ? normalizeImageDataUrl(devAvatarUrl) : '',
       install_command: installCmd.trim(),
       changelog: appChangelog.trim(),
       icon: appIcon,
       source_provider: sourceProvider,
       live_url: liveUrl.trim() || `https://${appName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}.netlify.app`,
       repo_url: repoUrl.trim(),
-      image_url: appImageUrl,
+      image_url: appImageUrl ? normalizeImageDataUrl(appImageUrl) : '',
       resources: appResources,
       ai_capabilities: appAiCapabilities
     });
@@ -460,6 +540,7 @@ export default function AppStoreView({
     setRepoUrl('');
     setImportUrlInput('');
     setAppImageUrl('');
+    setDevAvatarUrl('');
     setAppResources([]);
     setAppAiCapabilities([]);
     setShowUploadModal(false);
@@ -479,6 +560,8 @@ export default function AppStoreView({
           developer: data.app.developer,
           developer_email: data.developerProfile?.email || 'dev@nexstore.dev',
           developer_website: data.developerProfile?.website || 'https://github.com/devTechs001/nex-store',
+          developer_avatar: data.developerProfile?.avatar || data.app.developer_avatar || '',
+          image_url: isCustomImageSource(data.app.image_url) ? data.app.image_url : '',
           package_type: data.app.package_type || 'app',
           description: data.app.description,
           changelog: data.app.changelog || 'v1.0.0 — Verified SHA-256 sandbox runtime.'
@@ -505,6 +588,7 @@ export default function AppStoreView({
         email: app.developer_email || 'dev@nexstore.dev',
         website: app.developer_website || app.repo_url || 'https://github.com/devTechs001/nex-store',
         bio: app.developer_bio || 'Verified NEX Ecosystem & Open-Source Systems Publisher',
+        avatar: app.developer_avatar || '',
         verified: Boolean(app.is_verified),
         sourceProvider: app.source_provider || 'NEX Official'
       },
@@ -2103,6 +2187,95 @@ export default function AppStoreView({
               />
             </div>
 
+            {/* App Cover Image & Developer Profile Image File Uploaders (Zero-Canvas Real Image Files) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-2xl p-3.5 theme-subtle border border-cyan-500/30">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                    App Cover Image File
+                  </span>
+                  <label className="rounded-lg bg-cyan-500/20 border border-cyan-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-cyan-300 cursor-pointer">
+                    Upload Image File
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleUploadAppCoverImageFile(e.target.files, false)}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={appImageUrl}
+                  onChange={(e) => setAppImageUrl(e.target.value)}
+                  placeholder="Or paste cover image URL (https://... or data:image/...)"
+                  className="w-full rounded-xl px-2.5 py-1.5 text-xs font-mono-num theme-input"
+                />
+                {isCustomImageSource(appImageUrl) && (
+                  <div className="flex items-center gap-2">
+                    <img
+                      src={appImageUrl}
+                      alt="App Cover Preview"
+                      className="h-10 w-16 rounded-lg object-cover border border-cyan-400/50 bg-slate-950"
+                    />
+                    <span className="font-mono-num text-[10px] text-emerald-400">
+                      ✓ Image file ready
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAppImageUrl('')}
+                      className="ml-auto text-[10px] text-rose-400 underline cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
+                    Developer Profile Image File
+                  </span>
+                  <label className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-indigo-300 cursor-pointer">
+                    Upload Profile Photo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleUploadDevAvatarFile(e.target.files, false)}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={devAvatarUrl}
+                  onChange={(e) => setDevAvatarUrl(e.target.value)}
+                  placeholder="Or paste developer avatar URL (https://... or data:image/...)"
+                  className="w-full rounded-xl px-2.5 py-1.5 text-xs font-mono-num theme-input"
+                />
+                {isCustomImageSource(devAvatarUrl) && (
+                  <div className="flex items-center gap-2">
+                    <img
+                      src={devAvatarUrl}
+                      alt="Developer Profile Preview"
+                      className="h-10 w-10 rounded-full object-cover border border-indigo-400/50 bg-slate-950"
+                    />
+                    <span className="font-mono-num text-[10px] text-emerald-400">
+                      ✓ Profile image file ready
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDevAvatarUrl('')}
+                      className="ml-auto text-[10px] text-rose-400 underline cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="rounded-xl bg-slate-950 p-2.5 border border-indigo-500/30 font-mono-num text-[10px] text-cyan-300">
               REST API Endpoint: <code>POST /api/developer/publish</code> • Details Endpoint: <code>GET /api/apps/:id/details</code>
             </div>
@@ -2270,6 +2443,83 @@ export default function AppStoreView({
                     className="w-full rounded-xl px-3 py-1.5 text-xs theme-input"
                   />
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-2xl p-3 theme-subtle border border-indigo-500/30">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
+                        Developer Profile Photo
+                      </span>
+                      <label className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2 py-0.5 font-mono-num text-[10px] font-bold text-indigo-300 cursor-pointer">
+                        Upload File
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleUploadDevAvatarFile(e.target.files, true)}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    <input
+                      type="text"
+                      value={editPkgForm.developer_avatar || ''}
+                      onChange={(e) =>
+                        setEditPkgForm({ ...editPkgForm, developer_avatar: e.target.value })
+                      }
+                      placeholder="https://... or data:image/..."
+                      className="w-full rounded-xl px-2.5 py-1 text-xs font-mono-num theme-input"
+                    />
+                    {isCustomImageSource(editPkgForm.developer_avatar) && (
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={editPkgForm.developer_avatar}
+                          alt="Developer Avatar"
+                          className="h-9 w-9 rounded-full object-cover border border-indigo-400"
+                        />
+                        <span className="font-mono-num text-[10px] text-emerald-400">
+                          ✓ Profile image file attached
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono-num text-[10px] font-bold uppercase text-cyan-400">
+                        App Cover Image File
+                      </span>
+                      <label className="rounded-lg bg-cyan-500/20 border border-cyan-500/40 px-2 py-0.5 font-mono-num text-[10px] font-bold text-cyan-300 cursor-pointer">
+                        Upload File
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleUploadAppCoverImageFile(e.target.files, true)}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    <input
+                      type="text"
+                      value={editPkgForm.image_url || ''}
+                      onChange={(e) =>
+                        setEditPkgForm({ ...editPkgForm, image_url: e.target.value })
+                      }
+                      placeholder="https://... or data:image/..."
+                      className="w-full rounded-xl px-2.5 py-1 text-xs font-mono-num theme-input"
+                    />
+                    {isCustomImageSource(editPkgForm.image_url) && (
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={editPkgForm.image_url}
+                          alt="App Cover"
+                          className="h-9 w-14 rounded-lg object-cover border border-cyan-400"
+                        />
+                        <span className="font-mono-num text-[10px] text-emerald-400">
+                          ✓ Cover image file attached
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <div className="flex justify-end gap-2">
                   <button
                     type="submit"
@@ -2342,13 +2592,47 @@ export default function AppStoreView({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Developer Profile Card */}
-                  <div className="rounded-2xl p-4 theme-subtle space-y-2 border border-indigo-500/25">
-                    <div className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
-                      Publisher &amp; Developer Credentials
+                  <div className="rounded-2xl p-4 theme-subtle space-y-2.5 border border-indigo-500/25">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-mono-num text-[10px] font-bold uppercase text-indigo-400">
+                        Publisher &amp; Developer Credentials
+                      </div>
+                      <label className="rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-indigo-300 cursor-pointer">
+                        Upload Profile Photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleDirectUpdateModalAvatar(e.target.files)}
+                          className="hidden"
+                        />
+                      </label>
                     </div>
-                    <div className="text-sm font-bold">{detailsModalData.developerProfile?.name}</div>
-                    <div className="font-mono-num text-xs text-cyan-400">
-                      Email: {detailsModalData.developerProfile?.email}
+                    <div className="flex items-center gap-3">
+                      {isCustomImageSource(
+                        detailsModalData.developerProfile?.avatar ||
+                          detailsModalData.app?.developer_avatar
+                      ) ? (
+                        <img
+                          src={
+                            detailsModalData.developerProfile?.avatar ||
+                            detailsModalData.app?.developer_avatar
+                          }
+                          alt={detailsModalData.developerProfile?.name}
+                          className="h-12 w-12 rounded-full object-cover border-2 border-indigo-400 shrink-0 bg-slate-950"
+                        />
+                      ) : (
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-500/20 border border-indigo-500/40 text-lg shrink-0">
+                          👩‍💻
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold truncate">
+                          {detailsModalData.developerProfile?.name}
+                        </div>
+                        <div className="font-mono-num text-xs text-cyan-400 truncate">
+                          Email: {detailsModalData.developerProfile?.email}
+                        </div>
+                      </div>
                     </div>
                     <div className="font-mono-num text-xs text-teal-300 truncate">
                       Website: {detailsModalData.developerProfile?.website}

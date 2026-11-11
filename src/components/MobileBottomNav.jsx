@@ -59,12 +59,15 @@ export default function MobileBottomNav({
   const totalTables = badges.database?.totalTables || dbStats?.totalTables || 23;
 
   const allWorkspaces = [
+    { id: 'overview', label: 'Overview Dashboard', sub: 'Connected KPIs & Portals', icon: Sparkles, badge: 'Live' },
     { id: 'store', label: 'Hardware Store', sub: '12 Flagship SKUs & CAD', icon: Store, badge: `${badges.store?.products || 12} SKUs` },
     { id: 'apps', label: 'App Store (Devs)', sub: 'Publish Apps & Systems', icon: Terminal, badge: `${badges.apps?.total || 10} Apps` },
     { id: 'mobile-subs', label: 'Mobile SDK, PWA & Plans', sub: 'Flutter, Native & Tiers', icon: Smartphone, badge: 'SDK + PWA' },
     { id: 'subsystems', label: 'Subsystems & Security', sub: '6 Edge Nodes & WAF Shield', icon: Server, badge: `${badges.subsystems?.onlineNodes || 6} Online` },
     { id: 'tracker', label: 'Order Tracker', sub: 'Live Fulfillment Telemetry', icon: Truck, badge: `${badges.tracker?.activeOrders ?? 3} Active` },
-    { id: 'admin', label: 'Admin Operations', sub: 'Inventory & Revenue Studio', icon: ShieldCheck, badge: 'Ops' },
+    { id: 'admin', label: 'Admin System (.env)', sub: 'Root Admin Operations Only', icon: ShieldCheck, badge: '.env Root' },
+    { id: 'developer-portal', label: 'Developer Portal', sub: 'Scoped Dev Apps & Cloud', icon: Layers, badge: 'Devs' },
+    { id: 'user-portal', label: 'User Account Portal', sub: 'Personal Profile & Orders', icon: CheckCircle2, badge: 'Users' },
     { id: 'database', label: 'SQLite Studio', sub: 'Live WAL Table Explorer', icon: Database, badge: `${totalTables} DB` },
     { id: 'docs', label: 'Docs & API Guide', sub: 'REST, WS & CLI Manual', icon: BookOpen, badge: 'v3.2' }
   ];

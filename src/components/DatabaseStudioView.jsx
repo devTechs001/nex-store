@@ -38,9 +38,27 @@ const PRESET_QUERIES = [
 ];
 
 export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase }) {
+  const [liveDbOverview, setLiveDbOverview] = useState(null);
+  const effectiveDbStats = liveDbOverview || dbStats;
   const [selectedTable, setSelectedTable] = useState('products');
   const [tableData, setTableData] = useState({ columns: [], rows: [], rowCount: 0 });
   const [loadingTable, setLoadingTable] = useState(false);
+
+  const fetchDbOverview = async () => {
+    try {
+      const res = await fetch('/api/db/overview');
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.tables) setLiveDbOverview(data);
+      }
+    } catch {
+      // ignore offline
+    }
+  };
+
+  useEffect(() => {
+    fetchDbOverview();
+  }, [dbStats?.totalRows]);
 
   // SQL Runner State
   const [sqlInput, setSqlInput] = useState(PRESET_QUERIES[0].sql);
@@ -283,7 +301,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
           >
             <div className="text-[10px] text-slate-400">DB FILE & SIZE</div>
             <div className="font-bold text-cyan-400">
-              {dbStats?.filePath || 'data/nexstore.db'} ({dbStats?.sizeFormatted || '64.0 KB'})
+              {effectiveDbStats?.filePath || 'data/nexstore.db'} ({effectiveDbStats?.sizeFormatted || '64.0 KB'})
             </div>
           </div>
 
@@ -294,9 +312,9 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
                 : 'border-slate-200 bg-slate-50'
             }`}
           >
-            <div className="text-[10px] text-slate-400">TOTAL RECORDS</div>
+            <div className="text-[10px] text-slate-400">TOTAL RECORDS (/api/db/overview)</div>
             <div className="font-bold text-emerald-400">
-              {dbStats?.totalRows || 0} rows / {dbStats?.totalTables || 11} tables
+              {effectiveDbStats?.totalRows || 0} rows / {effectiveDbStats?.totalTables || 28} tables
             </div>
           </div>
 

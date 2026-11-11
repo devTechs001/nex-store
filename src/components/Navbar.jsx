@@ -17,7 +17,8 @@ import {
   Menu,
   PanelLeft,
   Smartphone,
-  CreditCard
+  CreditCard,
+  Activity
 } from 'lucide-react';
 import { CURRENCIES } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
@@ -160,6 +161,21 @@ export default function Navbar({
 
         {/* Right: Compact Action Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Connected Overview Dashboard Button */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('overview')}
+            title="Open Connected Overview & Executive Dashboard"
+            className={`inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === 'overview'
+                ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-sm'
+                : 'theme-input text-emerald-400 hover:border-emerald-400/50'
+            }`}
+          >
+            <Activity className="h-3.5 w-3.5" />
+            <span>Overview</span>
+          </button>
+
           {/* Quick Mobile SDK & Subscriptions Tab Button */}
           <button
             type="button"

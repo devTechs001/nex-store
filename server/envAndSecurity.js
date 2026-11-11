@@ -251,15 +251,96 @@ const XSS_PATTERNS = [
   /document\.cookie/i
 ];
 
+function isBase64ImageDataUri(str) {
+  if (typeof str !== 'string') return false;
+  const trimmed = str.trim();
+  return /^data:(?:image\/[a-zA-Z0-9.+-]+|application\/octet-stream)?;base64,[A-Za-z0-9+/=\s]+$/i.test(trimmed);
+}
+
+export function normalizeUploadedImageDataUrl(rawInput, fileName = '', mimeType = '') {
+  if (!rawInput || typeof rawInput !== 'string') return '';
+  const trimmed = rawInput.trim();
+  if (!trimmed) return '';
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('blob:')) {
+    return trimmed;
+  }
+
+  const ext = String(fileName || '')
+    .toLowerCase()
+    .split('.')
+    .pop();
+  const extMimeMap = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    svg: 'image/svg+xml',
+    bmp: 'image/bmp',
+    avif: 'image/avif',
+    ico: 'image/x-icon',
+    jfif: 'image/jpeg'
+  };
+
+  let resolvedMime =
+    mimeType && mimeType.startsWith('image/')
+      ? mimeType
+      : extMimeMap[ext] || '';
+
+  // Handle data:;base64,... or data:application/octet-stream;base64,...
+  const genericBase64Match = trimmed.match(/^data:([^;]*);base64,([\s\S]+)$/i);
+  if (genericBase64Match) {
+    const existingMime = (genericBase64Match[1] || '').trim().toLowerCase();
+    const b64Payload = genericBase64Match[2].replace(/\s+/g, '');
+    if (existingMime.startsWith('image/')) {
+      return `data:${existingMime};base64,${b64Payload}`;
+    }
+    if (!resolvedMime) {
+      if (b64Payload.startsWith('iVBORw0KGgo')) resolvedMime = 'image/png';
+      else if (b64Payload.startsWith('/9j/')) resolvedMime = 'image/jpeg';
+      else if (b64Payload.startsWith('R0lGOD')) resolvedMime = 'image/gif';
+      else if (b64Payload.startsWith('UklGR')) resolvedMime = 'image/webp';
+      else if (b64Payload.startsWith('PHN2Zy') || b64Payload.startsWith('PD94bWw')) resolvedMime = 'image/svg+xml';
+      else resolvedMime = 'image/png';
+    }
+    return `data:${resolvedMime};base64,${b64Payload}`;
+  }
+
+  if (trimmed.startsWith('data:image/')) {
+    return trimmed;
+  }
+
+  return trimmed;
+}
+
+function stripSafeBase64ImagesForXssCheck(val) {
+  if (typeof val === 'string') {
+    return isBase64ImageDataUri(val) ? '[SAFE_BASE64_IMAGE]' : val;
+  }
+  if (Array.isArray(val)) {
+    return val.map(stripSafeBase64ImagesForXssCheck);
+  }
+  if (val && typeof val === 'object') {
+    const copy = {};
+    for (const [k, v] of Object.entries(val)) {
+      copy[k] = stripSafeBase64ImagesForXssCheck(v);
+    }
+    return copy;
+  }
+  return val;
+}
+
 export function detectXssAttempt(input) {
   if (input === null || input === undefined) return null;
-  const text = typeof input === 'string' ? input : JSON.stringify(input);
+  if (typeof input === 'string' && isBase64ImageDataUri(input)) return null;
+  const cleaned = typeof input === 'string' ? input : JSON.stringify(stripSafeBase64ImagesForXssCheck(input));
   for (const regex of XSS_PATTERNS) {
-    if (regex.test(text)) {
+    if (regex.test(cleaned)) {
       return {
         detected: true,
         pattern: regex.toString(),
-        snippet: text.slice(0, 140)
+        snippet: cleaned.slice(0, 140)
       };
     }
   }
@@ -268,6 +349,7 @@ export function detectXssAttempt(input) {
 
 export function sanitizeXssString(str) {
   if (typeof str !== 'string') return str;
+  if (isBase64ImageDataUri(str)) return normalizeUploadedImageDataUrl(str);
   return str
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '[XSS-BLOCKED]')
     .replace(/<\/?script[^>]*>/gi, '')

@@ -15,9 +15,100 @@ import {
   SEED_BTO_CONFIGS
 } from '../../server/seedData.js';
 
+export function normalizeImageDataUrl(rawInput, fileName = '', mimeType = '') {
+  if (!rawInput || typeof rawInput !== 'string') return '';
+  const trimmed = rawInput.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('blob:')) {
+    return trimmed;
+  }
+
+  const ext = String(fileName || '')
+    .toLowerCase()
+    .split('.')
+    .pop();
+  const extMimeMap = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    svg: 'image/svg+xml',
+    bmp: 'image/bmp',
+    avif: 'image/avif',
+    ico: 'image/x-icon',
+    jfif: 'image/jpeg'
+  };
+
+  let resolvedMime =
+    mimeType && mimeType.startsWith('image/')
+      ? mimeType
+      : extMimeMap[ext] || '';
+
+  const genericBase64Match = trimmed.match(/^data:([^;]*);base64,([\s\S]+)$/i);
+  if (genericBase64Match) {
+    const existingMime = (genericBase64Match[1] || '').trim().toLowerCase();
+    const b64Payload = genericBase64Match[2].replace(/\s+/g, '');
+    if (existingMime.startsWith('image/')) {
+      return `data:${existingMime};base64,${b64Payload}`;
+    }
+    if (!resolvedMime) {
+      if (b64Payload.startsWith('iVBORw0KGgo')) resolvedMime = 'image/png';
+      else if (b64Payload.startsWith('/9j/')) resolvedMime = 'image/jpeg';
+      else if (b64Payload.startsWith('R0lGOD')) resolvedMime = 'image/gif';
+      else if (b64Payload.startsWith('UklGR')) resolvedMime = 'image/webp';
+      else if (b64Payload.startsWith('PHN2Zy') || b64Payload.startsWith('PD94bWw')) resolvedMime = 'image/svg+xml';
+      else resolvedMime = 'image/png';
+    }
+    return `data:${resolvedMime};base64,${b64Payload}`;
+  }
+
+  return trimmed;
+}
+
+export function isLikelyImageFile(file) {
+  if (!file) return false;
+  if (file.type && file.type.startsWith('image/')) return true;
+  const name = String(file.name || '').toLowerCase();
+  return /\.(png|jpe?g|webp|gif|svg|bmp|avif|ico|jfif|tiff?|heic|heif)$/i.test(name) || !file.type;
+}
+
+/**
+ * Reads an uploaded image File directly into a normalized Data URL without using <canvas>,
+ * avoiding any tainted-canvas SecurityError, memory limit error, or procedural fallback.
+ */
+export function readImageFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error('No image file selected'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = String(reader.result || '');
+      const normalized = normalizeImageDataUrl(raw, file.name || '', file.type || '');
+      if (!normalized) {
+        reject(new Error('Could not read uploaded image file'));
+        return;
+      }
+      resolve({
+        dataUrl: normalized,
+        fileName: file.name || 'uploaded-image.png',
+        fileSize: file.size || 0,
+        mimeType: file.type || 'image/png',
+        label: (file.name || 'Uploaded Image').replace(/\.[^.]+$/, '').slice(0, 28) || 'Uploaded Image'
+      });
+    };
+    reader.onerror = () => {
+      reject(new Error('Failed to read image file from device'));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export function isCustomProductImage(url) {
   if (!url || typeof url !== 'string') return false;
-  const trimmed = url.trim();
+  const trimmed = normalizeImageDataUrl(url.trim());
   if (!trimmed) return false;
   if (trimmed.startsWith('/api/product-art/')) return false;
   if (trimmed.startsWith('/api/app-art/')) return false;
@@ -33,6 +124,10 @@ export function isCustomProductImage(url) {
     trimmed.startsWith('https://') ||
     trimmed.startsWith('blob:')
   );
+}
+
+export function isCustomImageSource(url) {
+  return isCustomProductImage(url);
 }
 
 function escapeSvgXml(str = '') {
