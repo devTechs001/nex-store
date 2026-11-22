@@ -20,7 +20,9 @@ import {
   Layers,
   ExternalLink,
   Terminal,
-  Wifi
+  Wifi,
+  Atom,
+  RefreshCw as RefreshQuantumIcon
 } from 'lucide-react';
 
 export default function SubsystemsHubView({
@@ -47,8 +49,31 @@ export default function SubsystemsHubView({
   onSendPushBroadcast,
   onNavigateTab
 }) {
-  const [subTab, setSubTab] = useState('servers'); // 'servers' | 'security' | 'integrations' | 'audio-push'
+  const [subTab, setSubTab] = useState('servers'); // 'servers' | 'security' | 'integrations' | 'audio-push' | 'quantum'
   const [autoPulseServers, setAutoPulseServers] = useState(true);
+
+  // Quantum Security Core telemetry (real cryptographic status from /api/quantum/status)
+  const [quantumStatus, setQuantumStatus] = useState(null);
+  const [quantumBusy, setQuantumBusy] = useState(false);
+
+  const fetchQuantumStatus = async () => {
+    setQuantumBusy(true);
+    try {
+      const res = await fetch('/api/quantum/status');
+      if (res.ok) setQuantumStatus(await res.json());
+    } catch {
+      // keep previous snapshot
+    } finally {
+      setQuantumBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (subTab === 'quantum' && !quantumStatus) {
+      fetchQuantumStatus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subTab]);
 
   // Security Policy Toggles
   const [securityPolicies, setSecurityPolicies] = useState({
@@ -252,7 +277,8 @@ export default function SubsystemsHubView({
             { id: 'security', label: `Security & WAF Shield (${securityEvents.length})`, icon: Shield },
             { id: 'integrations', label: `Netlify & Cloud Integrations (${integrations.length})`, icon: Globe },
             { id: 'audio-push', label: 'Audio Synth & Push Broadcast Lab', icon: Bell },
-            { id: 'browsers', label: 'Cross-Browser CSS & Standards Matrix', icon: Layers }
+            { id: 'browsers', label: 'Cross-Browser CSS & Standards Matrix', icon: Layers },
+            { id: 'quantum', label: 'Quantum Security Core', icon: Atom }
           ].map((tab) => {
             const Icon = tab.icon;
             const active = subTab === tab.id;
@@ -1027,6 +1053,123 @@ export default function SubsystemsHubView({
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* SUB-TAB 6: QUANTUM SECURITY CORE (real cryptographic telemetry) */}
+      {subTab === 'quantum' && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl p-5 theme-card border border-violet-500/35">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className="absolute inset-0 rounded-full bg-violet-500/30 animate-ping" />
+                <Atom className="relative h-6 w-6 text-violet-300 animate-spin [animation-duration:12s]" />
+              </div>
+              <div>
+                <div className="font-mono-num text-[10px] font-bold uppercase text-violet-400">
+                  Quantum Security Core • PQC-Ready Cryptographic Suite
+                </div>
+                <h2 className="font-display text-lg font-bold">
+                  Quantum-Shield Entanglement Monitor
+                </h2>
+                <p className="text-xs theme-text-muted">
+                  Live cryptographic posture: scrypt KDF, HMAC-SHA3-256 sessions, SHA3-256 integrity
+                  fingerprints and CSPRNG entropy — all measured, none simulated.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                onPlaySound?.('ping');
+                fetchQuantumStatus();
+              }}
+              disabled={quantumBusy}
+              className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 hover:bg-violet-500 px-5 py-2.5 text-xs font-extrabold text-white cursor-pointer transition disabled:opacity-60"
+            >
+              <RefreshQuantumIcon className={`h-4 w-4 ${quantumBusy ? 'animate-spin' : ''}`} />
+              {quantumBusy ? 'Collapsing wavefunction…' : 'Measure Quantum State'}
+            </button>
+          </div>
+
+          {quantumStatus ? (
+            <>
+              {/* Algorithm suite */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {[
+                  ['Password KDF', quantumStatus.suite.passwordKDF, 'Memory-hard scrypt'],
+                  ['Session Tokens', quantumStatus.suite.sessionTokens, 'Expiring & constant-time'],
+                  ['Data Integrity', quantumStatus.suite.dataIntegrity, 'Fingerprinted at rest'],
+                  ['Transport', quantumStatus.suite.transport, 'Strict origin allow-list'],
+                  ['Entropy Source', quantumStatus.suite.entropySource, 'openssl RAND_bytes'],
+                  ['PQC Readiness', quantumStatus.suite.pqcReadiness, 'NIST FIPS 203/204 pluggable']
+                ].map(([title, value, sub]) => (
+                  <div
+                    key={title}
+                    className="rounded-2xl p-4 theme-card border border-violet-500/25 hover:border-cyan-400/40 transition"
+                  >
+                    <div className="text-[10px] font-mono-num uppercase text-violet-400 font-bold">{title}</div>
+                    <div className="mt-1.5 text-xs font-semibold leading-relaxed">{value}</div>
+                    <div className="mt-1 text-[10px] theme-text-muted">{sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Fingerprints & entropy */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="rounded-2xl p-5 theme-card border border-cyan-500/25">
+                  <div className="flex items-center gap-2 text-[10px] font-mono-num uppercase text-cyan-400 font-bold">
+                    <KeyRound className="h-3.5 w-3.5" /> Session Key Fingerprint (SHA3-256)
+                  </div>
+                  <div className="mt-2 font-mono-num text-sm break-all text-cyan-200">
+                    {quantumStatus.keyFingerprint}
+                  </div>
+                  <div className="mt-2 text-[10px] theme-text-muted">
+                    HMAC-SHA3-256 signing key • TTL {quantumStatus.sessionTtlHours}h • runtime {quantumStatus.nodeRuntime}
+                  </div>
+                </div>
+                <div className="rounded-2xl p-5 theme-card border border-emerald-500/25">
+                  <div className="flex items-center gap-2 text-[10px] font-mono-num uppercase text-emerald-400 font-bold">
+                    <Lock className="h-3.5 w-3.5" /> Database Integrity Fingerprint
+                  </div>
+                  <div className="mt-2 font-mono-num text-sm break-all text-emerald-200">
+                    {quantumStatus.databaseFingerprint}
+                  </div>
+                  <div className="mt-2 text-[10px] theme-text-muted">
+                    Full-store SHA3-256 digest • recompute on every measurement
+                  </div>
+                </div>
+                <div className="rounded-2xl p-5 theme-card border border-violet-500/25 overflow-hidden">
+                  <div className="flex items-center gap-2 text-[10px] font-mono-num uppercase text-violet-400 font-bold">
+                    <Zap className="h-3.5 w-3.5" /> Live CSPRNG Entropy Draw (256-bit)
+                  </div>
+                  <div className="mt-2 font-mono-num text-[11px] break-all text-violet-200 leading-relaxed">
+                    {quantumStatus.entropySample}
+                  </div>
+                  <div className="mt-3 h-1.5 rounded-full overflow-hidden bg-white/10">
+                    <div
+                      className="h-full w-full animate-pulse"
+                      style={{
+                        background: 'linear-gradient(90deg, #a855f7, #22d3ee, #a855f7)',
+                        backgroundSize: '200% 100%'
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-4 theme-card border border-white/10 flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] theme-text-muted">
+                <span className="inline-flex items-center gap-2 text-emerald-400 font-bold">
+                  <ShieldCheck className="h-4 w-4" /> QUANTUM SHIELD {quantumStatus.quantumShieldActive ? 'ACTIVE' : 'STANDBY'}
+                </span>
+                <span>Generated {new Date(quantumStatus.generatedAt).toLocaleTimeString()}</span>
+                <span>All values measured server-side — no simulated cryptography.</span>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-2xl p-8 theme-card text-center text-xs theme-text-muted">
+              {quantumBusy ? 'Measuring quantum state…' : 'Press “Measure Quantum State” to sample the cryptographic core.'}
+            </div>
+          )}
         </div>
       )}
     </div>

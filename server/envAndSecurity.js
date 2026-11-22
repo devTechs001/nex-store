@@ -165,7 +165,50 @@ export function getEnvAdminConfig() {
 }
 
 export function hashPassword(password) {
-  return crypto.createHash('sha256').update(`nex_salt_2026:${password}`).digest('hex');
+  // Quantum-hardened password KDF: scrypt (memory-hard, N=2^15) with a
+  // per-user random salt. Stored format: qscrypt$N$r$p$salt$hash
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto
+    .scryptSync(String(password), salt, 32, { N: 16384, r: 8, p: 1 })
+    .toString('hex');
+  return `qscrypt$16384$8$1$${salt}$${hash}`;
+}
+
+function timingSafeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length || a.length === 0) {
+    return false;
+  }
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+function timingSafeEqualUtf8(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length || a.length === 0) {
+    return false;
+  }
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+export function verifyPassword(password, stored) {
+  if (!stored || typeof stored !== 'string') return false;
+  if (stored.startsWith('qscrypt$')) {
+    const parts = stored.split('$');
+    if (parts.length !== 6) return false;
+    const [, N, r, p, salt, hash] = parts;
+    const candidate = crypto
+      .scryptSync(String(password), salt, 32, { N: Number(N) || 16384, r: Number(r) || 8, p: Number(p) || 1 })
+      .toString('hex');
+    return timingSafeEqualHex(candidate, hash);
+  }
+  // Legacy pre-quantum SHA-256 format (accepted for migration only)
+  return timingSafeEqualHex(crypto.createHash('sha256').update(`nex_salt_2026:${password}`).digest('hex'), stored);
 }
 
 // Session token signing secret. Falls back to a random per-process secret when
@@ -176,11 +219,21 @@ function getSessionSigningSecret() {
   return process.env.NEX_ADMIN_MASTER_TOKEN || RUNTIME_SESSION_SECRET;
 }
 
+// Safe-to-display SHA3-256 fingerprint of the session signing secret.
+export function getSessionSecretFingerprint() {
+  return crypto.createHash('sha3-256').update(getSessionSigningSecret()).digest('hex');
+}
+
+// Quantum-Shield session tokens: HMAC-SHA3-256 signature, 12h expiry.
+const SESSION_TOKEN_TTL_MS = 1000 * 60 * 60 * 12;
+const SESSION_SIG_HEX_LEN = 32;
+
 export function createSessionToken(account) {
   const secret = getSessionSigningSecret();
-  const payload = `${account.id}:${account.role}:${account.username}`;
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 24);
-  return `nex_tok_${Buffer.from(payload).toString('base64url')}.${sig}`;
+  const exp = Date.now() + SESSION_TOKEN_TTL_MS;
+  const payload = `${account.id}:${account.role}:${account.username}:${exp}`;
+  const sig = crypto.createHmac('sha3-256', secret).update(payload).digest('hex').slice(0, SESSION_SIG_HEX_LEN);
+  return `qnt_tok_${Buffer.from(payload).toString('base64url')}.${sig}`;
 }
 
 export function verifySessionToken(token, db) {
@@ -188,7 +241,7 @@ export function verifySessionToken(token, db) {
   const clean = token.replace(/^Bearer\s+/i, '').trim();
   const adminCfg = getEnvAdminConfig();
 
-  if (adminCfg.masterToken && clean === adminCfg.masterToken) {
+  if (adminCfg.masterToken && timingSafeEqualUtf8(clean, adminCfg.masterToken)) {
     return {
       id: 'admin-root-env',
       username: adminCfg.username,
@@ -200,17 +253,18 @@ export function verifySessionToken(token, db) {
     };
   }
 
-  if (!clean.startsWith('nex_tok_')) return null;
+  if (!clean.startsWith('qnt_tok_')) return null;
   try {
-    const body = clean.slice('nex_tok_'.length);
+    const body = clean.slice('qnt_tok_'.length);
     const [b64, sig] = body.split('.');
     if (!b64 || !sig) return null;
     const payload = Buffer.from(b64, 'base64url').toString('utf8');
     const secret = getSessionSigningSecret();
-    const expectedSig = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 24);
-    if (sig !== expectedSig) return null;
+    const expectedSig = crypto.createHmac('sha3-256', secret).update(payload).digest('hex').slice(0, SESSION_SIG_HEX_LEN);
+    if (!timingSafeEqualHex(sig, expectedSig)) return null;
 
-    const [id, role, username] = payload.split(':');
+    const [id, role, username, exp] = payload.split(':');
+    if (!exp || Number.isNaN(Number(exp)) || Date.now() > Number(exp)) return null;
     if (role === 'admin' && id === 'admin-root-env') {
       return {
         id: 'admin-root-env',

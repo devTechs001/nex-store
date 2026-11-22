@@ -263,12 +263,25 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
         db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(someOrder.status, someOrder.id);
       }
 
-      // The SQL Explorer must never expose credential hashes
+      // The SQL Explorer is Root Admin only and must never expose credential hashes
+      const unauthSql = await apiRequest('/api/db/query', {
+        method: 'POST',
+        body: { sql: 'SELECT 1 as probe' }
+      });
+      assert.equal(unauthSql.status, 403);
+
       const hashProbe = await apiRequest('/api/db/query', {
         method: 'POST',
+        token: adminToken,
         body: { sql: 'SELECT password_hash FROM user_accounts' }
       });
       assert.equal(hashProbe.status, 400);
+
+      // Private profile portals must not leak to anonymous callers or other users
+      const unauthDevProgress = await apiRequest('/api/developer/my-progress');
+      assert.equal(unauthDevProgress.status, 401);
+      const unauthUserDash = await apiRequest('/api/user/my-dashboard');
+      assert.equal(unauthUserDash.status, 401);
     });
   });
 
@@ -688,13 +701,13 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
 
     it('exports terminal_logs, inventory_logs, security_events & activity_events in JSON and CSV formats', async () => {
       for (const table of ['terminal_logs', 'inventory_logs', 'security_events', 'activity_events']) {
-        const jsonRes = await apiRequest(`/api/export/${table}`);
+        const jsonRes = await apiRequest(`/api/export/${table}`, { token: adminToken });
         assert.equal(jsonRes.status, 200);
         assert.equal(jsonRes.data.table, table);
         assert.ok(Array.isArray(jsonRes.data.rows) && jsonRes.data.rows.length >= 1);
       }
 
-      const csvRes = await apiRequest('/api/export/terminal_logs?format=csv');
+      const csvRes = await apiRequest('/api/export/terminal_logs?format=csv', { token: adminToken });
       assert.equal(csvRes.status, 200);
       assert.ok(String(csvRes.data).includes('command'));
     });

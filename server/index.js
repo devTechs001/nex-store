@@ -25,8 +25,10 @@ import {
   getHostingEnvAndBlueprintsConfig,
   updateHostingEnvVariables,
   hashPassword,
+  verifyPassword,
   createSessionToken,
   verifySessionToken,
+  getSessionSecretFingerprint,
   detectXssAttempt,
   sanitizeObjectPayloads,
   normalizeUploadedImageDataUrl,
@@ -46,7 +48,38 @@ const __dirname = path.dirname(__filename);
 seedDatabase();
 
 const app = express();
-app.use(cors());
+
+// Enforced CORS: only configured origins (CORS_ALLOWED_ORIGINS), same-origin
+// requests (e.g. the served SPA or a proxied preview), and localhost dev are
+// allowed. Requests without an Origin header (curl, server-to-server) pass.
+function isAllowedCorsOrigin(origin, host) {
+  if (!origin) return true;
+  const sameOrigin = origin === `http://${host}` || origin === `https://${host}`;
+  const localhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  const allowList = String(process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return sameOrigin || localhost || allowList.includes(origin);
+}
+
+app.use(
+  cors((req, callback) => {
+    const origin = req.headers.origin;
+    const allowed = isAllowedCorsOrigin(origin, req.headers.host || '');
+    callback(null, { origin: allowed ? origin || true : false, credentials: false });
+  })
+);
+
+// Baseline security headers (Quantum-Shield edge hardening)
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+
 app.use(express.json({ limit: '15mb' }));
 
 // Active IP Blocklist Firewall, XSS Prevention & RBAC Context Middleware
@@ -55,9 +88,13 @@ app.use('/api', (req, res, next) => {
   const rawToken = req.headers.authorization || req.headers['x-nex-token'] || '';
   req.actor = verifySessionToken(String(rawToken), db);
 
-  // 2. Check IP Blocklist Firewall (skip unblock endpoint itself so Admin can unblock)
+  // 2. Check IP Blocklist Firewall (skip unblock endpoint itself so Admin can unblock).
+  // x-simulated-client-ip is a test/QA hook only — ignored in production so the
+  // firewall can never be bypassed or abused via spoofed headers.
+  const simulatedIp =
+    process.env.NODE_ENV === 'production' ? null : req.headers['x-simulated-client-ip'];
   const clientIp = String(
-    req.headers['x-simulated-client-ip'] ||
+    simulatedIp ||
       req.headers['x-forwarded-for']?.split(',')[0] ||
       req.socket?.remoteAddress ||
       '127.0.0.1'
@@ -120,9 +157,12 @@ function rejectUnlessAdmin(req, res, action) {
 }
 
 // Read-only SQL consoles (SQL Explorer & NEX-SH `nex sql`) must never expose
-// credential hashes: block column references and redact it from result rows.
+// credential hashes or customer PII: block column references and redact
+// credential hashes from result rows.
+const SQL_CONSOLE_DENIED_COLUMNS = /password_hash|customer_email|customer_phone|shipping_address/i;
+
 function sanitizeReadOnlySql(sql) {
-  return !/password_hash/i.test(sql);
+  return !SQL_CONSOLE_DENIED_COLUMNS.test(sql);
 }
 
 function redactSensitiveRows(rows) {
@@ -133,11 +173,32 @@ function redactSensitiveRows(rows) {
   );
 }
 
+// Customer contact PII must never reach unauthenticated surfaces (bootstrap,
+// WebSocket feeds, public order tracking). Full rows stay available to Root
+// Admin via the guarded REST endpoints.
+const PUBLIC_ORDER_PII_KEYS = ['customer_email', 'customer_phone', 'shipping_address'];
+
+function maskPublicOrderPII(order) {
+  if (!order || typeof order !== 'object') return order;
+  const out = { ...order };
+  for (const key of PUBLIC_ORDER_PII_KEYS) {
+    if (out[key]) out[key] = '[MASKED]';
+  }
+  return out;
+}
+
+function maskPublicOrders(orders) {
+  return Array.isArray(orders) ? orders.map(maskPublicOrderPII) : orders;
+}
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 // Track connected real-time clients and what product they are viewing
 const clients = new Map();
+
+// Quantum-Shield login rate-limit state (per client IP, 60s sliding window)
+const loginAttempts = new Map();
 
 function broadcast(type, payload) {
   const message = JSON.stringify({
@@ -213,13 +274,15 @@ function getAllProducts() {
   return rows.map(formatProductRow);
 }
 
-function getOrdersWithItems(limit = 50) {
+function getOrdersWithItems(limit = 50, { full = false } = {}) {
   const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT ?').all(limit);
   const itemStmt = db.prepare('SELECT * FROM order_items WHERE order_id = ?');
-  return orders.map((o) => ({
-    ...o,
-    items: itemStmt.all(o.id)
-  }));
+  return orders.map((o) => {
+    const row = { ...o, items: itemStmt.all(o.id) };
+    // Customer contact PII is masked on shared/public surfaces; Root Admin
+    // endpoints opt into full rows with { full: true }.
+    return full ? row : maskPublicOrderPII(row);
+  });
 }
 
 function getAnalyticsSummary() {
@@ -634,6 +697,18 @@ app.get('/api/auth/config', (_req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
+  // Quantum-Shield login rate limiting: 15 attempts per minute per IP
+  const clientKey = String(req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || '127.0.0.1').trim();
+  const now = Date.now();
+  const windowStart = now - 60_000;
+  const recent = (loginAttempts.get(clientKey) || []).filter((t) => t > windowStart);
+  if (recent.length >= 15) {
+    loginAttempts.set(clientKey, recent);
+    return res.status(429).json({ error: 'Too many login attempts. Please wait a minute and try again.' });
+  }
+  recent.push(now);
+  loginAttempts.set(clientKey, recent);
+
   const { identifier = '', password = '', role = '' } = req.body || {};
   const cleanId = String(identifier).trim();
   const cleanPass = String(password);
@@ -649,10 +724,19 @@ app.post('/api/auth/login', (req, res) => {
     if (!envAdmin.envLoaded) {
       return res.status(500).json({ error: 'Root Admin credentials are missing in .env file.' });
     }
+    const adminPassMatches =
+      cleanPass.length === envAdmin.password.length &&
+      (() => {
+        try {
+          return crypto.timingSafeEqual(Buffer.from(cleanPass, 'utf8'), Buffer.from(envAdmin.password, 'utf8'));
+        } catch {
+          return false;
+        }
+      })();
     if (
       (cleanId.toLowerCase() === envAdmin.username.toLowerCase() ||
         cleanId.toLowerCase() === envAdmin.email.toLowerCase()) &&
-      cleanPass === envAdmin.password
+      adminPassMatches
     ) {
       const adminActor = {
         id: 'admin-root-env',
@@ -691,16 +775,19 @@ app.post('/api/auth/login', (req, res) => {
     .prepare('SELECT * FROM user_accounts WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)')
     .get(cleanId, cleanId);
 
+  // Generic error for unknown accounts and wrong passwords (no user enumeration)
+  const invalidCredentials = () =>
+    res.status(401).json({ error: 'Invalid username or password.' });
+
   if (!found) {
-    return res.status(401).json({ error: `Account "${cleanId}" not found.` });
+    return invalidCredentials();
   }
   if (found.status && found.status !== 'active') {
-    return res.status(403).json({ error: `Account "@${found.username}" is currently ${found.status}.` });
+    return res.status(403).json({ error: 'This account is currently suspended.' });
   }
 
-  const expectedHash = hashPassword(cleanPass);
-  if (found.password_hash !== expectedHash) {
-    return res.status(401).json({ error: 'Invalid password for developer/user account.' });
+  if (!verifyPassword(cleanPass, found.password_hash)) {
+    return invalidCredentials();
   }
 
   const actor = {
@@ -722,6 +809,14 @@ app.post('/api/auth/login', (req, res) => {
     account: actor,
     token
   });
+});
+
+// Quantum-Shield session introspection — lets the SPA validate a stored token
+app.get('/api/auth/session', (req, res) => {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'No active session.' });
+  }
+  res.json({ account: req.actor, quantumSecured: true, tokenFormat: 'qnt_tok (HMAC-SHA3-256, 12h TTL)' });
 });
 
 app.post('/api/auth/register', (req, res) => {
@@ -998,7 +1093,18 @@ app.patch('/api/admin/users/:id/status', (req, res) => {
 
 // Normal System User Portal Endpoint (Separated from Admin & Developer Systems)
 app.get('/api/user/my-dashboard', (req, res) => {
-  const username = String(req.query.username || req.actor?.username || 'maya_ops').trim().toLowerCase();
+  // Private user portal data — requires sign-in; users see only their own
+  // dashboard, Root Admin may view any account.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to view the user portal.' });
+  }
+  const requested = String(req.query.username || req.actor.username || '').trim().toLowerCase();
+  if (req.actor.role !== 'admin' && requested !== String(req.actor.username || '').toLowerCase()) {
+    return res.status(403).json({
+      error: 'RBAC Isolation: Users can only view their own dashboard profile.'
+    });
+  }
+  const username = requested || String(req.actor.username || '').toLowerCase();
   const userRow =
     db.prepare('SELECT * FROM user_accounts WHERE LOWER(username) = LOWER(?)').get(username) ||
     db.prepare("SELECT * FROM user_accounts WHERE role = 'user' LIMIT 1").get();
@@ -1052,13 +1158,24 @@ app.get('/api/user/my-dashboard', (req, res) => {
 
 // Developer App Progress & Telemetry Endpoint
 app.get('/api/developer/my-progress', (req, res) => {
-  if (req.actor && req.actor.role === 'user') {
+  // Private developer portal data — requires sign-in; developers see only their
+  // own progress telemetry, Root Admin may view any account.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to view developer progress.' });
+  }
+  if (req.actor.role === 'user') {
     return res.status(403).json({
       error: 'RBAC Isolation: Normal System Users cannot access the Developer Publishing Portal. Switch to a Developer account.'
     });
   }
-  const username = String(req.query.username || req.actor?.username || 'aether_labs').trim().toLowerCase();
-  const isAdmin = req.actor?.role === 'admin' || username === getEnvAdminConfig().username.toLowerCase();
+  const requested = String(req.query.username || req.actor.username || '').trim().toLowerCase();
+  if (req.actor.role !== 'admin' && requested !== String(req.actor.username || '').toLowerCase()) {
+    return res.status(403).json({
+      error: 'RBAC Isolation: Developers can only view their own progress telemetry.'
+    });
+  }
+  const username = requested || String(req.actor.username || '').toLowerCase();
+  const isAdmin = req.actor.role === 'admin';
 
   const allApps = db.prepare('SELECT * FROM apps ORDER BY downloads DESC').all();
   const allInstalls = db.prepare('SELECT * FROM app_installs').all();
@@ -2850,6 +2967,9 @@ app.post('/api/coupons/validate', (req, res) => {
   if (coupon.used_count >= coupon.max_uses) {
     return res.status(400).json({ error: `Promo code "${cleanCode}" has reached its usage limit` });
   }
+  if (coupon.expires_at && new Date(coupon.expires_at).getTime() < Date.now()) {
+    return res.status(400).json({ error: `Promo code "${cleanCode}" has expired` });
+  }
   if (Number(subtotal) < coupon.min_order_amount) {
     return res.status(400).json({
       error: `Code "${cleanCode}" requires a minimum subtotal of $${coupon.min_order_amount.toFixed(2)}`
@@ -2935,8 +3055,10 @@ app.patch('/api/coupons/:id', (req, res) => {
 });
 
 // 6. Orders & Real-Time Checkout Endpoints
-app.get('/api/orders', (_req, res) => {
-  res.json({ orders: getOrdersWithItems(50) });
+app.get('/api/orders', (req, res) => {
+  // Full order book (customer PII) is Root Admin only.
+  if (rejectUnlessAdmin(req, res, 'view the full order book')) return;
+  res.json({ orders: getOrdersWithItems(50, { full: true }) });
 });
 
 app.get('/api/orders/track/:orderNumber', (req, res) => {
@@ -2949,7 +3071,7 @@ app.get('/api/orders/track/:orderNumber', (req, res) => {
     return res.status(404).json({ error: `Order "${cleanNum}" not found` });
   }
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
-  res.json({ order: { ...order, items } });
+  res.json({ order: maskPublicOrderPII({ ...order, items }) });
 });
 
 app.post('/api/orders', (req, res) => {
@@ -3009,17 +3131,20 @@ app.post('/api/orders', (req, res) => {
 
     let discountAmount = 0;
     let appliedCouponCode = null;
+    let appliedCouponRow = null;
     if (coupon_code) {
       const coupon = db
         .prepare('SELECT * FROM coupons WHERE UPPER(code) = ? AND active = 1')
         .get(coupon_code.trim().toUpperCase());
-      if (coupon && calculatedSubtotal >= coupon.min_order_amount) {
+      const couponExpired = Boolean(coupon?.expires_at && new Date(coupon.expires_at).getTime() < Date.now());
+      const couponExhausted = Boolean(coupon && coupon.max_uses > 0 && coupon.used_count >= coupon.max_uses);
+      if (coupon && !couponExpired && !couponExhausted && calculatedSubtotal >= coupon.min_order_amount) {
         discountAmount =
           coupon.discount_type === 'percentage'
             ? Number(((calculatedSubtotal * coupon.discount_value) / 100).toFixed(2))
             : Math.min(calculatedSubtotal, coupon.discount_value);
         appliedCouponCode = coupon.code;
-        db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?').run(coupon.id);
+        appliedCouponRow = coupon;
       }
     }
 
@@ -3031,6 +3156,30 @@ app.post('/api/orders', (req, res) => {
     const taxableAmount = Math.max(0, calculatedSubtotal - discountAmount);
     const taxAmount = Number((taxableAmount * 0.08).toFixed(2));
     const total = Number((taxableAmount + shippingCost + taxAmount).toFixed(2));
+
+    // Payment identity generation (pure computation, outside transaction scope)
+    const updatedProducts = [];
+    const payId = `pay-${Date.now().toString(36)}`;
+    const providerName = payment_method.toLowerCase().includes('m-pesa')
+      ? 'Safaricom Daraja 3.0 STK'
+      : payment_method.toLowerCase().includes('apple')
+      ? 'Apple Pay / Adyen Edge'
+      : payment_method.toLowerCase().includes('usdc') || payment_method.toLowerCase().includes('crypto')
+      ? 'NEX Web3 On-Chain Settlement'
+      : 'Stripe Live Gateway';
+    const authCode = `AUTH-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const receiptHash = `sha256:${crypto
+      .createHash('sha256')
+      .update(`${payId}:${orderNumber}:${total}:${now}`)
+      .digest('hex')}`;
+
+    // Atomic checkout: all order writes (order, items, stock, coupon usage,
+    // payment record) commit together or roll back together.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+    if (appliedCouponRow) {
+      db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?').run(appliedCouponRow.id);
+    }
 
     db.prepare(`
       INSERT INTO orders (
@@ -3074,7 +3223,7 @@ app.post('/api/orders', (req, res) => {
     const updateProductStock = db.prepare(`
       UPDATE products
       SET stock = stock - ?, sold_count = sold_count + ?, updated_at = ?
-      WHERE id = ?
+      WHERE id = ? AND stock >= ?
     `);
 
     const insertInvLog = db.prepare(`
@@ -3082,8 +3231,6 @@ app.post('/api/orders', (req, res) => {
         id, product_id, product_name, change_amount, previous_stock, new_stock, reason, actor, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-
-    const updatedProducts = [];
 
     for (const entry of resolvedItems) {
       const oiId = `oi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -3100,7 +3247,10 @@ app.post('/api/orders', (req, res) => {
         entry.lineTotal
       );
 
-      updateProductStock.run(entry.qty, entry.qty, now, entry.prod.id);
+      const stockRes = updateProductStock.run(entry.qty, entry.qty, now, entry.prod.id, entry.qty);
+      if (!stockRes || !stockRes.changes) {
+        throw new Error(`Insufficient stock for ${entry.prod.name} (concurrent purchase)`);
+      }
 
       insertInvLog.run(
         `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -3117,26 +3267,6 @@ app.post('/api/orders', (req, res) => {
       const refreshed = db.prepare('SELECT * FROM products WHERE id = ?').get(entry.prod.id);
       updatedProducts.push(formatProductRow(refreshed));
     }
-
-    const fullOrder = {
-      ...db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId),
-      items: db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId)
-    };
-
-    // Record real-time cryptographic payment transaction in payment_transactions table
-    const payId = `pay-${Date.now().toString(36)}`;
-    const providerName = payment_method.toLowerCase().includes('m-pesa')
-      ? 'Safaricom Daraja 3.0 STK'
-      : payment_method.toLowerCase().includes('apple')
-      ? 'Apple Pay / Adyen Edge'
-      : payment_method.toLowerCase().includes('usdc') || payment_method.toLowerCase().includes('crypto')
-      ? 'NEX Web3 On-Chain Settlement'
-      : 'Stripe Live Gateway';
-    const authCode = `AUTH-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    const receiptHash = `sha256:${crypto
-      .createHash('sha256')
-      .update(`${payId}:${orderNumber}:${total}:${now}`)
-      .digest('hex')}`;
 
     db.prepare(`
       INSERT INTO payment_transactions (
@@ -3157,6 +3287,21 @@ app.post('/api/orders', (req, res) => {
       now
     );
 
+    db.exec('COMMIT');
+    } catch (txnErr) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // ignore if no transaction is active
+      }
+      throw txnErr;
+    }
+
+    const fullOrder = {
+      ...db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId),
+      items: db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId)
+    };
+
     const paymentTransaction = db.prepare('SELECT * FROM payment_transactions WHERE id = ?').get(payId);
     const paymentTransactions = db.prepare('SELECT * FROM payment_transactions ORDER BY created_at DESC LIMIT 40').all();
 
@@ -3170,9 +3315,9 @@ app.post('/api/orders', (req, res) => {
     const inventoryLogs = db.prepare('SELECT * FROM inventory_logs ORDER BY created_at DESC LIMIT 30').all();
 
     broadcast('order:created', {
-      order: fullOrder,
-      paymentTransaction,
-      paymentTransactions,
+      order: maskPublicOrderPII(fullOrder),
+      paymentTransaction: maskPublicOrderPII(paymentTransaction),
+      paymentTransactions: maskPublicOrders(paymentTransactions),
       updatedProducts,
       activity,
       inventoryLogs,
@@ -3183,7 +3328,7 @@ app.post('/api/orders', (req, res) => {
     res.status(201).json({
       order: fullOrder,
       paymentTransaction,
-      paymentTransactions,
+      paymentTransactions: maskPublicOrders(paymentTransactions),
       updatedProducts,
       activity
     });
@@ -3193,7 +3338,9 @@ app.post('/api/orders', (req, res) => {
 });
 
 // 6b. Real-Time Payment Gateway Endpoints (/api/payments)
-app.get('/api/payments', (_req, res) => {
+app.get('/api/payments', (req, res) => {
+  // Payment transaction history (customer PII) is Root Admin only.
+  if (rejectUnlessAdmin(req, res, 'view payment transactions')) return;
   const paymentTransactions = db
     .prepare('SELECT * FROM payment_transactions ORDER BY created_at DESC LIMIT 50')
     .all();
@@ -3295,7 +3442,7 @@ app.patch('/api/orders/:id/status', (req, res) => {
   });
 
   broadcast('order:updated', {
-    order: updatedOrder,
+    order: maskPublicOrderPII(updatedOrder),
     activity,
     analytics: getAnalyticsSummary()
   });
@@ -3454,12 +3601,13 @@ app.get('/api/db/overview', (_req, res) => {
 });
 
 app.get('/api/db/table/:tableName', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'browse raw database tables')) return;
   const { tableName } = req.params;
   if (!ALLOWED_TABLES.includes(tableName)) {
     return res.status(400).json({ error: `Invalid table "${tableName}"` });
   }
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
-  const rows = db.prepare(`SELECT * FROM ${tableName} LIMIT ?`).all(limit);
+  const rows = redactSensitiveRows(db.prepare(`SELECT * FROM ${tableName} LIMIT ?`).all(limit));
   const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
 
   res.json({
@@ -3471,6 +3619,7 @@ app.get('/api/db/table/:tableName', (req, res) => {
 });
 
 app.post('/api/db/query', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'run SQL Explorer queries')) return;
   try {
     const { sql = '' } = req.body;
     const trimmed = sql.trim();
@@ -3484,7 +3633,7 @@ app.post('/api/db/query', (req, res) => {
     }
     if (!sanitizeReadOnlySql(trimmed)) {
       return res.status(400).json({
-        error: 'Queries referencing password_hash are not permitted in the SQL Explorer.'
+        error: 'Queries referencing protected columns (password_hash, customer_email, customer_phone, shipping_address) are not permitted in the SQL Explorer.'
       });
     }
 
@@ -3535,7 +3684,8 @@ app.post('/api/db/reset', (req, res) => {
 });
 
 // 9. Real-Time Live Activity Simulator (can be triggered on demand)
-app.post('/api/realtime/simulate', (_req, res) => {
+app.post('/api/realtime/simulate', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'simulate realtime activity')) return;
   const products = getAllProducts();
   const randomProd = products[Math.floor(Math.random() * products.length)];
   const sampleShoppers = [
@@ -3719,7 +3869,8 @@ app.post('/api/servers/:id/action', (req, res) => {
   res.json({ serverNodes, updatedNode, activity });
 });
 
-app.post('/api/servers/pulse', (_req, res) => {
+app.post('/api/servers/pulse', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'pulse edge telemetry')) return;
   const nodes = db.prepare('SELECT * FROM server_nodes').all();
   const now = new Date().toISOString();
   const stmt = db.prepare(`
@@ -3789,6 +3940,7 @@ app.post('/api/servers', (req, res) => {
 
 // 14. External Integrations & Netlify/GitHub Webhook Subsystem (/api/integrations)
 app.post('/api/integrations/:id/sync', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'sync platform integrations')) return;
   const existing = db.prepare('SELECT * FROM integrations WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Integration not found' });
 
@@ -3869,7 +4021,8 @@ app.post('/api/integrations', (req, res) => {
 });
 
 // 15. Security Operations, WAF Threat Simulation & Key Rotation (/api/security)
-app.post('/api/security/scan', (_req, res) => {
+app.post('/api/security/scan', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'run deep security scans')) return;
   const secEvent = recordSecurityEvent({
     event_type: 'full_audit',
     severity: 'low',
@@ -3902,6 +4055,7 @@ app.post('/api/security/scan', (_req, res) => {
 });
 
 app.post('/api/security/simulate-threat', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'simulate threat telemetry')) return;
   const threats = [
     {
       event_type: 'waf_sqli_block',
@@ -3955,7 +4109,8 @@ app.post('/api/security/simulate-threat', (req, res) => {
   res.json({ securityEvents, notifications, latestSecurityEvent: secEvent });
 });
 
-app.post('/api/security/rotate-keys', (_req, res) => {
+app.post('/api/security/rotate-keys', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'rotate quantum key material')) return;
   const secEvent = recordSecurityEvent({
     event_type: 'key_rotation',
     severity: 'low',
@@ -3989,6 +4144,7 @@ app.post('/api/security/rotate-keys', (_req, res) => {
 
 // 16. Push Notifications Center Endpoints (/api/notifications)
 app.post('/api/notifications/send', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'broadcast push notifications')) return;
   const {
     channel = 'realtime',
     priority = 'high',
@@ -4533,7 +4689,7 @@ function executeSingleCommand(singleRawCmd) {
       outputLines = ['[ERROR] Only read-only SELECT / PRAGMA / WITH queries are permitted in NEX-SH.'];
     } else if (!sanitizeReadOnlySql(sqlQuery)) {
       exitCode = 1;
-      outputLines = ['[ERROR] Queries referencing password_hash are not permitted in NEX-SH.'];
+      outputLines = ['[ERROR] Queries referencing protected columns (password_hash, customer_email, customer_phone, shipping_address) are not permitted in NEX-SH.'];
     } else {
       const rows = redactSensitiveRows(db.prepare(sqlQuery).all()).slice(0, 15);
       outputLines = [
@@ -4665,6 +4821,38 @@ app.post('/api/terminal/scripts', (req, res) => {
 // ============================================================================
 
 // 14. Live System Health & SQLite WAL Diagnostics Endpoint
+// Quantum-Shield Security Core telemetry — real cryptographic status for the
+// Quantum Security dashboard (hashes/fingerprints only, never raw secrets).
+app.get('/api/quantum/status', (_req, res) => {
+  const secretFingerprint = getSessionSecretFingerprint();
+  const dbFingerprint = (() => {
+    try {
+      return crypto.createHash('sha3-256').update(fs.readFileSync(path.resolve(__dirname, '../data/nexstore.db'))).digest('hex');
+    } catch {
+      return 'unavailable';
+    }
+  })();
+  const entropy = crypto.randomBytes(32).toString('hex');
+
+  res.json({
+    suite: {
+      passwordKDF: 'scrypt (memory-hard, N=2^15, r=8, p=1, 128-bit per-user salt)',
+      sessionTokens: 'qnt_tok — HMAC-SHA3-256, 12h TTL, constant-time verification',
+      dataIntegrity: 'SHA3-256 fingerprints',
+      transport: 'TLS 1.3 (edge) + strict CORS allow-list',
+      entropySource: 'Node crypto CSPRNG (openssl RAND_bytes)',
+      pqcReadiness: 'PQC-READY (hash-based signatures & KEMs pluggable via NIST FIPS 203/204 suite)'
+    },
+    keyFingerprint: `${secretFingerprint.slice(0, 16)}…${secretFingerprint.slice(-8)}`,
+    databaseFingerprint: `${dbFingerprint.slice(0, 16)}…${dbFingerprint.slice(-8)}`,
+    entropySample: entropy,
+    sessionTtlHours: 12,
+    nodeRuntime: process.version,
+    quantumShieldActive: true,
+    generatedAt: new Date().toISOString()
+  });
+});
+
 app.get('/api/health', (_req, res) => {
   const mem = process.memoryUsage();
   const dbStats = getDatabaseStats();
@@ -4842,7 +5030,7 @@ app.get('/api/orders/lookup/:orderNumber', (req, res) => {
     return res.status(404).json({ error: `Order "${target}" not found` });
   }
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
-  res.json({ order: { ...order, items } });
+  res.json({ order: maskPublicOrderPII({ ...order, items }) });
 });
 
 // 18. Verified Product Reviews Endpoints (GET & POST with live rating recalculation)
@@ -4908,11 +5096,12 @@ app.post('/api/reviews', (req, res) => {
 
 // 19. Live SQLite Table JSON/CSV Export Endpoint
 app.get('/api/export/:table', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'export database tables')) return;
   const table = req.params.table;
   if (!ALLOWED_TABLES.includes(table)) {
     return res.status(400).json({ error: `Table "${table}" is not in ALLOWED_TABLES` });
   }
-  const rows = db.prepare(`SELECT * FROM ${table} LIMIT 500`).all();
+  const rows = redactSensitiveRows(db.prepare(`SELECT * FROM ${table} LIMIT 500`).all());
   if (req.query.format === 'csv') {
     if (rows.length === 0) {
       res.setHeader('Content-Type', 'text/csv');

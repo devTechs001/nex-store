@@ -27,6 +27,7 @@ import {
   getEnvAdminConfig,
   getHostingEnvAndBlueprintsConfig,
   hashPassword,
+  verifyPassword,
   createSessionToken,
   verifySessionToken,
   detectXssAttempt,
@@ -480,7 +481,8 @@ export async function runAllVerificationSuites() {
       await test('Authenticate Developer accounts (@aether_labs & @rustcore_sys) with scoped permissions', async () => {
         const devRow = db.prepare("SELECT * FROM user_accounts WHERE username = 'aether_labs'").get();
         assert.ok(devRow && devRow.role === 'developer');
-        assert.equal(devRow.password_hash, hashPassword('DevPass2026!'));
+        assert.ok(verifyPassword('DevPass2026!', devRow.password_hash), 'seeded developer password must verify');
+        assert.ok(devRow.password_hash.startsWith('qscrypt$'), 'passwords must use the quantum-hardened scrypt KDF');
 
         const devToken = createSessionToken(devRow);
         const verifiedDev = verifySessionToken(devToken, db);
@@ -494,7 +496,7 @@ export async function runAllVerificationSuites() {
       await test('Authenticate Shopper/User account (@amara_nbo) & verify non-admin role scoping', async () => {
         const userRow = db.prepare("SELECT * FROM user_accounts WHERE username = 'amara_nbo'").get();
         assert.ok(userRow && userRow.role === 'user');
-        assert.equal(userRow.password_hash, hashPassword('Shopper2026!'));
+        assert.ok(verifyPassword('Shopper2026!', userRow.password_hash), 'seeded user password must verify');
 
         const userToken = createSessionToken(userRow);
         const verifiedUser = verifySessionToken(userToken, db);

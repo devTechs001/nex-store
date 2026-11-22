@@ -26,7 +26,8 @@ import {
   hydrateProduct,
   hydrateApp
 } from './utils/storeEngine.js';
-import { authHeaders } from './utils/auth.js';
+import { authHeaders, getStoredToken, setStoredToken } from './utils/auth.js';
+import AuthGateView from './components/AuthGateView.jsx';
 import {
   playSound,
   requestDesktopPushPermission,
@@ -47,6 +48,58 @@ export default function App() {
     }
   });
   const [currency, setCurrency] = useState('USD');
+
+  // Quantum-Shield session: private portals (admin/developer/user/database/
+  // subsystems) render only for signed-in accounts with the required role.
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    const token = getStoredToken();
+    if (!token) return;
+    fetch('/api/auth/session', { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.account) {
+          setSession(data);
+        } else {
+          setStoredToken('');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleAuthenticated = useCallback((account, token) => {
+    setStoredToken(token || '');
+    setSession(account ? { account } : null);
+  }, []);
+
+  const PRIVATE_TAB_ROLES = {
+    subsystems: ['admin'],
+    database: ['admin'],
+    overview: ['admin'],
+    admin: ['admin'],
+    'developer-portal': ['admin', 'developer'],
+    'user-portal': ['admin', 'user']
+  };
+
+  const canAccessTab = useCallback(
+    (tab) => {
+      const roles = PRIVATE_TAB_ROLES[tab];
+      if (!roles) return true;
+      return Boolean(session?.account && roles.includes(session.account.role));
+    },
+    [session]
+  );
+
+  const renderAuthGate = (tab) => (
+    <AuthGateView
+      tab={tab}
+      session={session}
+      onAuthenticated={handleAuthenticated}
+      onNavigateTab={setActiveTab}
+      onPlaySound={handlePlaySound}
+    />
+  );
 
   // Sound Synthesizer & Desktop Push State
   const [soundEnabled, setSoundEnabled] = useState(() => {
@@ -778,7 +831,7 @@ export default function App() {
   const handleSimulateRealtime = async () => {
     handlePlaySound('ping');
     try {
-      const res = await fetch('/api/realtime/simulate', { method: 'POST' });
+      const res = await fetch('/api/realtime/simulate', { method: 'POST', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     const sampleProduct = products[Math.floor(Math.random() * products.length)];
@@ -1203,7 +1256,7 @@ export default function App() {
 
   const handlePulseServers = useCallback(async () => {
     try {
-      const res = await fetch('/api/servers/pulse', { method: 'POST' });
+      const res = await fetch('/api/servers/pulse', { method: 'POST', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     setServerNodes((prev) =>
@@ -1250,7 +1303,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/integrations/${intId}/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ toggleStatus })
       });
       if (isJsonResponse(res)) return;
@@ -1277,7 +1330,7 @@ export default function App() {
     try {
       const res = await fetch('/api/integrations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(intPayload)
       });
       if (isJsonResponse(res)) return;
@@ -1300,7 +1353,7 @@ export default function App() {
 
   const handleRunSecurityScan = async () => {
     try {
-      const res = await fetch('/api/security/scan', { method: 'POST' });
+      const res = await fetch('/api/security/scan', { method: 'POST', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     const now = new Date().toISOString();
@@ -1320,7 +1373,7 @@ export default function App() {
 
   const handleSimulateThreat = async () => {
     try {
-      const res = await fetch('/api/security/simulate-threat', { method: 'POST' });
+      const res = await fetch('/api/security/simulate-threat', { method: 'POST', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     const now = new Date().toISOString();
@@ -1352,7 +1405,7 @@ export default function App() {
 
   const handleRotateKeys = async () => {
     try {
-      const res = await fetch('/api/security/rotate-keys', { method: 'POST' });
+      const res = await fetch('/api/security/rotate-keys', { method: 'POST', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     const now = new Date().toISOString();
@@ -1375,7 +1428,7 @@ export default function App() {
     try {
       const res = await fetch('/api/notifications/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
       if (isJsonResponse(res)) return;
@@ -1867,7 +1920,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'subsystems' && (
+        {activeTab === 'subsystems' && !canAccessTab('subsystems') ? renderAuthGate('subsystems') : (
           <SubsystemsHubView
             serverNodes={serverNodes}
             integrations={integrations}
@@ -1904,9 +1957,11 @@ export default function App() {
           />
         )}
 
-        {['overview', 'admin', 'developer-portal', 'user-portal'].includes(activeTab) && (
+        {['overview', 'admin', 'developer-portal', 'user-portal'].includes(activeTab) && !canAccessTab(activeTab) ? renderAuthGate(activeTab) : (
           <AdminDashboardView
             portalMode={activeTab}
+            session={session}
+            onSessionChange={handleAuthenticated}
             products={products}
             apps={apps}
             appInstalls={appInstalls}
@@ -1945,7 +2000,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'database' && (
+        {activeTab === 'database' && !canAccessTab('database') ? renderAuthGate('database') : (
           <DatabaseStudioView
             dbStats={dbStats}
             darkMode={darkMode}

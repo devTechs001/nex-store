@@ -37,6 +37,8 @@ import {
 
 export default function AdminDashboardView({
   portalMode = 'admin',
+  session = null,
+  onSessionChange,
   products = [],
   apps = [],
   appInstalls = [],
@@ -84,14 +86,8 @@ export default function AdminDashboardView({
       setAdminSection('overview');
     } else if (portalMode === 'developer-portal') {
       setAdminSection('developer-portal');
-      if (activeAccount.role !== 'developer') {
-        handleQuickSwitchAccount('aether_labs', 'DevPass2026!', 'developer');
-      }
     } else if (portalMode === 'user-portal') {
       setAdminSection('user-portal');
-      if (activeAccount.role !== 'user') {
-        handleQuickSwitchAccount('amara_nbo', 'Shopper2026!', 'user');
-      }
     } else if (portalMode === 'admin') {
       setAdminSection((prev) =>
         ['developer-portal', 'user-portal'].includes(prev) ? 'inventory' : prev
@@ -99,19 +95,34 @@ export default function AdminDashboardView({
     }
   }, [portalMode]);
 
-  // Root Admin (.env), Developer & System User RBAC Auth State
-  const [activeAccount, setActiveAccount] = useState({
-    id: 'admin-root-env',
-    username: 'nex_root_admin',
-    email: 'admin@nexstore.dev',
-    display_name: 'NEX Root Administrator (.env)',
-    role: 'admin',
-    company: 'NEX Store Root Operations',
-    avatar: '🛡️',
-    permissions: ['*'],
-    source: '.env'
-  });
+  // Root Admin (.env), Developer & System User RBAC Auth State.
+  // No privileged session is assumed: until a real login succeeds the console
+  // runs as a signed-out guest and every privileged API call is rejected.
+  const SIGNED_OUT_ACCOUNT = {
+    id: '',
+    username: 'guest',
+    email: '',
+    display_name: 'Signed Out',
+    role: 'guest',
+    company: '',
+    avatar: '🔒',
+    permissions: [],
+    source: 'none'
+  };
+  const [activeAccount, setActiveAccount] = useState(session?.account || SIGNED_OUT_ACCOUNT);
   const [authToken, setAuthToken] = useState(() => getStoredToken());
+
+  // Stay in sync with the app-level Quantum-Shield session
+  useEffect(() => {
+    if (session?.account) {
+      setActiveAccount(session.account);
+      setAuthToken(getStoredToken());
+    } else if (!session) {
+      setActiveAccount(SIGNED_OUT_ACCOUNT);
+      setAuthToken('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
   const [loginIdentifier, setLoginIdentifier] = useState('nex_root_admin');
   const [loginPassword, setLoginPassword] = useState('');
   const [authFeedback, setAuthFeedback] = useState(null);
@@ -124,7 +135,7 @@ export default function AdminDashboardView({
   // Register Developer / User Account Form
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('DevPass2026!');
+  const [regPassword, setRegPassword] = useState('');
   const [regCompany, setRegCompany] = useState('Quantum Foundry Labs');
   const [regRole, setRegRole] = useState('developer');
   const [regAvatarUrl, setRegAvatarUrl] = useState('');
@@ -490,6 +501,23 @@ export default function AdminDashboardView({
     }
   };
 
+  // Quick-switch for developer/user accounts prompts for the real password —
+  // no credential is ever embedded in the client bundle.
+  const handleQuickSwitchPrompt = (identifier, roleHint, targetSection = null) => {
+    const pass = window.prompt(`Enter the password for ${identifier}:`);
+    if (pass) {
+      handleQuickSwitchAccount(identifier, pass, roleHint, targetSection);
+    }
+  };
+
+  const handleLogout = () => {
+    setStoredToken('');
+    setAuthToken('');
+    setActiveAccount(SIGNED_OUT_ACCOUNT);
+    onSessionChange?.(null, '');
+    setAuthFeedback({ type: 'success', message: 'Signed out — private portals are now locked.' });
+  };
+
   const handleLoginSubmit = async (e) => {
     e?.preventDefault();
     try {
@@ -509,6 +537,7 @@ export default function AdminDashboardView({
       setActiveAccount(data.account);
       setAuthToken(data.token || '');
       setStoredToken(data.token || '');
+      onSessionChange?.(data.account, data.token);
       setAuthFeedback({
         type: 'success',
         message: `Authenticated as ${data.account.display_name} [${data.account.role.toUpperCase()}] via ${data.account.source}`
@@ -541,6 +570,7 @@ export default function AdminDashboardView({
         setActiveAccount(data.account);
         setAuthToken(data.token || '');
         setStoredToken(data.token || '');
+        onSessionChange?.(data.account, data.token);
         setAuthFeedback({
           type: 'success',
           message: `Switched active RBAC session to ${data.account.display_name} (${data.account.role.toUpperCase()} PORTAL)`
@@ -587,6 +617,7 @@ export default function AdminDashboardView({
       setActiveAccount(data.account);
       setAuthToken(data.token || '');
       setStoredToken(data.token || '');
+      onSessionChange?.(data.account, data.token);
       setRegUsername('');
       setRegEmail('');
       setRegAvatarUrl('');
@@ -1097,12 +1128,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount(
-                    'aether_labs',
-                    'DevPass2026!',
-                    'developer',
-                    'developer-portal'
-                  )
+                  handleQuickSwitchPrompt('aether_labs', 'developer', 'developer-portal')
                 }
                 className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
                   activeAccount.username === 'aether_labs'
@@ -1115,12 +1141,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount(
-                    'rustcore_sys',
-                    'RustCore2026!',
-                    'developer',
-                    'developer-portal'
-                  )
+                  handleQuickSwitchPrompt('rustcore_sys', 'developer', 'developer-portal')
                 }
                 className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
                   activeAccount.username === 'rustcore_sys'
@@ -1133,12 +1154,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount(
-                    'amara_nbo',
-                    'Shopper2026!',
-                    'user',
-                    'user-portal'
-                  )
+                  handleQuickSwitchPrompt('amara_nbo', 'user', 'user-portal')
                 }
                 className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
                   activeAccount.role === 'user'
@@ -1147,6 +1163,13 @@ export default function AdminDashboardView({
                 }`}
               >
                 👤 User: @amara_nbo
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition bg-rose-500/15 border border-rose-500/40 text-rose-300 hover:bg-rose-500/25"
+              >
+                ⎋ Sign Out
               </button>
             </div>
           </div>
