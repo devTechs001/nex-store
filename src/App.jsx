@@ -26,6 +26,7 @@ import {
   hydrateProduct,
   hydrateApp
 } from './utils/storeEngine.js';
+import { authHeaders } from './utils/auth.js';
 import {
   playSound,
   requestDesktopPushPermission,
@@ -803,7 +804,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/products/${productId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ stock: newStock, stockReason })
       });
       if (isJsonResponse(res)) return;
@@ -817,7 +818,7 @@ export default function App() {
   const handleBulkRestockLow = async () => {
     handlePlaySound('success');
     try {
-      const res = await fetch('/api/products/restock-low', { method: 'POST' });
+      const res = await fetch('/api/products/restock-low', { method: 'POST', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     setProducts((prev) =>
@@ -831,7 +832,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/products/${productId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           is_flash_sale: isFlash,
           badge: isFlash ? 'FLASH DEAL' : 'FLAGSHIP'
@@ -854,7 +855,7 @@ export default function App() {
     try {
       const res = await fetch('/api/products', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(productPayload)
       });
       if (isJsonResponse(res)) {
@@ -916,7 +917,7 @@ export default function App() {
 
   const handleDeleteProduct = async (productId) => {
     try {
-      const res = await fetch(`/api/products/${productId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/products/${productId}`, { method: 'DELETE', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     setProducts((prev) => prev.filter((p) => p.id !== productId));
@@ -928,7 +929,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/orders/${orderId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ status })
       });
       if (isJsonResponse(res)) return;
@@ -951,7 +952,7 @@ export default function App() {
     try {
       const res = await fetch('/api/coupons', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(couponPayload)
       });
       if (isJsonResponse(res)) return;
@@ -972,7 +973,7 @@ export default function App() {
 
   const handleToggleCoupon = async (couponId) => {
     try {
-      const res = await fetch(`/api/coupons/${couponId}`, { method: 'PATCH' });
+      const res = await fetch(`/api/coupons/${couponId}`, { method: 'PATCH', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     setCoupons((prev) =>
@@ -1035,7 +1036,7 @@ export default function App() {
   const handleResetDatabase = async () => {
     handlePlaySound('server');
     try {
-      const res = await fetch('/api/db/reset', { method: 'POST' });
+      const res = await fetch('/api/db/reset', { method: 'POST', headers: authHeaders() });
       if (isJsonResponse(res)) return;
     } catch {}
     const fresh = getFallbackBootstrapData();
@@ -1119,7 +1120,7 @@ export default function App() {
     try {
       const res = await fetch('/api/apps', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(appPayload)
       });
       if (isJsonResponse(res)) return;
@@ -1175,7 +1176,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/servers/${serverId}/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ action })
       });
       if (isJsonResponse(res)) return;
@@ -1219,7 +1220,7 @@ export default function App() {
     try {
       const res = await fetch('/api/servers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(srvPayload)
       });
       if (isJsonResponse(res)) return;

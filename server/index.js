@@ -107,6 +107,32 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// RBAC helper: privileged management endpoints require an authenticated Root Admin.
+// Unauthenticated requests must NEVER pass a role check.
+function rejectUnlessAdmin(req, res, action) {
+  if (!req.actor || req.actor.role !== 'admin') {
+    res.status(403).json({
+      error: `RBAC Restriction: Only Root Admin (.env) can ${action}.`
+    });
+    return true;
+  }
+  return false;
+}
+
+// Read-only SQL consoles (SQL Explorer & NEX-SH `nex sql`) must never expose
+// credential hashes: block column references and redact it from result rows.
+function sanitizeReadOnlySql(sql) {
+  return !/password_hash/i.test(sql);
+}
+
+function redactSensitiveRows(rows) {
+  return rows.map((row) =>
+    row && typeof row === 'object' && 'password_hash' in row
+      ? { ...row, password_hash: '[REDACTED]' }
+      : row
+  );
+}
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -544,6 +570,9 @@ app.get('/api/overview/dashboard', (req, res) => {
 
 // Direct Zero-Canvas Image File Upload & Validation Endpoint (POST /api/upload/image)
 app.post('/api/upload/image', (req, res) => {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to upload images.' });
+  }
   const {
     imageDataUrl = '',
     dataUrl = '',
@@ -670,7 +699,7 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const expectedHash = hashPassword(cleanPass);
-  if (found.password_hash !== expectedHash && cleanPass !== 'demo-switch') {
+  if (found.password_hash !== expectedHash) {
     return res.status(401).json({ error: 'Invalid password for developer/user account.' });
   }
 
@@ -770,6 +799,11 @@ app.post('/api/auth/register', (req, res) => {
 
 // Profile Image & Account Profile Update Endpoints (Zero-Canvas Real Image File Support)
 function handleProfileUpdateAndAvatar(req, res) {
+  // Profile updates always require an authenticated actor — unauthenticated
+  // requests must never reach the ownership checks below.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to update profiles or avatars.' });
+  }
   const {
     accountId = '',
     username = '',
@@ -1066,12 +1100,18 @@ app.get('/api/developer/my-progress', (req, res) => {
 });
 
 // 2a-ii. Multi-Cloud Hosting (Netlify, Render, Vercel, Fly.io, Railway, Cloudflare) & Auto-Scaling Endpoints
-app.get('/api/hosting/env-config', (_req, res) => {
+app.get('/api/hosting/env-config', (req, res) => {
+  // Secrets (.env contents, API keys, tokens) are strictly Root Admin only.
+  if (!req.actor || req.actor.role !== 'admin') {
+    return res.status(403).json({
+      error: 'RBAC Restriction: Only Root Admin (.env) can view global Render & Netlify .env variables.'
+    });
+  }
   res.json(getHostingEnvAndBlueprintsConfig());
 });
 
 app.post('/api/hosting/env-config', (req, res) => {
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor || req.actor.role !== 'admin') {
     return res.status(403).json({
       error: 'RBAC Restriction: Only Root Admin (.env) can modify global Render & Netlify .env variables.'
     });
@@ -1096,6 +1136,10 @@ app.get('/api/hosting/deployments', (_req, res) => {
 });
 
 app.post('/api/hosting/deploy', (req, res) => {
+  // Deployments must be created by an authenticated Root Admin or Developer.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to provision cloud deployments.' });
+  }
   const {
     app_id = 'app-custom',
     app_name = 'Custom NEX Cloud Service',
@@ -1172,9 +1216,12 @@ app.patch('/api/hosting/:id/scale', (req, res) => {
   const existing = db.prepare('SELECT * FROM hosting_deployments WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Hosting deployment not found' });
 
-  // RBAC check: Only Root Admin (.env) or the deployment owner can scale/modify a deployment
+  // RBAC check: Only Root Admin (.env) or the deployment owner can scale/modify a deployment.
+  // Unauthenticated requests are rejected outright (never allowed past a role check).
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to modify hosting deployments.' });
+  }
   if (
-    req.actor &&
     req.actor.role !== 'admin' &&
     req.actor.username.toLowerCase() !== existing.owner_username.toLowerCase()
   ) {
@@ -1229,8 +1276,8 @@ app.get('/api/security/blocked-ips', (_req, res) => {
 });
 
 app.post('/api/security/blocked-ips', (req, res) => {
-  // Enforce RBAC: non-admin developers/users cannot directly modify root IP firewall rules
-  if (req.actor && req.actor.role !== 'admin') {
+  // Enforce RBAC: unauthenticated callers and non-admin developers/users cannot modify root IP firewall rules
+  if (!req.actor || req.actor.role !== 'admin') {
     return res.status(403).json({
       error: 'RBAC Restriction: Only Root Admin (authenticated via .env) can add IP Firewall block rules.'
     });
@@ -1289,7 +1336,7 @@ app.post('/api/security/blocked-ips', (req, res) => {
 });
 
 app.delete('/api/security/blocked-ips/:id', (req, res) => {
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor || req.actor.role !== 'admin') {
     return res.status(403).json({
       error: 'RBAC Restriction: Only Root Admin (.env) can unblock IPs.'
     });
@@ -1351,7 +1398,7 @@ app.post('/api/security/reports', (req, res) => {
 });
 
 app.patch('/api/security/reports/:id', (req, res) => {
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor || req.actor.role !== 'admin') {
     return res.status(403).json({
       error: 'RBAC Restriction: Only Root Admin (.env) can resolve or quarantine security reports.'
     });
@@ -1461,7 +1508,11 @@ app.post('/api/apps/inspect-url', async (req, res) => {
 });
 
 function handlePublishDeveloperAppOrSystem(req, res) {
-  if (req.actor && req.actor.role === 'user') {
+  // Publishing requires an authenticated Developer or Root Admin account.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to publish developer packages.' });
+  }
+  if (req.actor.role === 'user') {
     return res.status(403).json({
       error: 'RBAC Isolation: Normal System Users cannot publish developer packages. Switch to a Developer account or Root Admin.'
     });
@@ -1628,7 +1679,10 @@ app.patch('/api/apps/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'App not found' });
 
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to modify published apps.' });
+  }
+  if (req.actor.role !== 'admin') {
     const devMatch =
       String(existing.developer || '').toLowerCase().includes(req.actor.username.toLowerCase()) ||
       String(existing.developer_email || '').toLowerCase() === String(req.actor.email || '').toLowerCase();
@@ -1694,7 +1748,10 @@ app.delete('/api/apps/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'App not found' });
 
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to delete published apps.' });
+  }
+  if (req.actor.role !== 'admin') {
     const devMatch =
       String(existing.developer || '').toLowerCase().includes(req.actor.username.toLowerCase()) ||
       String(existing.developer_email || '').toLowerCase() === String(req.actor.email || '').toLowerCase();
@@ -2004,6 +2061,7 @@ app.get('/api/subscriptions', (_req, res) => {
 });
 
 app.post('/api/subscriptions/plans', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'create subscription plans')) return;
   const {
     name = 'Custom Developer Tier',
     code = `TIER_${Date.now().toString(36).toUpperCase()}`,
@@ -2063,6 +2121,7 @@ app.post('/api/subscriptions/plans', (req, res) => {
 });
 
 app.patch('/api/subscriptions/plans/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'modify subscription plans')) return;
   const existing = db.prepare('SELECT * FROM subscription_plans WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Subscription plan not found' });
 
@@ -2124,6 +2183,7 @@ app.patch('/api/subscriptions/plans/:id', (req, res) => {
 });
 
 app.delete('/api/subscriptions/plans/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'delete subscription plans')) return;
   db.prepare('DELETE FROM subscription_plans WHERE id = ?').run(req.params.id);
   const subscriptionPlans = db
     .prepare('SELECT * FROM subscription_plans ORDER BY tier_level ASC')
@@ -2197,6 +2257,7 @@ app.get('/api/mobile/addons', (_req, res) => {
 });
 
 app.post('/api/mobile/addons', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'create mobile add-ons')) return;
   const {
     name = 'Custom Flutter / Native Add-On',
     slug = `addon-${Date.now().toString(36)}`,
@@ -2237,6 +2298,7 @@ app.post('/api/mobile/addons', (req, res) => {
 });
 
 app.patch('/api/mobile/addons/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'modify mobile add-ons')) return;
   const existing = db.prepare('SELECT * FROM mobile_addons WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Mobile add-on not found' });
 
@@ -2360,6 +2422,7 @@ app.get('/api/products/:id', (req, res) => {
 });
 
 app.post('/api/products', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'create hardware products')) return;
   try {
     const {
       name,
@@ -2518,6 +2581,7 @@ app.post('/api/products', (req, res) => {
 });
 
 app.patch('/api/products/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'modify hardware products')) return;
   try {
     const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Product not found' });
@@ -2658,6 +2722,7 @@ app.patch('/api/products/:id', (req, res) => {
 });
 
 app.delete('/api/products/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'delete hardware products')) return;
   const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
 
@@ -2804,6 +2869,7 @@ app.post('/api/coupons/validate', (req, res) => {
 });
 
 app.post('/api/coupons', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'create coupons')) return;
   try {
     const {
       code,
@@ -2856,6 +2922,7 @@ app.post('/api/coupons', (req, res) => {
 });
 
 app.patch('/api/coupons/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'modify coupons')) return;
   const existing = db.prepare('SELECT * FROM coupons WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Coupon not found' });
 
@@ -3134,6 +3201,7 @@ app.get('/api/payments', (_req, res) => {
 });
 
 app.post('/api/payments/process', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'process payment transactions')) return;
   const {
     order_id = `ord-${Date.now()}`,
     order_number = `NEX-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -3201,6 +3269,7 @@ app.post('/api/payments/process', (req, res) => {
 });
 
 app.patch('/api/orders/:id/status', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'update order status')) return;
   const order = db.prepare('SELECT * FROM orders WHERE id = ? OR order_number = ?').get(req.params.id, req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -3353,6 +3422,7 @@ app.post('/api/mongo/query', (req, res) => {
 });
 
 app.post('/api/mongo/insert', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'insert MongoDB BSON documents')) return;
   try {
     const { collection = 'products', document = {} } = req.body || {};
     const parsedDoc = typeof document === 'string' ? JSON.parse(document || '{}') : document || {};
@@ -3412,9 +3482,14 @@ app.post('/api/db/query', (req, res) => {
         error: 'Only read-only SELECT / PRAGMA / WITH queries are permitted in the SQL Explorer.'
       });
     }
+    if (!sanitizeReadOnlySql(trimmed)) {
+      return res.status(400).json({
+        error: 'Queries referencing password_hash are not permitted in the SQL Explorer.'
+      });
+    }
 
     const startTime = performance.now();
-    const rows = db.prepare(trimmed).all();
+    const rows = redactSensitiveRows(db.prepare(trimmed).all());
     const durationMs = Number((performance.now() - startTime).toFixed(2));
 
     res.json({
@@ -3427,7 +3502,8 @@ app.post('/api/db/query', (req, res) => {
   }
 });
 
-app.post('/api/db/reset', (_req, res) => {
+app.post('/api/db/reset', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'reset the database')) return;
   seedDatabase({ forceReset: true });
   const activity = recordActivityEvent({
     event_type: 'stock_update',
@@ -3509,7 +3585,8 @@ app.post('/api/subscribers', (req, res) => {
 });
 
 // 11. Bulk Restock Low-Stock Products (System Operations Improvement)
-app.post('/api/products/restock-low', (_req, res) => {
+app.post('/api/products/restock-low', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'restock low-stock inventory')) return;
   const lowProducts = db
     .prepare('SELECT * FROM products WHERE stock <= low_stock_threshold + 2')
     .all();
@@ -3584,6 +3661,7 @@ app.get('/api/system/health', (_req, res) => {
 
 // 13. Real-Time Edge Server Cluster Subsystem (/api/servers)
 app.post('/api/servers/:id/action', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'control edge server nodes')) return;
   const node = db.prepare('SELECT * FROM server_nodes WHERE id = ?').get(req.params.id);
   if (!node) return res.status(404).json({ error: 'Server node not found' });
 
@@ -3673,6 +3751,7 @@ app.post('/api/servers/pulse', (_req, res) => {
 });
 
 app.post('/api/servers', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'provision edge server nodes')) return;
   const {
     name = 'Singapore Edge Node (AP-Southeast-1)',
     region = 'Singapore, SG',
@@ -4452,8 +4531,11 @@ function executeSingleCommand(singleRawCmd) {
     if (!/^(SELECT|PRAGMA|WITH)\b/i.test(sqlQuery) || /;\s*(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE)\b/i.test(sqlQuery)) {
       exitCode = 1;
       outputLines = ['[ERROR] Only read-only SELECT / PRAGMA / WITH queries are permitted in NEX-SH.'];
+    } else if (!sanitizeReadOnlySql(sqlQuery)) {
+      exitCode = 1;
+      outputLines = ['[ERROR] Queries referencing password_hash are not permitted in NEX-SH.'];
     } else {
-      const rows = db.prepare(sqlQuery).all().slice(0, 15);
+      const rows = redactSensitiveRows(db.prepare(sqlQuery).all()).slice(0, 15);
       outputLines = [
         `Query returned ${rows.length} row(s):`,
         ...rows.map((r) => JSON.stringify(r))
@@ -4889,6 +4971,7 @@ app.get('/api/tests/run', async (_req, res) => {
 });
 
 app.post('/api/tests/run', async (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'run verification suites')) return;
   try {
     const report = await runAllVerificationSuites();
     recordTerminalLog({

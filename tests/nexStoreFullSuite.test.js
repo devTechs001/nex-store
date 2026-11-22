@@ -222,6 +222,54 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.equal(adminScale.status, 200);
       assert.equal(adminScale.data.deployment.current_instances, 3);
     });
+
+    it('rejects the removed demo-switch login backdoor and unauthenticated privileged writes', async () => {
+      // Universal "demo-switch" password backdoor must be gone -> 401
+      const backdoor = await apiRequest('/api/auth/login', {
+        method: 'POST',
+        body: { identifier: 'aether_labs', password: 'demo-switch' }
+      });
+      assert.equal(backdoor.status, 401);
+
+      // Unauthenticated requests must never pass admin RBAC guards -> 403
+      const unauthEnv = await apiRequest('/api/hosting/env-config');
+      assert.equal(unauthEnv.status, 403);
+
+      const unauthEnvWrite = await apiRequest('/api/hosting/env-config', {
+        method: 'POST',
+        body: { updates: { NEX_ADMIN_PASSWORD: 'pwned' } }
+      });
+      assert.equal(unauthEnvWrite.status, 403);
+
+      const unauthProduct = await apiRequest('/api/products', {
+        method: 'POST',
+        body: { name: 'Unauth Probe', sku: 'UNAUTH-PROBE', price: 1, stock: 1 }
+      });
+      assert.equal(unauthProduct.status, 403);
+
+      const unauthFirewall = await apiRequest('/api/security/blocked-ips', {
+        method: 'POST',
+        body: { ip_address: '198.51.100.77', reason: 'unauth probe' }
+      });
+      assert.equal(unauthFirewall.status, 403);
+
+      const someOrder = db.prepare('SELECT id, status FROM orders LIMIT 1').get();
+      if (someOrder) {
+        const unauthStatus = await apiRequest(`/api/orders/${someOrder.id}/status`, {
+          method: 'PATCH',
+          body: { status: 'processing' }
+        });
+        assert.equal(unauthStatus.status, 403);
+        db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(someOrder.status, someOrder.id);
+      }
+
+      // The SQL Explorer must never expose credential hashes
+      const hashProbe = await apiRequest('/api/db/query', {
+        method: 'POST',
+        body: { sql: 'SELECT password_hash FROM user_accounts' }
+      });
+      assert.equal(hashProbe.status, 400);
+    });
   });
 
   // ============================================================================
@@ -585,6 +633,7 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
 
       const insertRes = await apiRequest('/api/mongo/insert', {
         method: 'POST',
+        token: adminToken,
         body: {
           collection: 'products',
           document: {

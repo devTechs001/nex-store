@@ -26,6 +26,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
+import { getStoredToken, setStoredToken, authHeaders } from '../utils/auth.js';
 import {
   getProductArtUrl,
   isCustomImageSource,
@@ -110,9 +111,9 @@ export default function AdminDashboardView({
     permissions: ['*'],
     source: '.env'
   });
-  const [authToken, setAuthToken] = useState('');
+  const [authToken, setAuthToken] = useState(() => getStoredToken());
   const [loginIdentifier, setLoginIdentifier] = useState('nex_root_admin');
-  const [loginPassword, setLoginPassword] = useState('NEX-Root-Admin-2026!#');
+  const [loginPassword, setLoginPassword] = useState('');
   const [authFeedback, setAuthFeedback] = useState(null);
   const [devProgress, setDevProgress] = useState(null);
   const [userDashboardData, setUserDashboardData] = useState(null);
@@ -373,7 +374,7 @@ export default function AdminDashboardView({
       { key: 'NODE_ENV', value: 'production' },
       { key: 'RENDER_SERVICE_NAME', value: 'nex-store-lj5j' },
       { key: 'RENDER_EXTERNAL_URL', value: 'https://nex-store-lj5j.onrender.com' },
-      { key: 'MONGODB_URI', value: 'mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority' },
+      { key: 'MONGODB_URI', value: 'mongodb+srv://CHANGE_ME:CHANGE_ME@CHANGE_ME.mongodb.net/nex_store?retryWrites=true&w=majority' },
       { key: 'NEX_ADMIN_USERNAME', value: 'nex_root_admin' },
       { key: 'CORS_ALLOWED_ORIGINS', value: 'https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com' }
     ],
@@ -386,7 +387,7 @@ export default function AdminDashboardView({
       { key: 'VITE_WS_URL', value: 'wss://nex-store-lj5j.onrender.com/ws' },
       { key: 'VITE_RENDER_BACKEND_URL', value: 'https://nex-store-lj5j.onrender.com' }
     ],
-    renderEnvText: `# === RENDER CLOUD BACKEND ENVIRONMENT (https://nex-store-lj5j.onrender.com) ===\nPORT=3000\nHOST=0.0.0.0\nNODE_ENV=production\nRENDER=true\nRENDER_SERVICE_NAME=nex-store-lj5j\nRENDER_EXTERNAL_URL=https://nex-store-lj5j.onrender.com\nMONGODB_URI=mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority\nNEX_ADMIN_USERNAME=nex_root_admin\nNEX_ADMIN_EMAIL=admin@nexstore.dev\nNEX_ADMIN_PASSWORD=NEX-Root-Admin-2026!#\nCORS_ALLOWED_ORIGINS=https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com`,
+    renderEnvText: `# === RENDER CLOUD BACKEND ENVIRONMENT (https://nex-store-lj5j.onrender.com) ===\nPORT=3000\nHOST=0.0.0.0\nNODE_ENV=production\nRENDER=true\nRENDER_SERVICE_NAME=nex-store-lj5j\nRENDER_EXTERNAL_URL=https://nex-store-lj5j.onrender.com\nMONGODB_URI=mongodb+srv://CHANGE_ME:CHANGE_ME@CHANGE_ME.mongodb.net/nex_store?retryWrites=true&w=majority\nNEX_ADMIN_USERNAME=nex_root_admin\nNEX_ADMIN_EMAIL=admin@nexstore.dev\nNEX_ADMIN_PASSWORD=CHANGE_ME_ROOT_ADMIN_PASSWORD\nCORS_ALLOWED_ORIGINS=https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com`,
     netlifyEnvText: `# === NETLIFY EDGE FRONTEND ENVIRONMENT (https://nex-store-pro.netlify.app) ===\nNETLIFY=true\nNODE_VERSION=22\nNPM_FLAGS=--include=dev --no-audit --no-fund\nNETLIFY_SITE_NAME=nex-store-pro\nURL=https://nex-store-pro.netlify.app\nDEPLOY_PRIME_URL=https://main--nex-store-pro.netlify.app\nVITE_API_BASE_URL=https://nex-store-lj5j.onrender.com\nVITE_WS_URL=wss://nex-store-lj5j.onrender.com/ws\nVITE_RENDER_BACKEND_URL=https://nex-store-lj5j.onrender.com`,
     renderYaml: `services:\n  - type: web\n    name: nex-store-lj5j\n    runtime: node\n    buildCommand: npm install --include=dev --no-audit --no-fund && npm run build\n    startCommand: npm start\n    healthCheckPath: /api/health`,
     netlifyToml: `[build]\n  command = "npm install --include=dev --no-audit --no-fund && npm run build"\n  publish = "dist"\n\n[[redirects]]\n  from = "/api/*"\n  to = "https://nex-store-lj5j.onrender.com/api/:splat"\n  status = 200\n  force = true`
@@ -478,6 +479,17 @@ export default function AdminDashboardView({
     }
   };
 
+  // Root Admin sign-in always requires the operator-configured password
+  // (NEX_ADMIN_PASSWORD in .env) — never a value shipped in client code.
+  const handleQuickSwitchRootAdmin = (targetSection = null) => {
+    const pass = window.prompt(
+      'Enter the Root Admin password (configured as NEX_ADMIN_PASSWORD in .env):'
+    );
+    if (pass) {
+      handleQuickSwitchAccount('nex_root_admin', pass, 'admin', targetSection);
+    }
+  };
+
   const handleLoginSubmit = async (e) => {
     e?.preventDefault();
     try {
@@ -496,6 +508,7 @@ export default function AdminDashboardView({
       }
       setActiveAccount(data.account);
       setAuthToken(data.token || '');
+      setStoredToken(data.token || '');
       setAuthFeedback({
         type: 'success',
         message: `Authenticated as ${data.account.display_name} [${data.account.role.toUpperCase()}] via ${data.account.source}`
@@ -527,6 +540,7 @@ export default function AdminDashboardView({
       if (res.ok && data.account) {
         setActiveAccount(data.account);
         setAuthToken(data.token || '');
+        setStoredToken(data.token || '');
         setAuthFeedback({
           type: 'success',
           message: `Switched active RBAC session to ${data.account.display_name} (${data.account.role.toUpperCase()} PORTAL)`
@@ -572,6 +586,7 @@ export default function AdminDashboardView({
       if (Array.isArray(data.userAccounts)) setLocalAccounts(data.userAccounts);
       setActiveAccount(data.account);
       setAuthToken(data.token || '');
+      setStoredToken(data.token || '');
       setRegUsername('');
       setRegEmail('');
       setRegAvatarUrl('');
@@ -738,7 +753,7 @@ export default function AdminDashboardView({
     e.preventDefault();
     const res = await fetch('/api/payments/process', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         customer_name: testPayCustomer.trim() || 'Verified Buyer',
         customer_email: 'buyer@nexstore.dev',
@@ -1067,10 +1082,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount(
-                    'nex_root_admin',
-                    'NEX-Root-Admin-2026!#',
-                    'admin',
+                  handleQuickSwitchRootAdmin(
                     'inventory'
                   )
                 }
@@ -1672,7 +1684,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount('nex_root_admin', 'NEX-Root-Admin-2026!#', 'admin')
+                  handleQuickSwitchRootAdmin()
                 }
                 className="rounded-xl bg-emerald-500 hover:bg-emerald-400 px-3.5 py-2 font-mono-num text-xs font-bold text-slate-950 cursor-pointer"
               >

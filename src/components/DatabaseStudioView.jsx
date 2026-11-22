@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { authHeaders } from '../utils/auth.js';
 import {
   Database,
   Table,
@@ -114,7 +115,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
       const parsed = JSON.parse(mongoInsertJson);
       const res = await fetch('/api/mongo/insert', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           collection: selectedTable,
           document: parsed
