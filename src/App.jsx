@@ -2075,11 +2075,22 @@ export default function App() {
               handlePlaySound('click');
               setShareTarget(app);
             }}
+            onNavigateTab={(tab) => {
+              handlePlaySound('click');
+              setActiveTab(tab);
+            }}
           />
         )}
 
         {activeTab === 'syscheck' && !canAccessTab('syscheck') ? renderAuthGate('syscheck') : (
-          <SysCheckView session={session} onPlaySound={handlePlaySound} />
+          <SysCheckView
+            session={session}
+            onPlaySound={handlePlaySound}
+            onNavigateTab={(tab) => {
+              handlePlaySound('click');
+              setActiveTab(tab);
+            }}
+          />
         )}
 
         {/* Global Copyright & Anti-Piracy DRM Protection Footer */}

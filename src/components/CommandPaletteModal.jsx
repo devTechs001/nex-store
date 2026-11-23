@@ -76,7 +76,7 @@ export default function CommandPaletteModal({
       hint: 'Browse catalog & flash deals',
       icon: Store,
       action: () => {
-        setActiveTab('storefront');
+        setActiveTab('store');
         onClose();
       }
     },

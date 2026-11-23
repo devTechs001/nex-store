@@ -25,7 +25,7 @@ function StarPicker({ value, onChange, disabled }) {
  * per-app reviews (1-5 stars) and threaded comment discussions.
  * Readable by everyone; posting requires a session.
  */
-export default function CommunityView({ session, apps = [], onPlaySound, onShareApp }) {
+export default function CommunityView({ session, apps = [], onPlaySound, onShareApp, onNavigateTab }) {
   const [shares, setShares] = useState([]);
   const [selectedAppId, setSelectedAppId] = useState(apps[0]?.id || '');
   const [reviews, setReviews] = useState([]);
@@ -168,8 +168,18 @@ export default function CommunityView({ session, apps = [], onPlaySound, onShare
         </p>
         {authed && onShareApp && (
           <p className="mt-2 text-[11px] text-cyan-300">
-            Signed in as <b>{session.account?.username}</b> — use “Share” on any app card in the
-            App Store, or pick one below.
+            Signed in as <b>{session.account?.username}</b> — use “Share” on any app card in the{' '}
+            <button
+              type="button"
+              onClick={() => {
+                onPlaySound?.('click');
+                onNavigateTab?.('apps');
+              }}
+              className="underline font-semibold cursor-pointer"
+            >
+              App Store
+            </button>
+            , or pick one below.
           </p>
         )}
       </div>

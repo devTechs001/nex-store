@@ -13,6 +13,8 @@
 
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   db,
   seedDatabase,
@@ -653,6 +655,32 @@ export async function runAllVerificationSuites() {
       assert.ok(/Test Ledger/.test(row.provider) && !/Live/i.test(row.provider), 'sandbox label must be honest');
       db.prepare('DELETE FROM payment_transactions WHERE id = ?').run(payId);
       return 'Verified sandbox settlement labeling (TEST_SETTLED, mode=test, no Live claims)';
+    });
+  });
+
+  // ============================================================================
+  // SUITE: NAVIGATION WIRING INTEGRITY (EVERY LINK RESOLVES TO A REAL TARGET)
+  // ============================================================================
+  await runSuite('nav-wiring', 'Navigation Wiring Integrity', 'Platform Integrity', async (testCase) => {
+    await testCase('all App-wired nav targets resolve to real tabs/overlays', () => {
+      const VALID = new Set([
+        'store', 'apps', 'mobile-subs', 'subsystems', 'tracker', 'admin', 'database',
+        'docs', 'overview', 'developer-portal', 'user-portal', 'community', 'syscheck', 'rig-builder'
+      ]);
+      const bad = [];
+      for (const rel of [
+        'src/components/CommandPaletteModal.jsx',
+        'src/components/AdminDashboardView.jsx',
+        'src/components/SysCheckView.jsx',
+        'src/components/CommunityView.jsx'
+      ]) {
+        const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+        for (const m of src.matchAll(/(?:setActiveTab|onNavigateTab)\??\.?\?\(\s*'([a-z-]+)'/g)) {
+          if (!VALID.has(m[1])) bad.push(`${rel} -> '${m[1]}'`);
+        }
+      }
+      assert.deepEqual(bad, [], `dead nav targets: ${bad.join(', ')}`);
+      return 'Verified every dashboard link resolves to a real destination';
     });
   });
 

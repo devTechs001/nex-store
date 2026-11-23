@@ -731,14 +731,14 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.ok(String(csvRes.data).includes('command'));
     });
 
-    it('executes the live /api/tests/run endpoint and verifies 100% pass rate across all 8 suites', async () => {
+    it('executes the live /api/tests/run endpoint and verifies 100% pass rate across all 9 suites', async () => {
       const runRes = await apiRequest('/api/tests/run', {
         method: 'POST',
         token: adminToken
       });
       assert.equal(runRes.status, 200);
       assert.equal(runRes.data.status, 'ALL_PASSED');
-      assert.equal(runRes.data.totalSuites, 8);
+      assert.equal(runRes.data.totalSuites, 9);
       assert.equal(runRes.data.totalFailed, 0);
       assert.ok(runRes.data.totalPassed >= 23);
     });
@@ -1679,6 +1679,64 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.equal(res.status, 201);
       assert.equal(res.data.paymentTransaction.status, 'TEST_SETTLED');
       assert.equal(res.data.paymentTransaction.mode, 'test');
+    });
+  });
+
+  // ============================================================================
+  // 19. NAVIGATION WIRING INTEGRITY (EVERY LINK TARGET RESOLVES)
+  // ============================================================================
+  describe('19. Navigation Wiring Integrity', () => {
+    const VALID_TABS = new Set([
+      'store', 'apps', 'mobile-subs', 'subsystems', 'tracker', 'admin', 'database',
+      'docs', 'overview', 'developer-portal', 'user-portal', 'community', 'syscheck',
+      'rig-builder' // special-cased overlay, not a tab
+    ]);
+
+    it('every setActiveTab/onNavigateTab target in App-wired components is a real destination', () => {
+      const wired = [
+        'src/components/CommandPaletteModal.jsx',
+        'src/components/AdminDashboardView.jsx',
+        'src/components/StorefrontView.jsx',
+        'src/components/AuthGateView.jsx',
+        'src/components/DocumentationView.jsx',
+        'src/components/Navbar.jsx',
+        'src/components/SysCheckView.jsx',
+        'src/components/CommunityView.jsx',
+        'src/components/DesktopSideNav.jsx',
+        'src/components/MobileBottomNav.jsx'
+      ];
+      const bad = [];
+      for (const rel of wired) {
+        const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+        for (const m of src.matchAll(/(?:setActiveTab|onNavigateTab)\??\.\?\(\s*'([a-z-]+)'/g)) {
+          if (!VALID_TABS.has(m[1])) bad.push(`${rel} -> '${m[1]}'`);
+        }
+        for (const m of src.matchAll(/(?:setActiveTab|onNavigateTab)\(\s*'([a-z-]+)'/g)) {
+          if (!VALID_TABS.has(m[1])) bad.push(`${rel} -> '${m[1]}'`);
+        }
+      }
+      assert.deepEqual(bad, [], `dead nav targets found: ${bad.join(', ')}`);
+    });
+
+    it('command palette tab: fields all resolve to real tabs', () => {
+      const src = fs.readFileSync(path.join(process.cwd(), 'src/components/CommandPaletteModal.jsx'), 'utf8');
+      const tabs = [...src.matchAll(/tab: '([a-z-]+)'/g)].map((m) => m[1]);
+      assert.ok(tabs.length >= 8, 'palette commands carry tab fields');
+      for (const t of tabs) assert.ok(VALID_TABS.has(t), `palette tab '${t}' must resolve`);
+    });
+
+    it('nav array ids resolve to tabs or declared overlays', () => {
+      const overlayIds = new Set(['bto-studio', 'cli-terminal', 'cmd-palette', 'cart-drawer', 'wishlist-drawer', 'compare-modal', 'push-center']);
+      const bad = [];
+      for (const rel of ['src/components/DesktopSideNav.jsx', 'src/components/MobileBottomNav.jsx']) {
+        const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+        const navSection = src.slice(src.indexOf('const primaryNav') >= 0 ? src.indexOf('const primaryNav') : src.indexOf('const allWorkspaces'));
+        for (const m of navSection.matchAll(/id: '([a-z-]+)'/g)) {
+          const id = m[1];
+          if (!VALID_TABS.has(id) && !overlayIds.has(id)) bad.push(`${rel} -> '${id}'`);
+        }
+      }
+      assert.deepEqual(bad, [], `nav entries with unknown destinations: ${bad.join(', ')}`);
     });
   });
 });
