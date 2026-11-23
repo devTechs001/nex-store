@@ -1752,5 +1752,23 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       }
       assert.deepEqual(bad, [], `nav entries with unknown destinations: ${bad.join(', ')}`);
     });
+
+    it('gated tab blocks can never render phantom dashboards on other tabs', () => {
+      // Regression: `A && !canAccessTab ? gate : <View/>` parses as `(A && B) ? … : <View/>`,
+      // which rendered AdminDashboard/Database/Subsystems/SysCheck on EVERY other tab.
+      const src = fs.readFileSync(path.join(process.cwd(), 'src/App.jsx'), 'utf8');
+      assert.ok(
+        !src.includes('&& !canAccessTab('),
+        'ternary-precedence anti-pattern (&& !canAccessTab ? … :) must not appear in App.jsx'
+      );
+      for (const frag of [
+        "['overview', 'admin', 'developer-portal', 'user-portal'].includes(activeTab) && (",
+        "activeTab === 'subsystems' && (",
+        "activeTab === 'database' && (",
+        "activeTab === 'syscheck' && ("
+      ]) {
+        assert.ok(src.includes(frag), `safe gated block missing: ${frag}`);
+      }
+    });
   });
 });

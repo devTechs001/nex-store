@@ -48,6 +48,27 @@ async function main() {
     const Navbar = (await import('../src/components/Navbar.jsx')).default;
     const session = { token: 't', account: { username: 'dev', role: 'developer' } };
     const app = { id: 'a1', name: 'Test App' };
+    // Phantom-dashboard matrix: each tab must render EXACTLY its own view —
+    // never a stacked admin/database/subsystems dashboard (ternary-precedence bug).
+    const tabExpectations = [
+      { tab: 'community', must: ['data-view="community"'], mustNot: ['data-view="admin-dashboard"', 'data-view="database-studio"', 'data-view="subsystems-hub"', 'data-view="auth-gate"'] },
+      { tab: 'store', must: [], mustNot: ['data-view="admin-dashboard"', 'data-view="database-studio"', 'data-view="subsystems-hub"', 'data-view="auth-gate"', 'data-view="syscheck"', 'data-view="community"'] },
+      { tab: 'syscheck', must: ['data-view="auth-gate"'], mustNot: ['data-view="syscheck"', 'data-view="admin-dashboard"', 'data-view="database-studio"', 'data-view="subsystems-hub"'] },
+      { tab: 'admin', must: ['data-view="auth-gate"'], mustNot: ['data-view="admin-dashboard"', 'data-view="database-studio"', 'data-view="subsystems-hub"'] },
+      { tab: 'database', must: ['data-view="auth-gate"'], mustNot: ['data-view="database-studio"', 'data-view="admin-dashboard"', 'data-view="subsystems-hub"'] }
+    ];
+    for (const exp of tabExpectations) {
+      stubs.location.search = `?tab=${exp.tab}`;
+      const html = renderToString(React.createElement(App));
+      for (const m of exp.must) {
+        if (!html.includes(m)) throw new Error(`PHANTOM MATRIX tab=${exp.tab}: missing ${m}`);
+      }
+      for (const m of exp.mustNot) {
+        if (html.includes(m)) throw new Error(`PHANTOM MATRIX tab=${exp.tab}: phantom rendered ${m}`);
+      }
+      console.log(`SMOKE_OK tab=${exp.tab} renders exactly its own view`);
+    }
+
     for (const [name, el] of [
       ['CommunityView', React.createElement(CommunityView, { session, apps: [app] })],
       ['SysCheckView', React.createElement(SysCheckView, { session })],

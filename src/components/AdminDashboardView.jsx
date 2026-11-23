@@ -872,7 +872,7 @@ export default function AdminDashboardView({
     : 'border-slate-300 bg-white text-slate-900 placeholder-slate-400';
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 space-y-6">
+    <div data-view="admin-dashboard" data-portal={portalMode} className="mx-auto max-w-7xl px-4 py-6 space-y-6">
       {/* Top Admin Command Banner */}
       <div className={`flex flex-wrap items-center justify-between gap-4 rounded-3xl p-6 md:p-8 ${cardSurface}`}>
         <div className="space-y-1.5">
