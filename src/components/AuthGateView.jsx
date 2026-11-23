@@ -78,7 +78,7 @@ export default function AuthGateView({ tab = 'portal', session = null, onAuthent
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10">
+    <div data-view="auth-gate" className="mx-auto max-w-7xl px-4 py-10">
       <div className="relative overflow-hidden rounded-3xl border border-violet-500/25 theme-card">
         {/* Quantum field backdrop */}
         <div

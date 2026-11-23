@@ -250,7 +250,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
   const cardSurface = darkMode ? 'surface-card-dark' : 'surface-card-light';
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 space-y-6">
+    <div data-view="database-studio" className="mx-auto max-w-7xl px-4 py-6 space-y-6">
       {/* Top Database Engine Telemetry Header */}
       <div className={`flex flex-wrap items-center justify-between gap-4 rounded-3xl p-6 md:p-8 ${cardSurface}`}>
         <div className="space-y-1.5">

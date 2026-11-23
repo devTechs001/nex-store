@@ -206,7 +206,7 @@ export default function SubsystemsHubView({
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 space-y-6">
+    <div data-view="subsystems-hub" className="mx-auto max-w-7xl px-4 py-6 space-y-6">
       {/* Top Subsystem Hero Header */}
       <div className="rounded-3xl p-6 md:p-8 theme-card space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">

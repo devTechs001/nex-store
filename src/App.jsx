@@ -43,7 +43,19 @@ import './App.css';
 export default function App() {
   const initialSeed = useMemo(() => getFallbackBootstrapData(), []);
 
-  const [activeTab, setActiveTab] = useState('store'); // 'store' | 'apps' | 'subsystems' | 'tracker' | 'admin' | 'database'
+  const [activeTab, setActiveTab] = useState(() => {
+    // Deep links (?share=<slug>&tab=community etc.) land on the real tab.
+    const VALID_TABS = new Set([
+      'store', 'apps', 'mobile-subs', 'subsystems', 'tracker', 'admin', 'database',
+      'docs', 'overview', 'developer-portal', 'user-portal', 'community', 'syscheck'
+    ]);
+    try {
+      const requested = new URLSearchParams(window.location.search).get('tab');
+      return VALID_TABS.has(requested) ? requested : 'store';
+    } catch {
+      return 'store';
+    }
+  });
   const [themeId, setThemeId] = useState(() => {
     try {
       return localStorage.getItem('nexstore_theme') || 'obsidian';
@@ -1948,7 +1960,8 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'subsystems' && !canAccessTab('subsystems') ? renderAuthGate('subsystems') : (
+        {activeTab === 'subsystems' && (
+          canAccessTab('subsystems') ? (
           <SubsystemsHubView
             serverNodes={serverNodes}
             integrations={integrations}
@@ -1973,6 +1986,9 @@ export default function App() {
             onSendPushBroadcast={handleSendPushBroadcast}
             onNavigateTab={setActiveTab}
           />
+          ) : (
+            renderAuthGate('subsystems')
+          )
         )}
 
         {activeTab === 'tracker' && (
@@ -1985,8 +2001,9 @@ export default function App() {
           />
         )}
 
-        {['overview', 'admin', 'developer-portal', 'user-portal'].includes(activeTab) && !canAccessTab(activeTab) ? renderAuthGate(activeTab) : (
-          <AdminDashboardView
+        {['overview', 'admin', 'developer-portal', 'user-portal'].includes(activeTab) && (
+          canAccessTab(activeTab) ? (
+            <AdminDashboardView
             portalMode={activeTab}
             session={session}
             onSessionChange={handleAuthenticated}
@@ -2026,14 +2043,21 @@ export default function App() {
               }
             }}
           />
+          ) : (
+            renderAuthGate(activeTab)
+          )
         )}
 
-        {activeTab === 'database' && !canAccessTab('database') ? renderAuthGate('database') : (
+        {activeTab === 'database' && (
+          canAccessTab('database') ? (
           <DatabaseStudioView
             dbStats={dbStats}
             darkMode={darkMode}
             onResetDatabase={handleResetDatabase}
           />
+          ) : (
+            renderAuthGate('database')
+          )
         )}
 
         {activeTab === 'docs' && (
@@ -2082,7 +2106,8 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'syscheck' && !canAccessTab('syscheck') ? renderAuthGate('syscheck') : (
+        {activeTab === 'syscheck' && (
+          canAccessTab('syscheck') ? (
           <SysCheckView
             session={session}
             onPlaySound={handlePlaySound}
@@ -2091,6 +2116,9 @@ export default function App() {
               setActiveTab(tab);
             }}
           />
+          ) : (
+            renderAuthGate('syscheck')
+          )
         )}
 
         {/* Global Copyright & Anti-Piracy DRM Protection Footer */}
