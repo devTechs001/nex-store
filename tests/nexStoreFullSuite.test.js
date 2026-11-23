@@ -1031,7 +1031,10 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
 
     it('guest checkout totals are exact to the cent (subtotal/tax/total)', async () => {
       // Price a product at $10.10 and buy 3 — float math gives 30.299999999999997.
+      // Explicit stock setup keeps the test deterministic across runs (the test
+      // database persists between npm test invocations).
       const prod = db.prepare('SELECT * FROM products LIMIT 1').get();
+      db.prepare('UPDATE products SET stock = 10 WHERE id = ?').run(prod.id);
       await apiRequest(`/api/products/${prod.id}`, {
         method: 'PATCH',
         token: adminToken,
@@ -1061,6 +1064,115 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       for (const key of ['subtotal', 'discount_amount', 'shipping_cost', 'tax_amount', 'total']) {
         assert.ok(Math.abs(order[key] * 100 - Math.round(order[key] * 100)) < 1e-9, `${key} has ≤2 decimal places`);
       }
+    });
+  });
+
+  // ============================================================================
+  // 11. POLYGLOT CONVERSION PIPELINE (REAL TOOLCHAIN BUILDS ON UPLOAD)
+  // ============================================================================
+  describe('11. Polyglot Conversion & Installability (Flutter, C++, Python, TS)', () => {
+    async function publishWithSource(payload) {
+      const res = await apiRequest('/api/developer/publish', {
+        method: 'POST',
+        token: adminToken,
+        body: payload
+      });
+      assert.equal(res.status, 201);
+      return res.data.app.id;
+    }
+
+    it('TypeScript project is REALLY bundled with esbuild and runs in the sandbox', async () => {
+      const tsAppId = await publishWithSource({
+        name: 'TS Conversion Probe',
+        language: 'typescript',
+        entry_file: 'main.ts',
+        source_files: {
+          'main.ts': "import { tag } from './util'; document.title = tag('NEX_TS_RUNS');",
+          'util.ts': "export function tag(s: string): string { return 'BUNDLED_' + s; }"
+        }
+      });
+      const build = await apiRequest(`/api/apps/${tsAppId}/build`);
+      assert.equal(build.status, 200);
+      assert.equal(build.data.status, 'TRANSPILED', 'real esbuild transpile');
+      assert.ok(/esbuild/.test(build.data.toolchain), 'toolchain named honestly');
+      assert.ok(build.data.log.includes('nex_bundle.out.js'), 'real bundle artifact logged');
+
+      const sandbox = await apiRequest(`/api/sandbox/${tsAppId}`);
+      assert.ok(sandbox.data.includes('NEX_TS_RUNS') && sandbox.data.includes('BUNDLED_'), 'transpiled+inlined bundle is in the runner');
+    });
+
+    it('Python project is validated by real py_compile and executes natively on /run', async () => {
+      const pyAppId = await publishWithSource({
+        name: 'Python Conversion Probe',
+        language: 'python',
+        source_files: { 'main.py': 'print("NEX_PY_EXEC_OK")' }
+      });
+      const build = await apiRequest(`/api/apps/${pyAppId}/build`);
+      assert.equal(build.data.status, 'VALIDATED', 'real python3 -m py_compile');
+      assert.ok(/Python 3/.test(build.data.toolchain));
+
+      const run = await apiRequest(`/api/apps/${pyAppId}/run`, { method: 'POST' });
+      assert.equal(run.status, 200);
+      assert.equal(run.data.exitCode, 0);
+      assert.ok(run.data.stdout.includes('NEX_PY_EXEC_OK'), 'real interpreter stdout');
+      assert.equal(run.data.ranNative, true);
+    });
+
+    it('C++ project is REALLY compiled with g++ and its binary executes on /run', async () => {
+      const cppAppId = await publishWithSource({
+        name: 'C++ Conversion Probe',
+        language: 'cpp',
+        source_files: {
+          'main.cpp': '#include <iostream>\nint main(){ std::cout << "NEX_CPP_EXEC_OK" << std::endl; return 0; }'
+        }
+      });
+      const build = await apiRequest(`/api/apps/${cppAppId}/build`);
+      assert.equal(build.data.status, 'COMPILED', 'real g++ compile+link');
+      assert.ok(/g\+\+/.test(build.data.toolchain));
+      assert.ok(/compiled & linked/.test(build.data.log), 'real linker log');
+
+      const run = await apiRequest(`/api/apps/${cppAppId}/run`, { method: 'POST' });
+      assert.equal(run.data.exitCode, 0);
+      assert.ok(run.data.stdout.includes('NEX_CPP_EXEC_OK'), 'real compiled-binary stdout');
+    });
+
+    it('Flutter project without an SDK converts HONESTLY and stays installable as a real ZIP bundle', async () => {
+      const flAppId = await publishWithSource({
+        name: 'Flutter Conversion Probe',
+        language: 'flutter',
+        source_files: {
+          'pubspec.yaml': 'name: fl_probe\nversion: 1.0.0\ndescription: probe app',
+          'lib/main.dart': 'void main() { print("flutter probe"); }'
+        }
+      });
+      const build = await apiRequest(`/api/apps/${flAppId}/build`);
+      // Either the SDK exists (VALIDATED) or the honest missing-toolchain status:
+      assert.ok(
+        ['TOOLCHAIN_UNAVAILABLE', 'VALIDATED'].includes(build.data.status),
+        `honest status, got ${build.data.status}`
+      );
+      if (build.data.status === 'TOOLCHAIN_UNAVAILABLE') {
+        assert.ok(/NOT DETECTED/.test(build.data.toolchain), 'honest probe result');
+        assert.ok(/Flutter/.test(build.data.log), 'honest log explains SDK requirement');
+      }
+
+      const bundle = await apiRequest(`/api/apps/${flAppId}/bundle.zip`);
+      assert.equal(bundle.status, 200);
+      const zipBytes = Buffer.from(bundle.data, 'binary');
+      assert.equal(zipBytes.slice(0, 2).toString(), 'PK', 'real ZIP archive');
+      assert.ok(zipBytes.includes('lib/main.dart'), 'source preserved in bundle');
+      assert.ok(zipBytes.includes('pubspec.yaml'), 'pubspec preserved in bundle');
+    });
+
+    it('invalid source fails the real build with the genuine compiler error (no fake success)', async () => {
+      const badAppId = await publishWithSource({
+        name: 'Broken Python Probe',
+        language: 'python',
+        source_files: { 'main.py': 'def broken(:\n  pass' }
+      });
+      const build = await apiRequest(`/api/apps/${badAppId}/build`);
+      assert.equal(build.data.status, 'INVALID', 'real py_compile failure');
+      assert.ok(/py_compile FAILED/.test(build.data.log), 'genuine error log');
     });
   });
 });

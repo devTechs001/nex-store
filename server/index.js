@@ -35,9 +35,10 @@ import {
   verifyAppRealnessAndMalware
 } from './envAndSecurity.js';
 
-// Request keys that carry intentional HTML package payloads — kept byte-exact
-// (they run only inside the CSP-sandboxed opaque-origin app iframe).
-const SANITIZE_EXEMPT_KEYS = new Set(['html_payload', 'package_html', 'package_base64']);
+// Request keys that carry intentional source/HTML package payloads — kept
+// byte-exact (they run only inside the CSP-sandboxed opaque-origin app iframe
+// or in process-isolated toolchain execution).
+const SANITIZE_EXEMPT_KEYS = new Set(['html_payload', 'package_html', 'package_base64', 'source_files']);
 import {
   getMongoClusterStatus,
   queryMongoCollection,
@@ -45,6 +46,7 @@ import {
 } from './mongoEngine.js';
 import { getNeuralStatus, runTraining, getRecommendations } from './neuralEngine.js';
 import { toCents, fromCents, lineCents, percentOfCents, fixedDiscountCents, taxOfCents, computeOrderMoney } from './money.js';
+import { buildPolyglotPackage, runPolyglotSource, buildZipArchive, detectToolchains } from './polyglotBuilder.js';
 import os from 'node:os';
 import { runAllVerificationSuites } from './testSuiteRunner.js';
 
@@ -1675,7 +1677,9 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     permissions = ['Sandboxed Iframe', 'WebAudio API', 'WebSocket Stream'],
     html_payload = '',
     package_html = '',
-    package_base64 = ''
+    package_base64 = '',
+    source_files = null,
+    entry_file = ''
   } = req.body || {};
 
   if (!name || !String(name).trim()) {
@@ -1694,12 +1698,28 @@ function handlePublishDeveloperAppOrSystem(req, res) {
   const formatBytes = (b) =>
     b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} B`;
 
+  // Real polyglot conversion pipeline: uploaded language source (Flutter/Dart,
+  // C++, Python, Rust, Java, Go, TS/JS) is converted with genuine toolchains
+  // (esbuild bundle, g++ compile, py_compile, SDK probes) on publish.
   const id = `app-${Date.now().toString(36)}`;
+  const hasSourceFiles = source_files && typeof source_files === 'object' && Object.keys(source_files).length > 0;
+  const buildResult = hasSourceFiles
+    ? buildPolyglotPackage({
+        appId: id,
+        name: String(name).trim(),
+        language: String(language || '').toLowerCase(),
+        sourceFiles: source_files,
+        entryFile: String(entry_file || '')
+      })
+    : null;
+
   const now = new Date().toISOString();
   const cleanLiveUrl =
     String(live_url).trim() ||
     `https://${String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}.netlify.app`;
-  const sha256Hash = packageSha256 ||
+  const sha256Hash =
+    packageSha256 ||
+    (buildResult ? buildResult.sourceTreeSha256 : '') ||
     crypto
       .createHash('sha256')
       .update(`${id}:${name}:${version}:${cleanLiveUrl}`)
@@ -1764,7 +1784,7 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     category,
     language,
     JSON.stringify(['web', 'linux', 'macos', 'windows', 'flutter', 'react-native']),
-    rawPackageHtml ? formatBytes(packageBytes) : size,
+    rawPackageHtml ? formatBytes(packageBytes) : buildResult ? formatBytes(buildResult.sourceBytes) : size,
     String(developer).trim(),
     icon,
     license,
@@ -1793,6 +1813,28 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     db.prepare(
       'INSERT OR REPLACE INTO app_packages (id, app_id, content_html, content_type, size_bytes, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(`pkg-${id}`, id, rawPackageHtml, 'text/html; charset=utf-8', packageBytes, packageSha256, now);
+  }
+
+  if (buildResult) {
+    db.prepare(
+      `INSERT OR REPLACE INTO app_builds (
+        id, app_id, language, entry_file, source_files_json, build_status, build_toolchain,
+        build_log, runner_html, source_tree_sha256, source_bytes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      `build-${id}`,
+      id,
+      String(language || '').toLowerCase(),
+      buildResult.entryFile || '',
+      JSON.stringify(source_files),
+      buildResult.status,
+      buildResult.toolchain,
+      buildResult.log,
+      buildResult.runnerHtml,
+      buildResult.sourceTreeSha256,
+      buildResult.sourceBytes,
+      now
+    );
   }
 
   const activity = recordActivityEvent({
@@ -2050,6 +2092,7 @@ app.delete('/api/apps/:id/uninstall', (req, res) => {
 app.get('/api/sandbox/:id', (req, res) => {
   const rawId = req.params.id;
   const pkg = db.prepare('SELECT * FROM app_packages WHERE app_id = ?').get(rawId);
+  const build = db.prepare('SELECT * FROM app_builds WHERE app_id = ?').get(rawId);
   const foundApp =
     db.prepare('SELECT * FROM apps WHERE id = ?').get(rawId) || {
       id: rawId,
@@ -2073,9 +2116,108 @@ app.get('/api/sandbox/:id', (req, res) => {
     return res.send(pkg.content_html);
   }
 
+  if (build && build.runner_html) {
+    // Real converted polyglot package (esbuild bundle / toolchain runner).
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "sandbox allow-scripts allow-forms allow-modals allow-popups");
+    res.setHeader('X-NEX-Build-Status', build.build_status);
+    return res.send(build.runner_html);
+  }
+
   const html = renderSandboxedAppHtml(foundApp);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
+});
+
+// Real conversion report for polyglot packages (toolchain, status, logs)
+app.get('/api/apps/:id/build', (req, res) => {
+  const build = db.prepare('SELECT * FROM app_builds WHERE app_id = ?').get(req.params.id);
+  if (!build) return res.status(404).json({ error: 'No build record for this app (not a polyglot source package)' });
+  res.json({
+    appId: build.app_id,
+    language: build.language,
+    entryFile: build.entry_file,
+    status: build.build_status,
+    toolchain: build.build_toolchain,
+    log: build.build_log,
+    sourceTreeSha256: build.source_tree_sha256,
+    sourceBytes: build.source_bytes,
+    sourceFiles: JSON.parse(build.source_files_json || '{}'),
+    createdAt: build.created_at,
+    hostToolchains: detectToolchains()
+  });
+});
+
+// Real execution of installed polyglot packages (process-isolated, 5s timeout)
+app.post('/api/apps/:id/run', (req, res) => {
+  const build = db.prepare('SELECT * FROM app_builds WHERE app_id = ?').get(req.params.id);
+  if (!build) return res.status(404).json({ error: 'No executable source package for this app' });
+  const sourceFiles = JSON.parse(build.source_files_json || '{}');
+  const result = runPolyglotSource({
+    language: build.language,
+    sourceFiles,
+    entryFile: build.entry_file
+  });
+
+  recordTerminalLog({
+    command: `nex run-app ${build.app_id} (${build.language})`,
+    output: result.ranNative
+      ? `[NATIVE] exit=${result.exitCode} toolchain=${result.toolchain} stdout=${String(result.stdout).slice(0, 200)}`
+      : `[HONEST] ${String(result.stderr).slice(0, 200)}`,
+    exit_code: result.exitCode,
+    duration_ms: 0
+  });
+
+  const acceptHdr = String(req.get('accept') || '');
+  if (/text\/html/.test(acceptHdr) && !/application\/json/.test(acceptHdr)) {
+    // Form-POST navigation from the sandboxed runner — render a real results page.
+    return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Run results</title>
+<style>html,body{margin:0;padding:20px;font-family:ui-monospace,monospace;background:#0b1020;color:#e2e8f0}
+pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;font-size:12px;white-space:pre-wrap;overflow:auto}
+.ok{color:#34d399}.bad{color:#f87171}.meta{font-size:11px;color:#94a3b8}</style></head><body>
+<h2 style="font-size:15px">Execution result ${result.exitCode === 0 ? '<span class="ok">✓ exit 0</span>' : `<span class="bad">✗ exit ${result.exitCode}</span>`}</h2>
+<p class="meta">Toolchain: ${escapeHtmlForRun(result.toolchain)} • ${result.ranNative ? 'real native execution' : 'no simulated output'}</p>
+${result.stdout ? `<h3 style="font-size:12px">stdout</h3><pre>${escapeHtmlForRun(result.stdout)}</pre>` : ''}
+${result.stderr ? `<h3 style="font-size:12px">stderr</h3><pre class="bad">${escapeHtmlForRun(result.stderr)}</pre>` : ''}
+<p class="meta"><a href="javascript:history.back()" style="color:#38bdf8">◀ Back to app</a></p>
+</body></html>`);
+  }
+
+  res.json({ appId: build.app_id, language: build.language, ...result });
+});
+
+function escapeHtmlForRun(s = '') {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Real installable project bundle (valid ZIP archive of the source tree)
+app.get('/api/apps/:id/bundle.zip', (req, res) => {
+  const build = db.prepare('SELECT * FROM app_builds WHERE app_id = ?').get(req.params.id);
+  if (!build) return res.status(404).json({ error: 'No source package for this app' });
+  const sourceFiles = JSON.parse(build.source_files_json || '{}');
+  const app = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  const files = {
+    'nex-app.manifest.json': JSON.stringify(
+      {
+        name: app?.name || build.app_id,
+        version: app?.version || '1.0.0',
+        language: build.language,
+        entryFile: build.entry_file,
+        buildStatus: build.build_status,
+        buildToolchain: build.build_toolchain,
+        sourceTreeSha256: build.source_tree_sha256,
+        drmNotice: '© 2026 NEX STORE PROPRIETARY — DO NOT SHARE OR PIRATE'
+      },
+      null,
+      2
+    ),
+    ...sourceFiles
+  };
+  const zip = buildZipArchive(files);
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${build.app_id}-source.zip"`);
+  res.setHeader('X-NEX-Source-Sha256', build.source_tree_sha256);
+  res.send(zip);
 });
 
 // Real Standalone Executable HTML5 Package Bundle Download

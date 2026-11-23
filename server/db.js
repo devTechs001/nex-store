@@ -328,6 +328,21 @@ export function initSchema() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS app_builds (
+      id TEXT PRIMARY KEY,
+      app_id TEXT UNIQUE NOT NULL,
+      language TEXT NOT NULL,
+      entry_file TEXT DEFAULT '',
+      source_files_json TEXT NOT NULL,
+      build_status TEXT NOT NULL,
+      build_toolchain TEXT DEFAULT '',
+      build_log TEXT DEFAULT '',
+      runner_html TEXT DEFAULT '',
+      source_tree_sha256 TEXT DEFAULT '',
+      source_bytes INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS polyglot_automations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

@@ -228,6 +228,38 @@ export default function AppStoreView({
   const [appPackageHtml, setAppPackageHtml] = useState('');
   const [appPackageName, setAppPackageName] = useState('');
 
+  // Polyglot source project (Flutter/C++/Python/Rust/Java/Go/TS) — converted
+  // on publish by the real toolchain pipeline (esbuild/g++/py_compile/SDK probes).
+  const [polySourceFiles, setPolySourceFiles] = useState({});
+  const [polyEntryFile, setPolyEntryFile] = useState('');
+  const [buildReport, setBuildReport] = useState(null);
+
+  const ENTRY_GUESS = [
+    'lib/main.dart', 'main.dart', 'main.py', 'app.py', 'main.cpp', 'src/main.cpp',
+    'src/main.rs', 'main.rs', 'src/Main.java', 'main.java', 'main.go', 'src/main.ts',
+    'main.ts', 'index.ts', 'index.js', 'main.js'
+  ];
+
+  const handleUploadSourceFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const next = { ...polySourceFiles };
+    for (const f of files) {
+      try {
+        next[f.name] = await f.text();
+      } catch {
+        // skip unreadable
+      }
+    }
+    setPolySourceFiles(next);
+    if (!polyEntryFile) {
+      const guess = ENTRY_GUESS.find((g) => next[g] !== undefined) || Object.keys(next)[0] || '';
+      setPolyEntryFile(guess);
+    }
+  };
+
+  // (build-report fetch effect lives below, after detailsModalData is declared)
+
   const handleUploadAppPackageFile = async (fileList) => {
     const file = Array.from(fileList || []).find(
       (f) => /\.(html?|xhtml)$/i.test(f.name) || f.type === 'text/html'
@@ -267,6 +299,27 @@ export default function AppStoreView({
 
   // Full Developer & System Package Details Modal State
   const [detailsModalData, setDetailsModalData] = useState(null);
+
+  // Fetch the real conversion report when app details open.
+  useEffect(() => {
+    const appId = detailsModalData?.app?.id;
+    if (!appId) {
+      setBuildReport(null);
+      return;
+    }
+    let alive = true;
+    fetch(`/api/apps/${appId}/build`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setBuildReport(d);
+      })
+      .catch(() => {
+        if (alive) setBuildReport(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [detailsModalData?.app?.id]);
   const [detailsActiveView, setDetailsActiveView] = useState('hero');
   const [selectedAppCardViews, setSelectedAppCardViews] = useState({});
   const [inspectedUrlActiveView, setInspectedUrlActiveView] = useState('hero');
@@ -575,7 +628,9 @@ export default function AppStoreView({
       image_url: appImageUrl ? normalizeImageDataUrl(appImageUrl) : '',
       resources: appResources,
       ai_capabilities: appAiCapabilities,
-      html_payload: appPackageHtml
+      html_payload: appPackageHtml,
+      source_files: Object.keys(polySourceFiles).length ? polySourceFiles : undefined,
+      entry_file: polyEntryFile || undefined
     });
     onPlaySound?.('success');
     setAppName('');
@@ -589,6 +644,8 @@ export default function AppStoreView({
     setAppAiCapabilities([]);
     setAppPackageHtml('');
     setAppPackageName('');
+    setPolySourceFiles({});
+    setPolyEntryFile('');
     setShowUploadModal(false);
   };
 
@@ -2409,6 +2466,69 @@ export default function AppStoreView({
               )}
             </div>
 
+            {/* Polyglot Source Project Upload (real toolchain conversion) */}
+            <div className="rounded-2xl p-3.5 theme-subtle border border-orange-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono-num text-[10px] font-bold uppercase text-orange-400">
+                  Polyglot Source Project (Flutter • C++ • Python • Rust • Java • Go • TS)
+                </span>
+                <label className="rounded-lg bg-orange-500/20 border border-orange-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-orange-300 cursor-pointer">
+                  Upload Source Files
+                  <input
+                    type="file"
+                    multiple
+                    accept=".ts,.tsx,.js,.jsx,.py,.cpp,.cc,.cxx,.h,.hpp,.rs,.java,.go,.dart,.yaml,.yml,.json,.toml,.txt"
+                    onChange={(e) => handleUploadSourceFiles(e.target.files)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {Object.keys(polySourceFiles).length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.keys(polySourceFiles).map((f) => (
+                      <span
+                        key={f}
+                        className="rounded-md bg-orange-500/10 border border-orange-500/25 px-1.5 py-0.5 font-mono-num text-[9px] text-orange-300"
+                      >
+                        {f} ({(new Blob([polySourceFiles[f]]).size / 1024).toFixed(1)}K)
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-num text-[9px] text-orange-400">ENTRY:</span>
+                    <input
+                      type="text"
+                      value={polyEntryFile}
+                      onChange={(e) => setPolyEntryFile(e.target.value)}
+                      placeholder="e.g. lib/main.dart / main.cpp / src/main.ts"
+                      className="flex-1 rounded-lg px-2 py-1 text-[10px] font-mono-num theme-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPolySourceFiles({});
+                        setPolyEntryFile('');
+                      }}
+                      className="text-[10px] text-rose-400 underline cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <p className="text-[9px] theme-text-muted">
+                    On publish the pipeline REALLY converts this project: TS/JS → esbuild bundle, C++ → g++
+                    compile+link, Python → py_compile, Rust/Java/Go/Flutter → SDK probe &amp; native build where
+                    available (honest TOOLCHAIN_UNAVAILABLE otherwise).
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[10px] theme-text-muted">
+                  Uploading a language project? Add its source files here and the real conversion pipeline will
+                  build an installable package on publish.
+                </p>
+              )}
+            </div>
+
             <div className="rounded-xl bg-slate-950 p-2.5 border border-indigo-500/30 font-mono-num text-[10px] text-cyan-300">
               REST API Endpoint: <code>POST /api/developer/publish</code> • Details Endpoint: <code>GET /api/apps/:id/details</code>
             </div>
@@ -2774,6 +2894,56 @@ export default function AppStoreView({
                       {detailsModalData.developerProfile?.bio}
                     </p>
                   </div>
+
+                  {/* Real Polyglot Conversion Report (toolchain build) */}
+                  {buildReport && (
+                    <div className="rounded-2xl p-4 theme-subtle space-y-2 border border-orange-500/25">
+                      <div className="flex items-center justify-between">
+                        <div className="font-mono-num text-[10px] font-bold uppercase text-orange-400">
+                          Polyglot Conversion Report (real toolchain)
+                        </div>
+                        <a
+                          href={`/api/apps/${detailsModalData.app.id}/bundle.zip`}
+                          className="rounded-lg bg-orange-500/20 border border-orange-500/40 px-2 py-1 font-mono-num text-[9px] font-bold text-orange-300 cursor-pointer"
+                        >
+                          ⬇ Download Source Bundle (.zip)
+                        </a>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 font-mono-num text-[10px]">
+                        <div>
+                          <span className="theme-text-muted">Language: </span>
+                          <strong className="text-orange-300">{buildReport.language}</strong>
+                        </div>
+                        <div>
+                          <span className="theme-text-muted">Entry: </span>
+                          <strong className="text-orange-300">{buildReport.entryFile || '—'}</strong>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="theme-text-muted">Status: </span>
+                          <strong
+                            className={
+                              buildReport.status === 'TRANSPILED' || buildReport.status === 'COMPILED' || buildReport.status === 'VALIDATED'
+                                ? 'text-emerald-400'
+                                : buildReport.status === 'TOOLCHAIN_UNAVAILABLE'
+                                ? 'text-amber-400'
+                                : 'text-rose-400'
+                            }
+                          >
+                            {buildReport.status}
+                          </strong>
+                          <span className="theme-text-muted"> • Toolchain: </span>
+                          <strong>{buildReport.toolchain}</strong>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="theme-text-muted">Source SHA-256: </span>
+                          <strong className="truncate">{buildReport.sourceTreeSha256?.slice(0, 24)}…</strong>
+                        </div>
+                      </div>
+                      <pre className="rounded-lg bg-slate-950/80 border border-white/10 p-2.5 font-mono-num text-[9px] text-cyan-200 whitespace-pre-wrap max-h-36 overflow-y-auto">
+                        {buildReport.log}
+                      </pre>
+                    </div>
+                  )}
 
                   {/* System Requirements & Mobile Bridge Card */}
                   <div className="rounded-2xl p-4 theme-subtle space-y-2 border border-teal-500/25">
