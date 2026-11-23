@@ -25,8 +25,10 @@ import {
   getHostingEnvAndBlueprintsConfig,
   updateHostingEnvVariables,
   hashPassword,
+  verifyPassword,
   createSessionToken,
   verifySessionToken,
+  getSessionSecretFingerprint,
   detectXssAttempt,
   sanitizeObjectPayloads,
   normalizeUploadedImageDataUrl,
@@ -37,6 +39,8 @@ import {
   queryMongoCollection,
   insertMongoBsonDocument
 } from './mongoEngine.js';
+import { getNeuralStatus, runTraining, getRecommendations } from './neuralEngine.js';
+import os from 'node:os';
 import { runAllVerificationSuites } from './testSuiteRunner.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -46,7 +50,38 @@ const __dirname = path.dirname(__filename);
 seedDatabase();
 
 const app = express();
-app.use(cors());
+
+// Enforced CORS: only configured origins (CORS_ALLOWED_ORIGINS), same-origin
+// requests (e.g. the served SPA or a proxied preview), and localhost dev are
+// allowed. Requests without an Origin header (curl, server-to-server) pass.
+function isAllowedCorsOrigin(origin, host) {
+  if (!origin) return true;
+  const sameOrigin = origin === `http://${host}` || origin === `https://${host}`;
+  const localhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  const allowList = String(process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return sameOrigin || localhost || allowList.includes(origin);
+}
+
+app.use(
+  cors((req, callback) => {
+    const origin = req.headers.origin;
+    const allowed = isAllowedCorsOrigin(origin, req.headers.host || '');
+    callback(null, { origin: allowed ? origin || true : false, credentials: false });
+  })
+);
+
+// Baseline security headers (Quantum-Shield edge hardening)
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+
 app.use(express.json({ limit: '15mb' }));
 
 // Active IP Blocklist Firewall, XSS Prevention & RBAC Context Middleware
@@ -55,9 +90,13 @@ app.use('/api', (req, res, next) => {
   const rawToken = req.headers.authorization || req.headers['x-nex-token'] || '';
   req.actor = verifySessionToken(String(rawToken), db);
 
-  // 2. Check IP Blocklist Firewall (skip unblock endpoint itself so Admin can unblock)
+  // 2. Check IP Blocklist Firewall (skip unblock endpoint itself so Admin can unblock).
+  // x-simulated-client-ip is a test/QA hook only — ignored in production so the
+  // firewall can never be bypassed or abused via spoofed headers.
+  const simulatedIp =
+    process.env.NODE_ENV === 'production' ? null : req.headers['x-simulated-client-ip'];
   const clientIp = String(
-    req.headers['x-simulated-client-ip'] ||
+    simulatedIp ||
       req.headers['x-forwarded-for']?.split(',')[0] ||
       req.socket?.remoteAddress ||
       '127.0.0.1'
@@ -107,11 +146,61 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// RBAC helper: privileged management endpoints require an authenticated Root Admin.
+// Unauthenticated requests must NEVER pass a role check.
+function rejectUnlessAdmin(req, res, action) {
+  if (!req.actor || req.actor.role !== 'admin') {
+    res.status(403).json({
+      error: `RBAC Restriction: Only Root Admin (.env) can ${action}.`
+    });
+    return true;
+  }
+  return false;
+}
+
+// Read-only SQL consoles (SQL Explorer & NEX-SH `nex sql`) must never expose
+// credential hashes or customer PII: block column references and redact
+// credential hashes from result rows.
+const SQL_CONSOLE_DENIED_COLUMNS = /password_hash|customer_email|customer_phone|shipping_address/i;
+
+function sanitizeReadOnlySql(sql) {
+  return !SQL_CONSOLE_DENIED_COLUMNS.test(sql);
+}
+
+function redactSensitiveRows(rows) {
+  return rows.map((row) =>
+    row && typeof row === 'object' && 'password_hash' in row
+      ? { ...row, password_hash: '[REDACTED]' }
+      : row
+  );
+}
+
+// Customer contact PII must never reach unauthenticated surfaces (bootstrap,
+// WebSocket feeds, public order tracking). Full rows stay available to Root
+// Admin via the guarded REST endpoints.
+const PUBLIC_ORDER_PII_KEYS = ['customer_email', 'customer_phone', 'shipping_address'];
+
+function maskPublicOrderPII(order) {
+  if (!order || typeof order !== 'object') return order;
+  const out = { ...order };
+  for (const key of PUBLIC_ORDER_PII_KEYS) {
+    if (out[key]) out[key] = '[MASKED]';
+  }
+  return out;
+}
+
+function maskPublicOrders(orders) {
+  return Array.isArray(orders) ? orders.map(maskPublicOrderPII) : orders;
+}
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 // Track connected real-time clients and what product they are viewing
 const clients = new Map();
+
+// Quantum-Shield login rate-limit state (per client IP, 60s sliding window)
+const loginAttempts = new Map();
 
 function broadcast(type, payload) {
   const message = JSON.stringify({
@@ -187,13 +276,15 @@ function getAllProducts() {
   return rows.map(formatProductRow);
 }
 
-function getOrdersWithItems(limit = 50) {
+function getOrdersWithItems(limit = 50, { full = false } = {}) {
   const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT ?').all(limit);
   const itemStmt = db.prepare('SELECT * FROM order_items WHERE order_id = ?');
-  return orders.map((o) => ({
-    ...o,
-    items: itemStmt.all(o.id)
-  }));
+  return orders.map((o) => {
+    const row = { ...o, items: itemStmt.all(o.id) };
+    // Customer contact PII is masked on shared/public surfaces; Root Admin
+    // endpoints opt into full rows with { full: true }.
+    return full ? row : maskPublicOrderPII(row);
+  });
 }
 
 function getAnalyticsSummary() {
@@ -544,6 +635,9 @@ app.get('/api/overview/dashboard', (req, res) => {
 
 // Direct Zero-Canvas Image File Upload & Validation Endpoint (POST /api/upload/image)
 app.post('/api/upload/image', (req, res) => {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to upload images.' });
+  }
   const {
     imageDataUrl = '',
     dataUrl = '',
@@ -605,6 +699,18 @@ app.get('/api/auth/config', (_req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
+  // Quantum-Shield login rate limiting: 15 attempts per minute per IP
+  const clientKey = String(req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || '127.0.0.1').trim();
+  const now = Date.now();
+  const windowStart = now - 60_000;
+  const recent = (loginAttempts.get(clientKey) || []).filter((t) => t > windowStart);
+  if (recent.length >= 15) {
+    loginAttempts.set(clientKey, recent);
+    return res.status(429).json({ error: 'Too many login attempts. Please wait a minute and try again.' });
+  }
+  recent.push(now);
+  loginAttempts.set(clientKey, recent);
+
   const { identifier = '', password = '', role = '' } = req.body || {};
   const cleanId = String(identifier).trim();
   const cleanPass = String(password);
@@ -620,10 +726,19 @@ app.post('/api/auth/login', (req, res) => {
     if (!envAdmin.envLoaded) {
       return res.status(500).json({ error: 'Root Admin credentials are missing in .env file.' });
     }
+    const adminPassMatches =
+      cleanPass.length === envAdmin.password.length &&
+      (() => {
+        try {
+          return crypto.timingSafeEqual(Buffer.from(cleanPass, 'utf8'), Buffer.from(envAdmin.password, 'utf8'));
+        } catch {
+          return false;
+        }
+      })();
     if (
       (cleanId.toLowerCase() === envAdmin.username.toLowerCase() ||
         cleanId.toLowerCase() === envAdmin.email.toLowerCase()) &&
-      cleanPass === envAdmin.password
+      adminPassMatches
     ) {
       const adminActor = {
         id: 'admin-root-env',
@@ -662,16 +777,19 @@ app.post('/api/auth/login', (req, res) => {
     .prepare('SELECT * FROM user_accounts WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)')
     .get(cleanId, cleanId);
 
+  // Generic error for unknown accounts and wrong passwords (no user enumeration)
+  const invalidCredentials = () =>
+    res.status(401).json({ error: 'Invalid username or password.' });
+
   if (!found) {
-    return res.status(401).json({ error: `Account "${cleanId}" not found.` });
+    return invalidCredentials();
   }
   if (found.status && found.status !== 'active') {
-    return res.status(403).json({ error: `Account "@${found.username}" is currently ${found.status}.` });
+    return res.status(403).json({ error: 'This account is currently suspended.' });
   }
 
-  const expectedHash = hashPassword(cleanPass);
-  if (found.password_hash !== expectedHash && cleanPass !== 'demo-switch') {
-    return res.status(401).json({ error: 'Invalid password for developer/user account.' });
+  if (!verifyPassword(cleanPass, found.password_hash)) {
+    return invalidCredentials();
   }
 
   const actor = {
@@ -693,6 +811,14 @@ app.post('/api/auth/login', (req, res) => {
     account: actor,
     token
   });
+});
+
+// Quantum-Shield session introspection — lets the SPA validate a stored token
+app.get('/api/auth/session', (req, res) => {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'No active session.' });
+  }
+  res.json({ account: req.actor, quantumSecured: true, tokenFormat: 'qnt_tok (HMAC-SHA3-256, 12h TTL)' });
 });
 
 app.post('/api/auth/register', (req, res) => {
@@ -770,6 +896,11 @@ app.post('/api/auth/register', (req, res) => {
 
 // Profile Image & Account Profile Update Endpoints (Zero-Canvas Real Image File Support)
 function handleProfileUpdateAndAvatar(req, res) {
+  // Profile updates always require an authenticated actor — unauthenticated
+  // requests must never reach the ownership checks below.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to update profiles or avatars.' });
+  }
   const {
     accountId = '',
     username = '',
@@ -964,7 +1095,18 @@ app.patch('/api/admin/users/:id/status', (req, res) => {
 
 // Normal System User Portal Endpoint (Separated from Admin & Developer Systems)
 app.get('/api/user/my-dashboard', (req, res) => {
-  const username = String(req.query.username || req.actor?.username || 'maya_ops').trim().toLowerCase();
+  // Private user portal data — requires sign-in; users see only their own
+  // dashboard, Root Admin may view any account.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to view the user portal.' });
+  }
+  const requested = String(req.query.username || req.actor.username || '').trim().toLowerCase();
+  if (req.actor.role !== 'admin' && requested !== String(req.actor.username || '').toLowerCase()) {
+    return res.status(403).json({
+      error: 'RBAC Isolation: Users can only view their own dashboard profile.'
+    });
+  }
+  const username = requested || String(req.actor.username || '').toLowerCase();
   const userRow =
     db.prepare('SELECT * FROM user_accounts WHERE LOWER(username) = LOWER(?)').get(username) ||
     db.prepare("SELECT * FROM user_accounts WHERE role = 'user' LIMIT 1").get();
@@ -1018,13 +1160,24 @@ app.get('/api/user/my-dashboard', (req, res) => {
 
 // Developer App Progress & Telemetry Endpoint
 app.get('/api/developer/my-progress', (req, res) => {
-  if (req.actor && req.actor.role === 'user') {
+  // Private developer portal data — requires sign-in; developers see only their
+  // own progress telemetry, Root Admin may view any account.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to view developer progress.' });
+  }
+  if (req.actor.role === 'user') {
     return res.status(403).json({
       error: 'RBAC Isolation: Normal System Users cannot access the Developer Publishing Portal. Switch to a Developer account.'
     });
   }
-  const username = String(req.query.username || req.actor?.username || 'aether_labs').trim().toLowerCase();
-  const isAdmin = req.actor?.role === 'admin' || username === getEnvAdminConfig().username.toLowerCase();
+  const requested = String(req.query.username || req.actor.username || '').trim().toLowerCase();
+  if (req.actor.role !== 'admin' && requested !== String(req.actor.username || '').toLowerCase()) {
+    return res.status(403).json({
+      error: 'RBAC Isolation: Developers can only view their own progress telemetry.'
+    });
+  }
+  const username = requested || String(req.actor.username || '').toLowerCase();
+  const isAdmin = req.actor.role === 'admin';
 
   const allApps = db.prepare('SELECT * FROM apps ORDER BY downloads DESC').all();
   const allInstalls = db.prepare('SELECT * FROM app_installs').all();
@@ -1066,12 +1219,18 @@ app.get('/api/developer/my-progress', (req, res) => {
 });
 
 // 2a-ii. Multi-Cloud Hosting (Netlify, Render, Vercel, Fly.io, Railway, Cloudflare) & Auto-Scaling Endpoints
-app.get('/api/hosting/env-config', (_req, res) => {
+app.get('/api/hosting/env-config', (req, res) => {
+  // Secrets (.env contents, API keys, tokens) are strictly Root Admin only.
+  if (!req.actor || req.actor.role !== 'admin') {
+    return res.status(403).json({
+      error: 'RBAC Restriction: Only Root Admin (.env) can view global Render & Netlify .env variables.'
+    });
+  }
   res.json(getHostingEnvAndBlueprintsConfig());
 });
 
 app.post('/api/hosting/env-config', (req, res) => {
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor || req.actor.role !== 'admin') {
     return res.status(403).json({
       error: 'RBAC Restriction: Only Root Admin (.env) can modify global Render & Netlify .env variables.'
     });
@@ -1096,6 +1255,10 @@ app.get('/api/hosting/deployments', (_req, res) => {
 });
 
 app.post('/api/hosting/deploy', (req, res) => {
+  // Deployments must be created by an authenticated Root Admin or Developer.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to provision cloud deployments.' });
+  }
   const {
     app_id = 'app-custom',
     app_name = 'Custom NEX Cloud Service',
@@ -1172,9 +1335,12 @@ app.patch('/api/hosting/:id/scale', (req, res) => {
   const existing = db.prepare('SELECT * FROM hosting_deployments WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Hosting deployment not found' });
 
-  // RBAC check: Only Root Admin (.env) or the deployment owner can scale/modify a deployment
+  // RBAC check: Only Root Admin (.env) or the deployment owner can scale/modify a deployment.
+  // Unauthenticated requests are rejected outright (never allowed past a role check).
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to modify hosting deployments.' });
+  }
   if (
-    req.actor &&
     req.actor.role !== 'admin' &&
     req.actor.username.toLowerCase() !== existing.owner_username.toLowerCase()
   ) {
@@ -1229,8 +1395,8 @@ app.get('/api/security/blocked-ips', (_req, res) => {
 });
 
 app.post('/api/security/blocked-ips', (req, res) => {
-  // Enforce RBAC: non-admin developers/users cannot directly modify root IP firewall rules
-  if (req.actor && req.actor.role !== 'admin') {
+  // Enforce RBAC: unauthenticated callers and non-admin developers/users cannot modify root IP firewall rules
+  if (!req.actor || req.actor.role !== 'admin') {
     return res.status(403).json({
       error: 'RBAC Restriction: Only Root Admin (authenticated via .env) can add IP Firewall block rules.'
     });
@@ -1289,7 +1455,7 @@ app.post('/api/security/blocked-ips', (req, res) => {
 });
 
 app.delete('/api/security/blocked-ips/:id', (req, res) => {
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor || req.actor.role !== 'admin') {
     return res.status(403).json({
       error: 'RBAC Restriction: Only Root Admin (.env) can unblock IPs.'
     });
@@ -1351,7 +1517,7 @@ app.post('/api/security/reports', (req, res) => {
 });
 
 app.patch('/api/security/reports/:id', (req, res) => {
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor || req.actor.role !== 'admin') {
     return res.status(403).json({
       error: 'RBAC Restriction: Only Root Admin (.env) can resolve or quarantine security reports.'
     });
@@ -1461,7 +1627,11 @@ app.post('/api/apps/inspect-url', async (req, res) => {
 });
 
 function handlePublishDeveloperAppOrSystem(req, res) {
-  if (req.actor && req.actor.role === 'user') {
+  // Publishing requires an authenticated Developer or Root Admin account.
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to publish developer packages.' });
+  }
+  if (req.actor.role === 'user') {
     return res.status(403).json({
       error: 'RBAC Isolation: Normal System Users cannot publish developer packages. Switch to a Developer account or Root Admin.'
     });
@@ -1628,7 +1798,10 @@ app.patch('/api/apps/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'App not found' });
 
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to modify published apps.' });
+  }
+  if (req.actor.role !== 'admin') {
     const devMatch =
       String(existing.developer || '').toLowerCase().includes(req.actor.username.toLowerCase()) ||
       String(existing.developer_email || '').toLowerCase() === String(req.actor.email || '').toLowerCase();
@@ -1694,7 +1867,10 @@ app.delete('/api/apps/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'App not found' });
 
-  if (req.actor && req.actor.role !== 'admin') {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to delete published apps.' });
+  }
+  if (req.actor.role !== 'admin') {
     const devMatch =
       String(existing.developer || '').toLowerCase().includes(req.actor.username.toLowerCase()) ||
       String(existing.developer_email || '').toLowerCase() === String(req.actor.email || '').toLowerCase();
@@ -2004,6 +2180,7 @@ app.get('/api/subscriptions', (_req, res) => {
 });
 
 app.post('/api/subscriptions/plans', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'create subscription plans')) return;
   const {
     name = 'Custom Developer Tier',
     code = `TIER_${Date.now().toString(36).toUpperCase()}`,
@@ -2063,6 +2240,7 @@ app.post('/api/subscriptions/plans', (req, res) => {
 });
 
 app.patch('/api/subscriptions/plans/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'modify subscription plans')) return;
   const existing = db.prepare('SELECT * FROM subscription_plans WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Subscription plan not found' });
 
@@ -2124,6 +2302,7 @@ app.patch('/api/subscriptions/plans/:id', (req, res) => {
 });
 
 app.delete('/api/subscriptions/plans/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'delete subscription plans')) return;
   db.prepare('DELETE FROM subscription_plans WHERE id = ?').run(req.params.id);
   const subscriptionPlans = db
     .prepare('SELECT * FROM subscription_plans ORDER BY tier_level ASC')
@@ -2197,6 +2376,7 @@ app.get('/api/mobile/addons', (_req, res) => {
 });
 
 app.post('/api/mobile/addons', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'create mobile add-ons')) return;
   const {
     name = 'Custom Flutter / Native Add-On',
     slug = `addon-${Date.now().toString(36)}`,
@@ -2237,6 +2417,7 @@ app.post('/api/mobile/addons', (req, res) => {
 });
 
 app.patch('/api/mobile/addons/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'modify mobile add-ons')) return;
   const existing = db.prepare('SELECT * FROM mobile_addons WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Mobile add-on not found' });
 
@@ -2360,6 +2541,7 @@ app.get('/api/products/:id', (req, res) => {
 });
 
 app.post('/api/products', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'create hardware products')) return;
   try {
     const {
       name,
@@ -2518,6 +2700,7 @@ app.post('/api/products', (req, res) => {
 });
 
 app.patch('/api/products/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'modify hardware products')) return;
   try {
     const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Product not found' });
@@ -2658,6 +2841,7 @@ app.patch('/api/products/:id', (req, res) => {
 });
 
 app.delete('/api/products/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'delete hardware products')) return;
   const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
 
@@ -2785,6 +2969,9 @@ app.post('/api/coupons/validate', (req, res) => {
   if (coupon.used_count >= coupon.max_uses) {
     return res.status(400).json({ error: `Promo code "${cleanCode}" has reached its usage limit` });
   }
+  if (coupon.expires_at && new Date(coupon.expires_at).getTime() < Date.now()) {
+    return res.status(400).json({ error: `Promo code "${cleanCode}" has expired` });
+  }
   if (Number(subtotal) < coupon.min_order_amount) {
     return res.status(400).json({
       error: `Code "${cleanCode}" requires a minimum subtotal of $${coupon.min_order_amount.toFixed(2)}`
@@ -2804,6 +2991,7 @@ app.post('/api/coupons/validate', (req, res) => {
 });
 
 app.post('/api/coupons', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'create coupons')) return;
   try {
     const {
       code,
@@ -2856,6 +3044,7 @@ app.post('/api/coupons', (req, res) => {
 });
 
 app.patch('/api/coupons/:id', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'modify coupons')) return;
   const existing = db.prepare('SELECT * FROM coupons WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Coupon not found' });
 
@@ -2868,8 +3057,10 @@ app.patch('/api/coupons/:id', (req, res) => {
 });
 
 // 6. Orders & Real-Time Checkout Endpoints
-app.get('/api/orders', (_req, res) => {
-  res.json({ orders: getOrdersWithItems(50) });
+app.get('/api/orders', (req, res) => {
+  // Full order book (customer PII) is Root Admin only.
+  if (rejectUnlessAdmin(req, res, 'view the full order book')) return;
+  res.json({ orders: getOrdersWithItems(50, { full: true }) });
 });
 
 app.get('/api/orders/track/:orderNumber', (req, res) => {
@@ -2882,7 +3073,7 @@ app.get('/api/orders/track/:orderNumber', (req, res) => {
     return res.status(404).json({ error: `Order "${cleanNum}" not found` });
   }
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
-  res.json({ order: { ...order, items } });
+  res.json({ order: maskPublicOrderPII({ ...order, items }) });
 });
 
 app.post('/api/orders', (req, res) => {
@@ -2942,17 +3133,20 @@ app.post('/api/orders', (req, res) => {
 
     let discountAmount = 0;
     let appliedCouponCode = null;
+    let appliedCouponRow = null;
     if (coupon_code) {
       const coupon = db
         .prepare('SELECT * FROM coupons WHERE UPPER(code) = ? AND active = 1')
         .get(coupon_code.trim().toUpperCase());
-      if (coupon && calculatedSubtotal >= coupon.min_order_amount) {
+      const couponExpired = Boolean(coupon?.expires_at && new Date(coupon.expires_at).getTime() < Date.now());
+      const couponExhausted = Boolean(coupon && coupon.max_uses > 0 && coupon.used_count >= coupon.max_uses);
+      if (coupon && !couponExpired && !couponExhausted && calculatedSubtotal >= coupon.min_order_amount) {
         discountAmount =
           coupon.discount_type === 'percentage'
             ? Number(((calculatedSubtotal * coupon.discount_value) / 100).toFixed(2))
             : Math.min(calculatedSubtotal, coupon.discount_value);
         appliedCouponCode = coupon.code;
-        db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?').run(coupon.id);
+        appliedCouponRow = coupon;
       }
     }
 
@@ -2964,6 +3158,30 @@ app.post('/api/orders', (req, res) => {
     const taxableAmount = Math.max(0, calculatedSubtotal - discountAmount);
     const taxAmount = Number((taxableAmount * 0.08).toFixed(2));
     const total = Number((taxableAmount + shippingCost + taxAmount).toFixed(2));
+
+    // Payment identity generation (pure computation, outside transaction scope)
+    const updatedProducts = [];
+    const payId = `pay-${Date.now().toString(36)}`;
+    const providerName = payment_method.toLowerCase().includes('m-pesa')
+      ? 'Safaricom Daraja 3.0 STK'
+      : payment_method.toLowerCase().includes('apple')
+      ? 'Apple Pay / Adyen Edge'
+      : payment_method.toLowerCase().includes('usdc') || payment_method.toLowerCase().includes('crypto')
+      ? 'NEX Web3 On-Chain Settlement'
+      : 'Stripe Live Gateway';
+    const authCode = `AUTH-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const receiptHash = `sha256:${crypto
+      .createHash('sha256')
+      .update(`${payId}:${orderNumber}:${total}:${now}`)
+      .digest('hex')}`;
+
+    // Atomic checkout: all order writes (order, items, stock, coupon usage,
+    // payment record) commit together or roll back together.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+    if (appliedCouponRow) {
+      db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?').run(appliedCouponRow.id);
+    }
 
     db.prepare(`
       INSERT INTO orders (
@@ -3007,7 +3225,7 @@ app.post('/api/orders', (req, res) => {
     const updateProductStock = db.prepare(`
       UPDATE products
       SET stock = stock - ?, sold_count = sold_count + ?, updated_at = ?
-      WHERE id = ?
+      WHERE id = ? AND stock >= ?
     `);
 
     const insertInvLog = db.prepare(`
@@ -3015,8 +3233,6 @@ app.post('/api/orders', (req, res) => {
         id, product_id, product_name, change_amount, previous_stock, new_stock, reason, actor, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-
-    const updatedProducts = [];
 
     for (const entry of resolvedItems) {
       const oiId = `oi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -3033,7 +3249,10 @@ app.post('/api/orders', (req, res) => {
         entry.lineTotal
       );
 
-      updateProductStock.run(entry.qty, entry.qty, now, entry.prod.id);
+      const stockRes = updateProductStock.run(entry.qty, entry.qty, now, entry.prod.id, entry.qty);
+      if (!stockRes || !stockRes.changes) {
+        throw new Error(`Insufficient stock for ${entry.prod.name} (concurrent purchase)`);
+      }
 
       insertInvLog.run(
         `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -3050,26 +3269,6 @@ app.post('/api/orders', (req, res) => {
       const refreshed = db.prepare('SELECT * FROM products WHERE id = ?').get(entry.prod.id);
       updatedProducts.push(formatProductRow(refreshed));
     }
-
-    const fullOrder = {
-      ...db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId),
-      items: db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId)
-    };
-
-    // Record real-time cryptographic payment transaction in payment_transactions table
-    const payId = `pay-${Date.now().toString(36)}`;
-    const providerName = payment_method.toLowerCase().includes('m-pesa')
-      ? 'Safaricom Daraja 3.0 STK'
-      : payment_method.toLowerCase().includes('apple')
-      ? 'Apple Pay / Adyen Edge'
-      : payment_method.toLowerCase().includes('usdc') || payment_method.toLowerCase().includes('crypto')
-      ? 'NEX Web3 On-Chain Settlement'
-      : 'Stripe Live Gateway';
-    const authCode = `AUTH-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    const receiptHash = `sha256:${crypto
-      .createHash('sha256')
-      .update(`${payId}:${orderNumber}:${total}:${now}`)
-      .digest('hex')}`;
 
     db.prepare(`
       INSERT INTO payment_transactions (
@@ -3090,6 +3289,21 @@ app.post('/api/orders', (req, res) => {
       now
     );
 
+    db.exec('COMMIT');
+    } catch (txnErr) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // ignore if no transaction is active
+      }
+      throw txnErr;
+    }
+
+    const fullOrder = {
+      ...db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId),
+      items: db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId)
+    };
+
     const paymentTransaction = db.prepare('SELECT * FROM payment_transactions WHERE id = ?').get(payId);
     const paymentTransactions = db.prepare('SELECT * FROM payment_transactions ORDER BY created_at DESC LIMIT 40').all();
 
@@ -3103,9 +3317,9 @@ app.post('/api/orders', (req, res) => {
     const inventoryLogs = db.prepare('SELECT * FROM inventory_logs ORDER BY created_at DESC LIMIT 30').all();
 
     broadcast('order:created', {
-      order: fullOrder,
-      paymentTransaction,
-      paymentTransactions,
+      order: maskPublicOrderPII(fullOrder),
+      paymentTransaction: maskPublicOrderPII(paymentTransaction),
+      paymentTransactions: maskPublicOrders(paymentTransactions),
       updatedProducts,
       activity,
       inventoryLogs,
@@ -3116,7 +3330,7 @@ app.post('/api/orders', (req, res) => {
     res.status(201).json({
       order: fullOrder,
       paymentTransaction,
-      paymentTransactions,
+      paymentTransactions: maskPublicOrders(paymentTransactions),
       updatedProducts,
       activity
     });
@@ -3126,7 +3340,9 @@ app.post('/api/orders', (req, res) => {
 });
 
 // 6b. Real-Time Payment Gateway Endpoints (/api/payments)
-app.get('/api/payments', (_req, res) => {
+app.get('/api/payments', (req, res) => {
+  // Payment transaction history (customer PII) is Root Admin only.
+  if (rejectUnlessAdmin(req, res, 'view payment transactions')) return;
   const paymentTransactions = db
     .prepare('SELECT * FROM payment_transactions ORDER BY created_at DESC LIMIT 50')
     .all();
@@ -3134,6 +3350,7 @@ app.get('/api/payments', (_req, res) => {
 });
 
 app.post('/api/payments/process', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'process payment transactions')) return;
   const {
     order_id = `ord-${Date.now()}`,
     order_number = `NEX-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -3201,6 +3418,7 @@ app.post('/api/payments/process', (req, res) => {
 });
 
 app.patch('/api/orders/:id/status', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'update order status')) return;
   const order = db.prepare('SELECT * FROM orders WHERE id = ? OR order_number = ?').get(req.params.id, req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -3226,7 +3444,7 @@ app.patch('/api/orders/:id/status', (req, res) => {
   });
 
   broadcast('order:updated', {
-    order: updatedOrder,
+    order: maskPublicOrderPII(updatedOrder),
     activity,
     analytics: getAnalyticsSummary()
   });
@@ -3353,6 +3571,7 @@ app.post('/api/mongo/query', (req, res) => {
 });
 
 app.post('/api/mongo/insert', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'insert MongoDB BSON documents')) return;
   try {
     const { collection = 'products', document = {} } = req.body || {};
     const parsedDoc = typeof document === 'string' ? JSON.parse(document || '{}') : document || {};
@@ -3384,12 +3603,13 @@ app.get('/api/db/overview', (_req, res) => {
 });
 
 app.get('/api/db/table/:tableName', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'browse raw database tables')) return;
   const { tableName } = req.params;
   if (!ALLOWED_TABLES.includes(tableName)) {
     return res.status(400).json({ error: `Invalid table "${tableName}"` });
   }
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
-  const rows = db.prepare(`SELECT * FROM ${tableName} LIMIT ?`).all(limit);
+  const rows = redactSensitiveRows(db.prepare(`SELECT * FROM ${tableName} LIMIT ?`).all(limit));
   const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
 
   res.json({
@@ -3401,6 +3621,7 @@ app.get('/api/db/table/:tableName', (req, res) => {
 });
 
 app.post('/api/db/query', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'run SQL Explorer queries')) return;
   try {
     const { sql = '' } = req.body;
     const trimmed = sql.trim();
@@ -3412,9 +3633,14 @@ app.post('/api/db/query', (req, res) => {
         error: 'Only read-only SELECT / PRAGMA / WITH queries are permitted in the SQL Explorer.'
       });
     }
+    if (!sanitizeReadOnlySql(trimmed)) {
+      return res.status(400).json({
+        error: 'Queries referencing protected columns (password_hash, customer_email, customer_phone, shipping_address) are not permitted in the SQL Explorer.'
+      });
+    }
 
     const startTime = performance.now();
-    const rows = db.prepare(trimmed).all();
+    const rows = redactSensitiveRows(db.prepare(trimmed).all());
     const durationMs = Number((performance.now() - startTime).toFixed(2));
 
     res.json({
@@ -3427,7 +3653,8 @@ app.post('/api/db/query', (req, res) => {
   }
 });
 
-app.post('/api/db/reset', (_req, res) => {
+app.post('/api/db/reset', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'reset the database')) return;
   seedDatabase({ forceReset: true });
   const activity = recordActivityEvent({
     event_type: 'stock_update',
@@ -3459,7 +3686,8 @@ app.post('/api/db/reset', (_req, res) => {
 });
 
 // 9. Real-Time Live Activity Simulator (can be triggered on demand)
-app.post('/api/realtime/simulate', (_req, res) => {
+app.post('/api/realtime/simulate', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'simulate realtime activity')) return;
   const products = getAllProducts();
   const randomProd = products[Math.floor(Math.random() * products.length)];
   const sampleShoppers = [
@@ -3509,7 +3737,8 @@ app.post('/api/subscribers', (req, res) => {
 });
 
 // 11. Bulk Restock Low-Stock Products (System Operations Improvement)
-app.post('/api/products/restock-low', (_req, res) => {
+app.post('/api/products/restock-low', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'restock low-stock inventory')) return;
   const lowProducts = db
     .prepare('SELECT * FROM products WHERE stock <= low_stock_threshold + 2')
     .all();
@@ -3584,6 +3813,7 @@ app.get('/api/system/health', (_req, res) => {
 
 // 13. Real-Time Edge Server Cluster Subsystem (/api/servers)
 app.post('/api/servers/:id/action', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'control edge server nodes')) return;
   const node = db.prepare('SELECT * FROM server_nodes WHERE id = ?').get(req.params.id);
   if (!node) return res.status(404).json({ error: 'Server node not found' });
 
@@ -3641,7 +3871,8 @@ app.post('/api/servers/:id/action', (req, res) => {
   res.json({ serverNodes, updatedNode, activity });
 });
 
-app.post('/api/servers/pulse', (_req, res) => {
+app.post('/api/servers/pulse', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'pulse edge telemetry')) return;
   const nodes = db.prepare('SELECT * FROM server_nodes').all();
   const now = new Date().toISOString();
   const stmt = db.prepare(`
@@ -3673,6 +3904,7 @@ app.post('/api/servers/pulse', (_req, res) => {
 });
 
 app.post('/api/servers', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'provision edge server nodes')) return;
   const {
     name = 'Singapore Edge Node (AP-Southeast-1)',
     region = 'Singapore, SG',
@@ -3710,6 +3942,7 @@ app.post('/api/servers', (req, res) => {
 
 // 14. External Integrations & Netlify/GitHub Webhook Subsystem (/api/integrations)
 app.post('/api/integrations/:id/sync', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'sync platform integrations')) return;
   const existing = db.prepare('SELECT * FROM integrations WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Integration not found' });
 
@@ -3790,7 +4023,8 @@ app.post('/api/integrations', (req, res) => {
 });
 
 // 15. Security Operations, WAF Threat Simulation & Key Rotation (/api/security)
-app.post('/api/security/scan', (_req, res) => {
+app.post('/api/security/scan', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'run deep security scans')) return;
   const secEvent = recordSecurityEvent({
     event_type: 'full_audit',
     severity: 'low',
@@ -3823,6 +4057,7 @@ app.post('/api/security/scan', (_req, res) => {
 });
 
 app.post('/api/security/simulate-threat', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'simulate threat telemetry')) return;
   const threats = [
     {
       event_type: 'waf_sqli_block',
@@ -3876,7 +4111,8 @@ app.post('/api/security/simulate-threat', (req, res) => {
   res.json({ securityEvents, notifications, latestSecurityEvent: secEvent });
 });
 
-app.post('/api/security/rotate-keys', (_req, res) => {
+app.post('/api/security/rotate-keys', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'rotate quantum key material')) return;
   const secEvent = recordSecurityEvent({
     event_type: 'key_rotation',
     severity: 'low',
@@ -3910,6 +4146,7 @@ app.post('/api/security/rotate-keys', (_req, res) => {
 
 // 16. Push Notifications Center Endpoints (/api/notifications)
 app.post('/api/notifications/send', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'broadcast push notifications')) return;
   const {
     channel = 'realtime',
     priority = 'high',
@@ -4161,45 +4398,145 @@ function executeSingleCommand(singleRawCmd) {
     const text = baseCmd.slice(5).trim().replace(/^["']|["']$/g, '');
     outputLines = [text];
   } else if (lower === 'whoami') {
-    outputLines = ['root@nex-edge-nbo (uid=0 gid=0 groups=0(root),100(secops),101(sqlite-wal))'];
-  } else if (lower === 'uname -a' || lower === 'uname') {
+    // Real OS identity of the service process
+    let user;
+    try {
+      user = os.userInfo();
+      outputLines = [`${user.username} (uid=${user.uid} gid=${user.gid})`];
+    } catch {
+      outputLines = [`${process.env.USER || process.env.USERNAME || 'nex'} (uid=unavailable)`];
+    }
+  } else if (lower === 'id') {
+    try {
+      const user = os.userInfo();
+      outputLines = [`uid=${user.uid} gid=${user.gid} user=${user.username} home=${user.homedir}`];
+    } catch {
+      outputLines = ['id: user info unavailable in this sandbox'];
+    }
+  } else if (lower === 'hostname') {
+    outputLines = [os.hostname()];
+  } else if (lower === 'date') {
+    outputLines = [new Date().toString()];
+  } else if (lower === 'pwd') {
+    outputLines = [process.cwd()];
+  } else if (lower === 'uname' || lower === 'uname -a') {
     outputLines = [
-      'Linux nex-edge-nbo-01 6.11.0-nex-anycast #1 SMP PREEMPT_DYNAMIC Node.js ' +
-        process.version +
-        ' x86_64 GNU/Linux (SQLite3 WAL Engine)'
+      `${os.type()} ${os.hostname()} ${os.release()} ${os.arch()} ${os.platform()} — Node.js ${process.version} (SQLite WAL Engine)`
     ];
   } else if (lower === 'uptime') {
+    const la = os.loadavg().map((n) => n.toFixed(2)).join(', ');
+    const up = os.uptime();
+    const h = Math.floor(up / 3600);
+    const m = Math.floor((up % 3600) / 60);
     outputLines = [
-      `up ${Math.round(process.uptime())} seconds, ${Math.max(1, clients.size)} active WS user(s), load average: 0.24, 0.19, 0.15`
+      `${new Date().toLocaleTimeString()} up ${h}:${String(m).padStart(2, '0')}, ${clients.size} ws client(s), load average: ${la}`
     ];
+  } else if (lower === 'nproc') {
+    outputLines = [String(os.cpus().length)];
   } else if (lower === 'env') {
+    // Real process environment — secret values are masked
+    const SECRET_ENV = /TOKEN|KEY|SECRET|PASSWORD|URI|CREDENTIAL/i;
+    outputLines = Object.entries(process.env)
+      .filter(([k]) => !k.startsWith('npm_'))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${SECRET_ENV.test(k) ? '[MASKED]' : v}`);
+  } else if (lower === 'top' || lower === 'ps') {
+    // Real process telemetry for this server process
+    const mem = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const la = os.loadavg().map((n) => n.toFixed(2)).join(', ');
     outputLines = [
-      'NEX_VERSION=3.0.0',
-      'NEX_CLUSTER_PRIMARY=af-south-nbo-01 (196.216.84.12)',
-      'SQLITE_JOURNAL_MODE=WAL',
-      'SQLITE_TABLES=17',
-      'WAF_SHIELD=ENABLED (Cloudflare Anycast + Ed25519)',
-      `NODE_RUNTIME=${process.version}`
+      `top - ${new Date().toLocaleTimeString()} | load avg: ${la} | cpus: ${os.cpus().length}`,
+      `Mem : ${(totalMem / 1024 / 1024 / 1024).toFixed(2)} GB total, ${(freeMem / 1024 / 1024 / 1024).toFixed(2)} GB free, ${(((totalMem - freeMem) / totalMem) * 100).toFixed(1)}% used`,
+      '',
+      'PID    USER         RSS      HEAP     CPU(s)   ELAPSED  STATE  COMMAND',
+      '────── ──────────── ──────── ──────── ──────── ──────── ────── ─────────────────────────',
+      `${String(process.pid).padEnd(6)} ${(os.userInfo().username || 'nex').padEnd(12)} ${String((mem.rss / 1024 / 1024).toFixed(1) + 'M').padEnd(8)} ${String((mem.heapUsed / 1024 / 1024).toFixed(1) + 'M').padEnd(8)} ${String(((cpu.user + cpu.system) / 1e6).toFixed(2)).padEnd(8)} ${String(Math.round(process.uptime()) + 's').padEnd(8)} RUN    node server/index.js`
     ];
-  } else if (lower === 'top') {
-    const nodes = db.prepare('SELECT * FROM server_nodes ORDER BY cpu_load DESC').all();
+  } else if (lower === 'free') {
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const mem = process.memoryUsage();
     outputLines = [
-      'PID    USER      PR   VIRT    RES    STATE   CPU%   MEM%   NODE / PROCESS',
-      '────── ───────── ──── ─────── ────── ─────── ────── ────── ──────────────────────────────',
-      ...nodes.map(
-        (n, idx) =>
-          `${String(1400 + idx * 37).padEnd(6)} root      20   1.84G   512M   RUN     ${(n.cpu_load + '%').padEnd(6)} ${(n.ram_usage + '%').padEnd(6)} nex-edge-worker (${n.id})`
-      )
+      '              total        used        free      shared  buff/cache   available',
+      `Mem:   ${String((totalMem / 1024 / 1024 / 1024).toFixed(2) + 'G').padStart(12)}${String(((totalMem - freeMem) / 1024 / 1024 / 1024).toFixed(2) + 'G').padStart(12)}${String((freeMem / 1024 / 1024 / 1024).toFixed(2) + 'G').padStart(12)}${'0G'.padStart(12)}${'—'.padStart(12)}${String((freeMem / 1024 / 1024 / 1024).toFixed(2) + 'G').padStart(12)}`,
+      `Proc:  ${String((mem.rss / 1024 / 1024).toFixed(1) + 'M RSS').padStart(12)}${String((mem.heapUsed / 1024 / 1024).toFixed(1) + 'M heap').padStart(12)}${String((mem.external / 1024 / 1024).toFixed(1) + 'M ext').padStart(12)}`
     ];
+  } else if (lower === 'df') {
+    try {
+      const st = fs.statfsSync(process.cwd());
+      const total = st.blocks * st.bsize;
+      const free = st.bfree * st.bsize;
+      const used = total - free;
+      outputLines = [
+        'Filesystem      Size   Used  Avail  Use%  Mounted on',
+        `nex-sandbox   ${(total / 1024 / 1024 / 1024).toFixed(1)}G  ${(used / 1024 / 1024 / 1024).toFixed(1)}G  ${(free / 1024 / 1024 / 1024).toFixed(1)}G  ${Math.round((used / total) * 100)}%  ${process.cwd()}`
+      ];
+    } catch {
+      outputLines = ['df: filesystem statistics unavailable'];
+    }
+  } else if (lower === 'ls' || lower.startsWith('ls ')) {
+    // Real directory listing, sandboxed to the project tree (no dotfiles)
+    const arg = baseCmd.slice(2).trim().replace(/^["']|["']$/g, '');
+    const SAFE_DIRS = new Set(['', '.', './', 'server', 'src', 'public', 'data', 'tests', 'docs', 'dist', 'server/static']);
+    const target = arg.replace(/\/+$/, '') || '.';
+    if (!SAFE_DIRS.has(target)) {
+      exitCode = 1;
+      outputLines = [`ls: ${arg}: permission denied (sandbox allows: ${[...SAFE_DIRS].filter(Boolean).join(', ')})`];
+    } else {
+      const abs = path.resolve(process.cwd(), target);
+      const entries = fs
+        .readdirSync(abs, { withFileTypes: true })
+        .filter((e) => !e.name.startsWith('.'))
+        .sort((a, b) => (a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1));
+      outputLines = entries.map((e) => {
+        if (e.isDirectory()) return `${e.name}/`;
+        try {
+          const size = fs.statSync(path.join(abs, e.name)).size;
+          return `${e.name}  ${(size / 1024).toFixed(1)}K`;
+        } catch {
+          return e.name;
+        }
+      });
+    }
+  } else if (lower.startsWith('cat ')) {
+    // Real file reads, allowlisted docs only — never .env or source of credentials
+    const arg = baseCmd.slice(4).trim().replace(/^["']|["']$/g, '');
+    const SAFE_FILES = new Set([
+      'README.md',
+      'package.json',
+      '.env.example',
+      'COPYRIGHT_AND_DRM.md',
+      'netlify.toml',
+      'render.yaml',
+      'docs/ARCHITECTURE_AND_GUIDE.md'
+    ]);
+    if (!SAFE_FILES.has(arg)) {
+      exitCode = 1;
+      outputLines = [`cat: ${arg}: permission denied (sandbox allows: ${[...SAFE_FILES].join(', ')})`];
+    } else {
+      try {
+        outputLines = fs.readFileSync(path.resolve(process.cwd(), arg), 'utf8').split(/\r?\n/).slice(0, 200);
+      } catch (err) {
+        exitCode = 1;
+        outputLines = [`cat: ${arg}: ${err.message}`];
+      }
+    }
   } else if (lower === 'netstat') {
-    const nodes = db.prepare('SELECT * FROM server_nodes').all();
+    // Real socket table for this server: listener + live WebSocket sessions
+    const port = process.env.PORT || 3000;
     outputLines = [
-      'PROTO  LOCAL ADDRESS          FOREIGN EDGE PEER      STATE         LATENCY   CONNS',
-      '────── ────────────────────── ────────────────────── ───────────── ───────── ──────',
-      ...nodes.map(
-        (n) =>
-          `tcp4   0.0.0.0:3000           ${n.ip_address.padEnd(18)}:443 ESTABLISHED   ${(n.latency_ms + 'ms').padEnd(9)} ${n.active_connections}`
-      )
+      'Proto  Local Address         State        PID     Detail',
+      '────── ───────────────────── ──────────── ─────── ──────────────────────────────',
+      `tcp    0.0.0.0:${String(port).padEnd(11)} LISTEN       ${String(process.pid).padEnd(7)} express + ws (/ws)`,
+      ...Array.from(clients.entries()).slice(0, 10).map(
+        ([, meta], i) =>
+          `tcp    0.0.0.0:${String(port).padEnd(11)} ESTABLISHED  ${String(process.pid).padEnd(7)} ws-client ${meta.id}${meta.viewingProductId ? ` → ${meta.viewingProductId}` : ''}`
+      ),
+      '',
+      `${clients.size} live WebSocket session(s) tracked`
     ];
   } else if (lower === 'nex benchmark' || lower === 'benchmark') {
     const t0 = performance.now();
@@ -4452,8 +4789,11 @@ function executeSingleCommand(singleRawCmd) {
     if (!/^(SELECT|PRAGMA|WITH)\b/i.test(sqlQuery) || /;\s*(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE)\b/i.test(sqlQuery)) {
       exitCode = 1;
       outputLines = ['[ERROR] Only read-only SELECT / PRAGMA / WITH queries are permitted in NEX-SH.'];
+    } else if (!sanitizeReadOnlySql(sqlQuery)) {
+      exitCode = 1;
+      outputLines = ['[ERROR] Queries referencing protected columns (password_hash, customer_email, customer_phone, shipping_address) are not permitted in NEX-SH.'];
     } else {
-      const rows = db.prepare(sqlQuery).all().slice(0, 15);
+      const rows = redactSensitiveRows(db.prepare(sqlQuery).all()).slice(0, 15);
       outputLines = [
         `Query returned ${rows.length} row(s):`,
         ...rows.map((r) => JSON.stringify(r))
@@ -4583,6 +4923,55 @@ app.post('/api/terminal/scripts', (req, res) => {
 // ============================================================================
 
 // 14. Live System Health & SQLite WAL Diagnostics Endpoint
+// Quantum-Shield Security Core telemetry — real cryptographic status for the
+// Quantum Security dashboard (hashes/fingerprints only, never raw secrets).
+app.get('/api/quantum/status', (_req, res) => {
+  const secretFingerprint = getSessionSecretFingerprint();
+  const dbFingerprint = (() => {
+    try {
+      return crypto.createHash('sha3-256').update(fs.readFileSync(path.resolve(__dirname, '../data/nexstore.db'))).digest('hex');
+    } catch {
+      return 'unavailable';
+    }
+  })();
+  const entropy = crypto.randomBytes(32).toString('hex');
+
+  res.json({
+    suite: {
+      passwordKDF: 'scrypt (memory-hard, N=2^15, r=8, p=1, 128-bit per-user salt)',
+      sessionTokens: 'qnt_tok — HMAC-SHA3-256, 12h TTL, constant-time verification',
+      dataIntegrity: 'SHA3-256 fingerprints',
+      transport: 'TLS 1.3 (edge) + strict CORS allow-list',
+      entropySource: 'Node crypto CSPRNG (openssl RAND_bytes)',
+      pqcReadiness: 'PQC-READY (hash-based signatures & KEMs pluggable via NIST FIPS 203/204 suite)'
+    },
+    keyFingerprint: `${secretFingerprint.slice(0, 16)}…${secretFingerprint.slice(-8)}`,
+    databaseFingerprint: `${dbFingerprint.slice(0, 16)}…${dbFingerprint.slice(-8)}`,
+    entropySample: entropy,
+    sessionTtlHours: 12,
+    nodeRuntime: process.version,
+    quantumShieldActive: true,
+    generatedAt: new Date().toISOString()
+  });
+});
+
+// NEX Neural Engine — real MLP training & model-backed recommendations
+app.get('/api/neural/status', (_req, res) => {
+  const products = getAllProducts();
+  res.json(getNeuralStatus(products));
+});
+
+app.post('/api/neural/train', (_req, res) => {
+  const products = getAllProducts();
+  const result = runTraining(products);
+  res.json(result);
+});
+
+app.get('/api/neural/recommendations', (_req, res) => {
+  const products = getAllProducts();
+  res.json({ recommendations: getRecommendations(products) });
+});
+
 app.get('/api/health', (_req, res) => {
   const mem = process.memoryUsage();
   const dbStats = getDatabaseStats();
@@ -4760,7 +5149,7 @@ app.get('/api/orders/lookup/:orderNumber', (req, res) => {
     return res.status(404).json({ error: `Order "${target}" not found` });
   }
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
-  res.json({ order: { ...order, items } });
+  res.json({ order: maskPublicOrderPII({ ...order, items }) });
 });
 
 // 18. Verified Product Reviews Endpoints (GET & POST with live rating recalculation)
@@ -4826,11 +5215,12 @@ app.post('/api/reviews', (req, res) => {
 
 // 19. Live SQLite Table JSON/CSV Export Endpoint
 app.get('/api/export/:table', (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'export database tables')) return;
   const table = req.params.table;
   if (!ALLOWED_TABLES.includes(table)) {
     return res.status(400).json({ error: `Table "${table}" is not in ALLOWED_TABLES` });
   }
-  const rows = db.prepare(`SELECT * FROM ${table} LIMIT 500`).all();
+  const rows = redactSensitiveRows(db.prepare(`SELECT * FROM ${table} LIMIT 500`).all());
   if (req.query.format === 'csv') {
     if (rows.length === 0) {
       res.setHeader('Content-Type', 'text/csv');
@@ -4889,6 +5279,7 @@ app.get('/api/tests/run', async (_req, res) => {
 });
 
 app.post('/api/tests/run', async (req, res) => {
+  if (rejectUnlessAdmin(req, res, 'run verification suites')) return;
   try {
     const report = await runAllVerificationSuites();
     recordTerminalLog({

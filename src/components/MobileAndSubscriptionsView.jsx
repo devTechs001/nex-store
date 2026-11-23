@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { authHeaders } from '../utils/auth.js';
 import {
   Smartphone,
   CreditCard,
@@ -135,7 +136,7 @@ export default function MobileAndSubscriptionsView({
     try {
       const res = await fetch(`/api/subscriptions/plans/${planId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           name: editPlanForm.name,
           tagline: editPlanForm.tagline,
@@ -181,7 +182,7 @@ export default function MobileAndSubscriptionsView({
     try {
       const res = await fetch('/api/subscriptions/plans', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           name: newPlanForm.name,
           code: newPlanForm.code || `CUSTOM_${Date.now().toString(36).toUpperCase()}`,
@@ -204,7 +205,7 @@ export default function MobileAndSubscriptionsView({
   const handleDeletePlan = async (planId) => {
     onPlaySound?.('click');
     try {
-      const res = await fetch(`/api/subscriptions/plans/${planId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/subscriptions/plans/${planId}`, { method: 'DELETE', headers: authHeaders() });
       const data = await res.json();
       if (Array.isArray(data?.subscriptionPlans)) {
         setLocalPlans(data.subscriptionPlans);
@@ -241,7 +242,7 @@ export default function MobileAndSubscriptionsView({
     try {
       const res = await fetch(`/api/mobile/addons/${addon.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ enabled: nextEnabled })
       });
       const data = await res.json();
@@ -261,7 +262,7 @@ export default function MobileAndSubscriptionsView({
     try {
       const res = await fetch('/api/mobile/addons', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           name: newAddonName.trim(),
           framework: newAddonFramework,

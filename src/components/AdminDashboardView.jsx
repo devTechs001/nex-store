@@ -26,6 +26,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { formatPrice, formatRelativeTime } from '../utils/currency.js';
+import { getStoredToken, setStoredToken, authHeaders } from '../utils/auth.js';
 import {
   getProductArtUrl,
   isCustomImageSource,
@@ -36,6 +37,8 @@ import {
 
 export default function AdminDashboardView({
   portalMode = 'admin',
+  session = null,
+  onSessionChange,
   products = [],
   apps = [],
   appInstalls = [],
@@ -83,14 +86,8 @@ export default function AdminDashboardView({
       setAdminSection('overview');
     } else if (portalMode === 'developer-portal') {
       setAdminSection('developer-portal');
-      if (activeAccount.role !== 'developer') {
-        handleQuickSwitchAccount('aether_labs', 'DevPass2026!', 'developer');
-      }
     } else if (portalMode === 'user-portal') {
       setAdminSection('user-portal');
-      if (activeAccount.role !== 'user') {
-        handleQuickSwitchAccount('amara_nbo', 'Shopper2026!', 'user');
-      }
     } else if (portalMode === 'admin') {
       setAdminSection((prev) =>
         ['developer-portal', 'user-portal'].includes(prev) ? 'inventory' : prev
@@ -98,21 +95,36 @@ export default function AdminDashboardView({
     }
   }, [portalMode]);
 
-  // Root Admin (.env), Developer & System User RBAC Auth State
-  const [activeAccount, setActiveAccount] = useState({
-    id: 'admin-root-env',
-    username: 'nex_root_admin',
-    email: 'admin@nexstore.dev',
-    display_name: 'NEX Root Administrator (.env)',
-    role: 'admin',
-    company: 'NEX Store Root Operations',
-    avatar: '🛡️',
-    permissions: ['*'],
-    source: '.env'
-  });
-  const [authToken, setAuthToken] = useState('');
+  // Root Admin (.env), Developer & System User RBAC Auth State.
+  // No privileged session is assumed: until a real login succeeds the console
+  // runs as a signed-out guest and every privileged API call is rejected.
+  const SIGNED_OUT_ACCOUNT = {
+    id: '',
+    username: 'guest',
+    email: '',
+    display_name: 'Signed Out',
+    role: 'guest',
+    company: '',
+    avatar: '🔒',
+    permissions: [],
+    source: 'none'
+  };
+  const [activeAccount, setActiveAccount] = useState(session?.account || SIGNED_OUT_ACCOUNT);
+  const [authToken, setAuthToken] = useState(() => getStoredToken());
+
+  // Stay in sync with the app-level Quantum-Shield session
+  useEffect(() => {
+    if (session?.account) {
+      setActiveAccount(session.account);
+      setAuthToken(getStoredToken());
+    } else if (!session) {
+      setActiveAccount(SIGNED_OUT_ACCOUNT);
+      setAuthToken('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
   const [loginIdentifier, setLoginIdentifier] = useState('nex_root_admin');
-  const [loginPassword, setLoginPassword] = useState('NEX-Root-Admin-2026!#');
+  const [loginPassword, setLoginPassword] = useState('');
   const [authFeedback, setAuthFeedback] = useState(null);
   const [devProgress, setDevProgress] = useState(null);
   const [userDashboardData, setUserDashboardData] = useState(null);
@@ -123,7 +135,7 @@ export default function AdminDashboardView({
   // Register Developer / User Account Form
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('DevPass2026!');
+  const [regPassword, setRegPassword] = useState('');
   const [regCompany, setRegCompany] = useState('Quantum Foundry Labs');
   const [regRole, setRegRole] = useState('developer');
   const [regAvatarUrl, setRegAvatarUrl] = useState('');
@@ -373,7 +385,7 @@ export default function AdminDashboardView({
       { key: 'NODE_ENV', value: 'production' },
       { key: 'RENDER_SERVICE_NAME', value: 'nex-store-lj5j' },
       { key: 'RENDER_EXTERNAL_URL', value: 'https://nex-store-lj5j.onrender.com' },
-      { key: 'MONGODB_URI', value: 'mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority' },
+      { key: 'MONGODB_URI', value: 'mongodb+srv://CHANGE_ME:CHANGE_ME@CHANGE_ME.mongodb.net/nex_store?retryWrites=true&w=majority' },
       { key: 'NEX_ADMIN_USERNAME', value: 'nex_root_admin' },
       { key: 'CORS_ALLOWED_ORIGINS', value: 'https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com' }
     ],
@@ -386,7 +398,7 @@ export default function AdminDashboardView({
       { key: 'VITE_WS_URL', value: 'wss://nex-store-lj5j.onrender.com/ws' },
       { key: 'VITE_RENDER_BACKEND_URL', value: 'https://nex-store-lj5j.onrender.com' }
     ],
-    renderEnvText: `# === RENDER CLOUD BACKEND ENVIRONMENT (https://nex-store-lj5j.onrender.com) ===\nPORT=3000\nHOST=0.0.0.0\nNODE_ENV=production\nRENDER=true\nRENDER_SERVICE_NAME=nex-store-lj5j\nRENDER_EXTERNAL_URL=https://nex-store-lj5j.onrender.com\nMONGODB_URI=mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority\nNEX_ADMIN_USERNAME=nex_root_admin\nNEX_ADMIN_EMAIL=admin@nexstore.dev\nNEX_ADMIN_PASSWORD=NEX-Root-Admin-2026!#\nCORS_ALLOWED_ORIGINS=https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com`,
+    renderEnvText: `# === RENDER CLOUD BACKEND ENVIRONMENT (https://nex-store-lj5j.onrender.com) ===\nPORT=3000\nHOST=0.0.0.0\nNODE_ENV=production\nRENDER=true\nRENDER_SERVICE_NAME=nex-store-lj5j\nRENDER_EXTERNAL_URL=https://nex-store-lj5j.onrender.com\nMONGODB_URI=mongodb+srv://CHANGE_ME:CHANGE_ME@CHANGE_ME.mongodb.net/nex_store?retryWrites=true&w=majority\nNEX_ADMIN_USERNAME=nex_root_admin\nNEX_ADMIN_EMAIL=admin@nexstore.dev\nNEX_ADMIN_PASSWORD=CHANGE_ME_ROOT_ADMIN_PASSWORD\nCORS_ALLOWED_ORIGINS=https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com`,
     netlifyEnvText: `# === NETLIFY EDGE FRONTEND ENVIRONMENT (https://nex-store-pro.netlify.app) ===\nNETLIFY=true\nNODE_VERSION=22\nNPM_FLAGS=--include=dev --no-audit --no-fund\nNETLIFY_SITE_NAME=nex-store-pro\nURL=https://nex-store-pro.netlify.app\nDEPLOY_PRIME_URL=https://main--nex-store-pro.netlify.app\nVITE_API_BASE_URL=https://nex-store-lj5j.onrender.com\nVITE_WS_URL=wss://nex-store-lj5j.onrender.com/ws\nVITE_RENDER_BACKEND_URL=https://nex-store-lj5j.onrender.com`,
     renderYaml: `services:\n  - type: web\n    name: nex-store-lj5j\n    runtime: node\n    buildCommand: npm install --include=dev --no-audit --no-fund && npm run build\n    startCommand: npm start\n    healthCheckPath: /api/health`,
     netlifyToml: `[build]\n  command = "npm install --include=dev --no-audit --no-fund && npm run build"\n  publish = "dist"\n\n[[redirects]]\n  from = "/api/*"\n  to = "https://nex-store-lj5j.onrender.com/api/:splat"\n  status = 200\n  force = true`
@@ -478,6 +490,34 @@ export default function AdminDashboardView({
     }
   };
 
+  // Root Admin sign-in always requires the operator-configured password
+  // (NEX_ADMIN_PASSWORD in .env) — never a value shipped in client code.
+  const handleQuickSwitchRootAdmin = (targetSection = null) => {
+    const pass = window.prompt(
+      'Enter the Root Admin password (configured as NEX_ADMIN_PASSWORD in .env):'
+    );
+    if (pass) {
+      handleQuickSwitchAccount('nex_root_admin', pass, 'admin', targetSection);
+    }
+  };
+
+  // Quick-switch for developer/user accounts prompts for the real password —
+  // no credential is ever embedded in the client bundle.
+  const handleQuickSwitchPrompt = (identifier, roleHint, targetSection = null) => {
+    const pass = window.prompt(`Enter the password for ${identifier}:`);
+    if (pass) {
+      handleQuickSwitchAccount(identifier, pass, roleHint, targetSection);
+    }
+  };
+
+  const handleLogout = () => {
+    setStoredToken('');
+    setAuthToken('');
+    setActiveAccount(SIGNED_OUT_ACCOUNT);
+    onSessionChange?.(null, '');
+    setAuthFeedback({ type: 'success', message: 'Signed out — private portals are now locked.' });
+  };
+
   const handleLoginSubmit = async (e) => {
     e?.preventDefault();
     try {
@@ -496,6 +536,8 @@ export default function AdminDashboardView({
       }
       setActiveAccount(data.account);
       setAuthToken(data.token || '');
+      setStoredToken(data.token || '');
+      onSessionChange?.(data.account, data.token);
       setAuthFeedback({
         type: 'success',
         message: `Authenticated as ${data.account.display_name} [${data.account.role.toUpperCase()}] via ${data.account.source}`
@@ -527,6 +569,8 @@ export default function AdminDashboardView({
       if (res.ok && data.account) {
         setActiveAccount(data.account);
         setAuthToken(data.token || '');
+        setStoredToken(data.token || '');
+        onSessionChange?.(data.account, data.token);
         setAuthFeedback({
           type: 'success',
           message: `Switched active RBAC session to ${data.account.display_name} (${data.account.role.toUpperCase()} PORTAL)`
@@ -572,6 +616,8 @@ export default function AdminDashboardView({
       if (Array.isArray(data.userAccounts)) setLocalAccounts(data.userAccounts);
       setActiveAccount(data.account);
       setAuthToken(data.token || '');
+      setStoredToken(data.token || '');
+      onSessionChange?.(data.account, data.token);
       setRegUsername('');
       setRegEmail('');
       setRegAvatarUrl('');
@@ -738,7 +784,7 @@ export default function AdminDashboardView({
     e.preventDefault();
     const res = await fetch('/api/payments/process', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         customer_name: testPayCustomer.trim() || 'Verified Buyer',
         customer_email: 'buyer@nexstore.dev',
@@ -1067,10 +1113,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount(
-                    'nex_root_admin',
-                    'NEX-Root-Admin-2026!#',
-                    'admin',
+                  handleQuickSwitchRootAdmin(
                     'inventory'
                   )
                 }
@@ -1085,12 +1128,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount(
-                    'aether_labs',
-                    'DevPass2026!',
-                    'developer',
-                    'developer-portal'
-                  )
+                  handleQuickSwitchPrompt('aether_labs', 'developer', 'developer-portal')
                 }
                 className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
                   activeAccount.username === 'aether_labs'
@@ -1103,12 +1141,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount(
-                    'rustcore_sys',
-                    'RustCore2026!',
-                    'developer',
-                    'developer-portal'
-                  )
+                  handleQuickSwitchPrompt('rustcore_sys', 'developer', 'developer-portal')
                 }
                 className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
                   activeAccount.username === 'rustcore_sys'
@@ -1121,12 +1154,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount(
-                    'amara_nbo',
-                    'Shopper2026!',
-                    'user',
-                    'user-portal'
-                  )
+                  handleQuickSwitchPrompt('amara_nbo', 'user', 'user-portal')
                 }
                 className={`rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition ${
                   activeAccount.role === 'user'
@@ -1135,6 +1163,13 @@ export default function AdminDashboardView({
                 }`}
               >
                 👤 User: @amara_nbo
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-xl px-3 py-1.5 font-mono-num text-[11px] font-bold cursor-pointer transition bg-rose-500/15 border border-rose-500/40 text-rose-300 hover:bg-rose-500/25"
+              >
+                ⎋ Sign Out
               </button>
             </div>
           </div>
@@ -1672,7 +1707,7 @@ export default function AdminDashboardView({
               <button
                 type="button"
                 onClick={() =>
-                  handleQuickSwitchAccount('nex_root_admin', 'NEX-Root-Admin-2026!#', 'admin')
+                  handleQuickSwitchRootAdmin()
                 }
                 className="rounded-xl bg-emerald-500 hover:bg-emerald-400 px-3.5 py-2 font-mono-num text-xs font-bold text-slate-950 cursor-pointer"
               >

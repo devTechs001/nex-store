@@ -222,6 +222,67 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.equal(adminScale.status, 200);
       assert.equal(adminScale.data.deployment.current_instances, 3);
     });
+
+    it('rejects the removed demo-switch login backdoor and unauthenticated privileged writes', async () => {
+      // Universal "demo-switch" password backdoor must be gone -> 401
+      const backdoor = await apiRequest('/api/auth/login', {
+        method: 'POST',
+        body: { identifier: 'aether_labs', password: 'demo-switch' }
+      });
+      assert.equal(backdoor.status, 401);
+
+      // Unauthenticated requests must never pass admin RBAC guards -> 403
+      const unauthEnv = await apiRequest('/api/hosting/env-config');
+      assert.equal(unauthEnv.status, 403);
+
+      const unauthEnvWrite = await apiRequest('/api/hosting/env-config', {
+        method: 'POST',
+        body: { updates: { NEX_ADMIN_PASSWORD: 'pwned' } }
+      });
+      assert.equal(unauthEnvWrite.status, 403);
+
+      const unauthProduct = await apiRequest('/api/products', {
+        method: 'POST',
+        body: { name: 'Unauth Probe', sku: 'UNAUTH-PROBE', price: 1, stock: 1 }
+      });
+      assert.equal(unauthProduct.status, 403);
+
+      const unauthFirewall = await apiRequest('/api/security/blocked-ips', {
+        method: 'POST',
+        body: { ip_address: '198.51.100.77', reason: 'unauth probe' }
+      });
+      assert.equal(unauthFirewall.status, 403);
+
+      const someOrder = db.prepare('SELECT id, status FROM orders LIMIT 1').get();
+      if (someOrder) {
+        const unauthStatus = await apiRequest(`/api/orders/${someOrder.id}/status`, {
+          method: 'PATCH',
+          body: { status: 'processing' }
+        });
+        assert.equal(unauthStatus.status, 403);
+        db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(someOrder.status, someOrder.id);
+      }
+
+      // The SQL Explorer is Root Admin only and must never expose credential hashes
+      const unauthSql = await apiRequest('/api/db/query', {
+        method: 'POST',
+        body: { sql: 'SELECT 1 as probe' }
+      });
+      assert.equal(unauthSql.status, 403);
+
+      const hashProbe = await apiRequest('/api/db/query', {
+        method: 'POST',
+        token: adminToken,
+        body: { sql: 'SELECT password_hash FROM user_accounts' }
+      });
+      assert.equal(hashProbe.status, 400);
+
+      // Private profile portals must not leak to anonymous callers or other users
+      const unauthDevProgress = await apiRequest('/api/developer/my-progress');
+      assert.equal(unauthDevProgress.status, 401);
+      const unauthUserDash = await apiRequest('/api/user/my-dashboard');
+      assert.equal(unauthUserDash.status, 401);
+    });
   });
 
   // ============================================================================
@@ -585,6 +646,7 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
 
       const insertRes = await apiRequest('/api/mongo/insert', {
         method: 'POST',
+        token: adminToken,
         body: {
           collection: 'products',
           document: {
@@ -639,13 +701,13 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
 
     it('exports terminal_logs, inventory_logs, security_events & activity_events in JSON and CSV formats', async () => {
       for (const table of ['terminal_logs', 'inventory_logs', 'security_events', 'activity_events']) {
-        const jsonRes = await apiRequest(`/api/export/${table}`);
+        const jsonRes = await apiRequest(`/api/export/${table}`, { token: adminToken });
         assert.equal(jsonRes.status, 200);
         assert.equal(jsonRes.data.table, table);
         assert.ok(Array.isArray(jsonRes.data.rows) && jsonRes.data.rows.length >= 1);
       }
 
-      const csvRes = await apiRequest('/api/export/terminal_logs?format=csv');
+      const csvRes = await apiRequest('/api/export/terminal_logs?format=csv', { token: adminToken });
       assert.equal(csvRes.status, 200);
       assert.ok(String(csvRes.data).includes('command'));
     });
@@ -734,6 +796,91 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.equal(uploadRes.data.updated, true);
       assert.equal(uploadRes.data.verifiedImageFile, true);
       assert.ok(uploadRes.data.account.avatar.startsWith('data:image/png;base64,'));
+    });
+  });
+
+  // ============================================================================
+  // 7. NEX NEURAL ENGINE (REAL DEEP LEARNING — MLP BACKPROP + SGD)
+  // ============================================================================
+  describe('7. NEX Neural Engine (Real MLP Training & Model Recommendations)', () => {
+    it('reports engine status and trains real networks with decreasing loss', async () => {
+      const statusRes = await apiRequest('/api/neural/status');
+      assert.equal(statusRes.status, 200);
+      assert.ok(statusRes.data.engine.includes('Neural Engine'));
+      assert.ok(statusRes.data.productCount > 0, 'training corpus built from real products');
+
+      const trainRes = await apiRequest('/api/neural/train', { method: 'POST', token: adminToken });
+      assert.equal(trainRes.status, 200);
+
+      const hist = trainRes.data.demandForecaster.lossHistory;
+      assert.ok(Array.isArray(hist) && hist.length === 250, 'real 250-epoch loss history recorded');
+      assert.ok(
+        trainRes.data.demandForecaster.finalLoss < trainRes.data.demandForecaster.startLoss,
+        'backpropagation must genuinely reduce loss'
+      );
+      assert.ok(trainRes.data.xorProbe.converged, 'XOR probe must converge (non-linear learning)');
+      for (const p of trainRes.data.xorProbe.predictions) {
+        assert.ok(
+          Math.abs(p.predicted - p.expected) < 0.2,
+          `XOR[${p.input}] predicted ${p.predicted} ≈ target ${p.expected}`
+        );
+      }
+    });
+
+    it('serves model-scored product recommendations', async () => {
+      const recRes = await apiRequest('/api/neural/recommendations');
+      assert.equal(recRes.status, 200);
+      assert.ok(recRes.data.recommendations.length >= 3, 'model-backed recommendations');
+      const scores = recRes.data.recommendations.map((r) => r.demandScore);
+      assert.deepEqual(scores, [...scores].sort((a, b) => b - a), 'sorted by predicted demand');
+    });
+  });
+
+  // ============================================================================
+  // 8. REAL SYSTEM TERMINAL (OS TELEMETRY + SANDBOXED FS + SECRET MASKING)
+  // ============================================================================
+  describe('8. Real System Terminal (Live OS Commands & Sandboxed File Access)', () => {
+    it('executes real OS telemetry commands (uname, free, ls)', async () => {
+      const unameRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'uname -a', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.equal(unameRes.status, 200);
+      assert.ok(unameRes.data.output.includes(process.version), 'uname reports the real Node runtime');
+      assert.ok(/Linux|Darwin|Windows/i.test(unameRes.data.output), 'uname reports the real OS type');
+
+      const freeRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'free', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.ok(freeRes.data.output.includes('Mem:'), 'free reports real memory');
+
+      const lsRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'ls', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.ok(lsRes.data.output.includes('package.json'), 'ls lists real project files');
+    });
+
+    it('sandbox-denies sensitive file reads and masks secrets in env output', async () => {
+      const denyRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'cat .env', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.equal(denyRes.status, 200);
+      assert.ok(denyRes.data.output.includes('permission denied'), '.env must be unreadable');
+
+      const envRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'env', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.ok(!/nex_whop_sk_|mongodb(\+srv)?:\/\//.test(envRes.data.output), 'env must not leak secret values');
+      assert.ok(envRes.data.output.includes('[MASKED]') || envRes.data.output.includes('NODE_RUNTIME'), 'env works');
     });
   });
 });

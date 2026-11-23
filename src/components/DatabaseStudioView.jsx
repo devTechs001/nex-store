@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { authHeaders } from '../utils/auth.js';
 import {
   Database,
   Table,
@@ -114,7 +115,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
       const parsed = JSON.parse(mongoInsertJson);
       const res = await fetch('/api/mongo/insert', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           collection: selectedTable,
           document: parsed
@@ -136,7 +137,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
   const fetchTable = async (tableName) => {
     setLoadingTable(true);
     try {
-      const res = await fetch(`/api/db/table/${tableName}?limit=100`);
+      const res = await fetch(`/api/db/table/${tableName}?limit=100`, { headers: authHeaders() });
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
@@ -176,7 +177,7 @@ export default function DatabaseStudioView({ dbStats, darkMode, onResetDatabase 
     try {
       const res = await fetch('/api/db/query', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ sql: sqlToRun })
       });
       const contentType = res.headers.get('content-type') || '';

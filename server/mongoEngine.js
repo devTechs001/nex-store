@@ -49,7 +49,7 @@ export function generateObjectId(seedString = '') {
 export function getMongoEnvConfig() {
   const uri =
     process.env.MONGODB_URI ||
-    'mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority';
+    'mongodb+srv://CHANGE_ME:CHANGE_ME@CHANGE_ME.mongodb.net/nex_store?retryWrites=true&w=majority';
   const dbName = process.env.MONGODB_DB_NAME || 'nex_store';
   const region = process.env.MONGODB_CLUSTER_REGION || 'aws-eu-central-1 (Frankfurt)';
   const syncMode = process.env.MONGODB_SYNC_MODE || 'DUAL_WRITE_HYBRID';

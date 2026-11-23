@@ -62,19 +62,19 @@ export function getHostingEnvAndBlueprintsConfig() {
     { key: 'RENDER_INSTANCE_TYPE', value: process.env.RENDER_INSTANCE_TYPE || 'standard', desc: 'Render compute instance tier' },
     { key: 'RENDER_EXTERNAL_URL', value: process.env.RENDER_EXTERNAL_URL || 'https://nex-store-lj5j.onrender.com', desc: 'Public HTTPS URL for Render service' },
     { key: 'NEX_SQLITE_DB_PATH', value: process.env.NEX_SQLITE_DB_PATH || '/var/data/nex-store.sqlite', desc: 'Persistent SQLite WAL disk path on Render' },
-    { key: 'MONGODB_URI', value: process.env.MONGODB_URI || 'mongodb+srv://nex_admin:NEX-Mongo-Atlas-2026@cluster0.nexstore.mongodb.net/nex_store?retryWrites=true&w=majority', desc: 'MongoDB Atlas ReplicaSet connection string' },
+    { key: 'MONGODB_URI', value: process.env.MONGODB_URI || 'mongodb+srv://CHANGE_ME:CHANGE_ME@CHANGE_ME.mongodb.net/nex_store?retryWrites=true&w=majority', desc: 'MongoDB Atlas ReplicaSet connection string' },
     { key: 'MONGODB_DB_NAME', value: process.env.MONGODB_DB_NAME || 'nex_store', desc: 'MongoDB Atlas primary database name' },
     { key: 'MONGODB_CLUSTER_REGION', value: process.env.MONGODB_CLUSTER_REGION || 'aws-eu-central-1', desc: 'MongoDB Atlas shard cluster region' },
     { key: 'MONGODB_SYNC_MODE', value: process.env.MONGODB_SYNC_MODE || 'DUAL_WRITE_HYBRID', desc: 'Dual-Write Hybrid SQLite WAL + MongoDB BSON Sync' },
     { key: 'NEX_RENDER_SERVICE_ID', value: process.env.NEX_RENDER_SERVICE_ID || 'srv-nex-store-lj5j', desc: 'Render API service ID' },
-    { key: 'NEX_RENDER_API_KEY', value: process.env.NEX_RENDER_API_KEY || 'rnd_live_nexstore_98a7b6c5d4e3f210', desc: 'Render REST API deployment key' },
+    { key: 'NEX_RENDER_API_KEY', value: process.env.NEX_RENDER_API_KEY || 'CHANGE_ME_RENDER_API_KEY', desc: 'Render REST API deployment key' },
     { key: 'NEX_RENDER_DEPLOY_HOOK', value: process.env.NEX_RENDER_DEPLOY_HOOK || 'https://api.render.com/deploy/srv-nex-store-lj5j', desc: 'Render zero-downtime webhook trigger URL' },
     { key: 'NEX_ADMIN_USERNAME', value: process.env.NEX_ADMIN_USERNAME || 'nex_root_admin', desc: 'Root Admin username (.env RBAC)' },
     { key: 'NEX_ADMIN_EMAIL', value: process.env.NEX_ADMIN_EMAIL || 'admin@nexstore.dev', desc: 'Root Admin email (.env RBAC)' },
-    { key: 'NEX_ADMIN_PASSWORD', value: process.env.NEX_ADMIN_PASSWORD || 'NEX-Root-Admin-2026!#', desc: 'Root Admin password (.env RBAC)' },
-    { key: 'NEX_ADMIN_MASTER_TOKEN', value: process.env.NEX_ADMIN_MASTER_TOKEN || 'nex_adm_live_99f8a7d6c5b4e3210fedcba987654321', desc: 'Root Admin bearer master token' },
+    { key: 'NEX_ADMIN_PASSWORD', value: process.env.NEX_ADMIN_PASSWORD || 'CHANGE_ME_ROOT_ADMIN_PASSWORD', desc: 'Root Admin password (.env RBAC)' },
+    { key: 'NEX_ADMIN_MASTER_TOKEN', value: process.env.NEX_ADMIN_MASTER_TOKEN || 'CHANGE_ME_MASTER_TOKEN', desc: 'Root Admin bearer master token' },
     { key: 'NEX_PAYMENT_GATEWAY_MODE', value: process.env.NEX_PAYMENT_GATEWAY_MODE || 'LIVE_SETTLEMENT', desc: 'Payment gateway settlement mode' },
-    { key: 'NEX_PAYMENT_WEBHOOK_SECRET', value: process.env.NEX_PAYMENT_WEBHOOK_SECRET || 'whsec_nex_pay_live_84729103847', desc: 'Stripe/M-Pesa/ApplePay webhook signing secret' },
+    { key: 'NEX_PAYMENT_WEBHOOK_SECRET', value: process.env.NEX_PAYMENT_WEBHOOK_SECRET || 'CHANGE_ME_WEBHOOK_SECRET', desc: 'Stripe/M-Pesa/ApplePay webhook signing secret' },
     { key: 'CORS_ALLOWED_ORIGINS', value: process.env.CORS_ALLOWED_ORIGINS || 'https://nex-store-pro.netlify.app,https://nex-store-lj5j.onrender.com', desc: 'Allowed origins for Netlify -> Render CORS' }
   ];
 
@@ -91,7 +91,7 @@ export function getHostingEnvAndBlueprintsConfig() {
     { key: 'VITE_WS_URL', value: process.env.VITE_WS_URL || 'wss://nex-store-lj5j.onrender.com/ws', desc: 'Render WebSocket live telemetry URL for Netlify frontend' },
     { key: 'VITE_RENDER_BACKEND_URL', value: process.env.VITE_RENDER_BACKEND_URL || 'https://nex-store-lj5j.onrender.com', desc: 'Render backend origin for Netlify /api/* proxy redirects' },
     { key: 'NEX_NETLIFY_SITE_ID', value: process.env.NEX_NETLIFY_SITE_ID || 'site_nex_store_pro_2026', desc: 'Netlify API Site ID' },
-    { key: 'NEX_NETLIFY_AUTH_TOKEN', value: process.env.NEX_NETLIFY_AUTH_TOKEN || 'nfp_live_nexstore_edge_token_2026', desc: 'Netlify Personal Access Token for CLI/CD' },
+    { key: 'NEX_NETLIFY_AUTH_TOKEN', value: process.env.NEX_NETLIFY_AUTH_TOKEN || 'CHANGE_ME_NETLIFY_AUTH_TOKEN', desc: 'Netlify Personal Access Token for CLI/CD' },
     { key: 'NEX_NETLIFY_DEPLOY_HOOK', value: process.env.NEX_NETLIFY_DEPLOY_HOOK || 'https://api.netlify.com/build_hooks/nex_store_pro_live', desc: 'Netlify build hook URL for instant edge rebuilds' }
   ];
 
@@ -165,14 +165,75 @@ export function getEnvAdminConfig() {
 }
 
 export function hashPassword(password) {
-  return crypto.createHash('sha256').update(`nex_salt_2026:${password}`).digest('hex');
+  // Quantum-hardened password KDF: scrypt (memory-hard, N=2^15) with a
+  // per-user random salt. Stored format: qscrypt$N$r$p$salt$hash
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto
+    .scryptSync(String(password), salt, 32, { N: 16384, r: 8, p: 1 })
+    .toString('hex');
+  return `qscrypt$16384$8$1$${salt}$${hash}`;
 }
 
+function timingSafeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length || a.length === 0) {
+    return false;
+  }
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+function timingSafeEqualUtf8(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length || a.length === 0) {
+    return false;
+  }
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+export function verifyPassword(password, stored) {
+  if (!stored || typeof stored !== 'string') return false;
+  if (stored.startsWith('qscrypt$')) {
+    const parts = stored.split('$');
+    if (parts.length !== 6) return false;
+    const [, N, r, p, salt, hash] = parts;
+    const candidate = crypto
+      .scryptSync(String(password), salt, 32, { N: Number(N) || 16384, r: Number(r) || 8, p: Number(p) || 1 })
+      .toString('hex');
+    return timingSafeEqualHex(candidate, hash);
+  }
+  // Legacy pre-quantum SHA-256 format (accepted for migration only)
+  return timingSafeEqualHex(crypto.createHash('sha256').update(`nex_salt_2026:${password}`).digest('hex'), stored);
+}
+
+// Session token signing secret. Falls back to a random per-process secret when
+// NEX_ADMIN_MASTER_TOKEN is not configured, so tokens can never be forged from
+// values that are visible in public source code.
+const RUNTIME_SESSION_SECRET = crypto.randomBytes(32).toString('hex');
+function getSessionSigningSecret() {
+  return process.env.NEX_ADMIN_MASTER_TOKEN || RUNTIME_SESSION_SECRET;
+}
+
+// Safe-to-display SHA3-256 fingerprint of the session signing secret.
+export function getSessionSecretFingerprint() {
+  return crypto.createHash('sha3-256').update(getSessionSigningSecret()).digest('hex');
+}
+
+// Quantum-Shield session tokens: HMAC-SHA3-256 signature, 12h expiry.
+const SESSION_TOKEN_TTL_MS = 1000 * 60 * 60 * 12;
+const SESSION_SIG_HEX_LEN = 32;
+
 export function createSessionToken(account) {
-  const secret = process.env.NEX_ADMIN_MASTER_TOKEN || 'nex_fallback_secret';
-  const payload = `${account.id}:${account.role}:${account.username}`;
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 24);
-  return `nex_tok_${Buffer.from(payload).toString('base64url')}.${sig}`;
+  const secret = getSessionSigningSecret();
+  const exp = Date.now() + SESSION_TOKEN_TTL_MS;
+  const payload = `${account.id}:${account.role}:${account.username}:${exp}`;
+  const sig = crypto.createHmac('sha3-256', secret).update(payload).digest('hex').slice(0, SESSION_SIG_HEX_LEN);
+  return `qnt_tok_${Buffer.from(payload).toString('base64url')}.${sig}`;
 }
 
 export function verifySessionToken(token, db) {
@@ -180,7 +241,7 @@ export function verifySessionToken(token, db) {
   const clean = token.replace(/^Bearer\s+/i, '').trim();
   const adminCfg = getEnvAdminConfig();
 
-  if (adminCfg.masterToken && clean === adminCfg.masterToken) {
+  if (adminCfg.masterToken && timingSafeEqualUtf8(clean, adminCfg.masterToken)) {
     return {
       id: 'admin-root-env',
       username: adminCfg.username,
@@ -192,17 +253,18 @@ export function verifySessionToken(token, db) {
     };
   }
 
-  if (!clean.startsWith('nex_tok_')) return null;
+  if (!clean.startsWith('qnt_tok_')) return null;
   try {
-    const body = clean.slice('nex_tok_'.length);
+    const body = clean.slice('qnt_tok_'.length);
     const [b64, sig] = body.split('.');
     if (!b64 || !sig) return null;
     const payload = Buffer.from(b64, 'base64url').toString('utf8');
-    const secret = process.env.NEX_ADMIN_MASTER_TOKEN || 'nex_fallback_secret';
-    const expectedSig = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 24);
-    if (sig !== expectedSig) return null;
+    const secret = getSessionSigningSecret();
+    const expectedSig = crypto.createHmac('sha3-256', secret).update(payload).digest('hex').slice(0, SESSION_SIG_HEX_LEN);
+    if (!timingSafeEqualHex(sig, expectedSig)) return null;
 
-    const [id, role, username] = payload.split(':');
+    const [id, role, username, exp] = payload.split(':');
+    if (!exp || Number.isNaN(Number(exp)) || Date.now() > Number(exp)) return null;
     if (role === 'admin' && id === 'admin-root-env') {
       return {
         id: 'admin-root-env',

@@ -160,6 +160,33 @@ export const THEMES = {
       '--hero-bg-end': '#0f2d3d',
       '--shadow-card': '0 16px 36px -16px rgba(56, 189, 248, 0.18)'
     }
+  },
+  quantum: {
+    id: 'quantum',
+    name: 'Quantum Flux',
+    isLight: false,
+    swatch: ['#a855f7', '#22d3ee', '#0b0620'],
+    vars: {
+      '--bg-app': '#05030f',
+      '--bg-header': 'rgba(12, 6, 32, 0.88)',
+      '--bg-card': '#120a2e',
+      '--bg-card-hover': '#1b1042',
+      '--bg-subtle': '#0b0620',
+      '--bg-input': '#0b0620',
+      '--text-main': '#f5f3ff',
+      '--text-secondary': '#ddd6fe',
+      '--text-muted': '#a78bfa',
+      '--border-color': 'rgba(167, 139, 250, 0.18)',
+      '--border-hover': 'rgba(34, 211, 238, 0.6)',
+      '--accent': '#a855f7',
+      '--accent-hover': '#9333ea',
+      '--accent-secondary': '#22d3ee',
+      '--accent-contrast': '#ffffff',
+      '--hero-bg-start': '#0b0620',
+      '--hero-bg-mid': '#1e1052',
+      '--hero-bg-end': '#2e1065',
+      '--shadow-card': '0 16px 40px -16px rgba(126, 34, 206, 0.55)'
+    }
   }
 };
 
