@@ -57,7 +57,7 @@ function StatCard({ icon: Icon, label, value, sub, accent = 'text-cyan-300' }) {
  * systems, request telemetry, graphs and computed developer recommendations.
  * Refreshes live from /api/system/check (admin: full; developer: masked config).
  */
-export default function SysCheckView({ session, onPlaySound }) {
+export default function SysCheckView({ session, onPlaySound, onNavigateTab }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -281,18 +281,24 @@ export default function SysCheckView({ session, onPlaySound }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           type="button"
-          onClick={() => onPlaySound?.('toggle')}
-          className="theme-card rounded-2xl border p-4 text-left opacity-80 cursor-default"
+          onClick={() => {
+            onPlaySound?.('click');
+            onNavigateTab?.('community');
+          }}
+          className="theme-card rounded-2xl border p-4 text-left hover:border-violet-400/50 cursor-pointer transition"
         >
-          <p className="text-xs font-bold flex items-center gap-1.5"><MessageSquareHeart className="h-3.5 w-3.5 text-violet-400" /> Reviews & discussions live in the Community tab</p>
+          <p className="text-xs font-bold flex items-center gap-1.5"><MessageSquareHeart className="h-3.5 w-3.5 text-violet-400" /> Reviews & discussions live in the Community tab →</p>
           <p className="mt-1 text-[10px] theme-text-muted">Threaded comments and reviews per app, publicly readable.</p>
         </button>
         <button
           type="button"
-          onClick={() => onPlaySound?.('toggle')}
-          className="theme-card rounded-2xl border p-4 text-left opacity-80 cursor-default"
+          onClick={() => {
+            onPlaySound?.('click');
+            onNavigateTab?.('apps');
+          }}
+          className="theme-card rounded-2xl border p-4 text-left hover:border-cyan-400/50 cursor-pointer transition"
         >
-          <p className="text-xs font-bold flex items-center gap-1.5"><Share2 className="h-3.5 w-3.5 text-cyan-400" /> Share systems from the App Store or Community tab</p>
+          <p className="text-xs font-bold flex items-center gap-1.5"><Share2 className="h-3.5 w-3.5 text-cyan-400" /> Share systems from the App Store →</p>
           <p className="mt-1 text-[10px] theme-text-muted">Published shares appear instantly in the public community feed.</p>
         </button>
       </div>

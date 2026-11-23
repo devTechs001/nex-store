@@ -1278,7 +1278,7 @@ export default function AdminDashboardView({
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => onNavigateTab?.('storefront')}
+                    onClick={() => onNavigateTab?.('store')}
                     className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 font-mono-num text-[11px] font-bold text-white cursor-pointer"
                   >
                     Open Storefront →

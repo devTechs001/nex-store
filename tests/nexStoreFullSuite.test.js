@@ -15,7 +15,7 @@ process.env.NEX_TEST_NO_LISTEN = '1';
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -30,6 +30,7 @@ import {
   roleForSession,
   TAB_ROLE_ACCESS
 } from '../src/utils/navigation.js';
+import { getPaymentsConfig, verifyStripeSignature } from '../server/payments.js';
 import {
   getEnvAdminConfig,
   detectXssAttempt,
@@ -730,14 +731,14 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.ok(String(csvRes.data).includes('command'));
     });
 
-    it('executes the live /api/tests/run endpoint and verifies 100% pass rate across all 7 suites', async () => {
+    it('executes the live /api/tests/run endpoint and verifies 100% pass rate across all 9 suites', async () => {
       const runRes = await apiRequest('/api/tests/run', {
         method: 'POST',
         token: adminToken
       });
       assert.equal(runRes.status, 200);
       assert.equal(runRes.data.status, 'ALL_PASSED');
-      assert.equal(runRes.data.totalSuites, 7);
+      assert.equal(runRes.data.totalSuites, 9);
       assert.equal(runRes.data.totalFailed, 0);
       assert.ok(runRes.data.totalPassed >= 23);
     });
@@ -1428,6 +1429,20 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       const envAdmin = getEnvAdminConfig();
       assert.ok(!JSON.stringify(res.data).includes(envAdmin.password), 'no secrets in system check');
     });
+
+    it('boot telemetry (/api/boot-status) powers the splash matrix with REAL statuses', async () => {
+      const res = await apiRequest('/api/boot-status');
+      assert.equal(res.status, 200);
+      const d = res.data;
+      assert.equal(d.server.status, 'healthy');
+      assert.ok(d.database.tables >= 20 && d.database.rows > 0, 'real DB readings');
+      assert.equal(d.payments.testLedger, true);
+      for (const id of ['stripe', 'paypal', 'mpesa']) assert.ok(typeof d.payments[id] === 'boolean');
+      assert.ok(d.systems.apps > 0 && d.systems.products > 0, 'real catalog counts');
+      assert.equal(d.security.xssShield, true);
+      const envAdmin = getEnvAdminConfig();
+      assert.ok(!JSON.stringify(d).includes(envAdmin.password), 'boot status never leaks secrets');
+    });
   });
 
   // ============================================================================
@@ -1539,6 +1554,203 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
 
       const list = await apiRequest(`/api/apps/${appId}/comments`);
       assert.ok(list.data.comments.length >= 2, 'thread publicly readable');
+    });
+  });
+
+  // ============================================================================
+  // 18. REAL PAYMENT PROVIDERS & HONEST CHECKOUT (STRIPE / PAYPAL / M-PESA)
+  // ============================================================================
+  describe('18. Payment Providers & Honest Checkout', () => {
+    let prodId = '';
+
+    it('payments config exposes real provider flags and never secrets', async () => {
+      const res = await apiRequest('/api/payments/config');
+      assert.equal(res.status, 200);
+      const cfg = res.data;
+      assert.equal(cfg.providers.test.configured, true, 'Test Ledger always available');
+      assert.equal(cfg.providers.test.mode, 'test');
+      for (const id of ['stripe', 'paypal', 'mpesa']) {
+        assert.ok(typeof cfg.providers[id].configured === 'boolean', `${id} flag is a boolean`);
+        assert.ok(cfg.providers[id].note, `${id} carries an honest note`);
+      }
+      const raw = JSON.stringify(cfg);
+      assert.ok(!raw.includes('sk_'), 'no Stripe secret material');
+      assert.ok(!raw.includes('access_token'), 'no gateway tokens');
+    });
+
+    it('Test Ledger checkout settles honestly as TEST_SETTLED (sandbox), never "Live"', async () => {
+      const products = await apiRequest('/api/products');
+      prodId = (products.data.products || products.data)[0].id;
+      const res = await apiRequest('/api/orders', {
+        method: 'POST',
+        body: {
+          customer_name: 'Ledger Tester',
+          customer_email: 'ledger@nexstore.dev',
+          shipping_address: '1 Sandbox Way',
+          shipping_city: 'Nairobi',
+          shipping_country: 'Kenya',
+          shipping_method: 'Standard Ground (3-5 days)',
+          payment_provider: 'test',
+          items: [{ product_id: prodId, quantity: 1 }]
+        }
+      });
+      assert.equal(res.status, 201);
+      const tx = res.data.paymentTransaction;
+      assert.equal(tx.status, 'TEST_SETTLED');
+      assert.equal(tx.mode, 'test');
+      assert.ok(/Test Ledger/.test(tx.provider), 'provider honestly labeled sandbox');
+      assert.ok(!/Live/i.test(tx.provider), 'sandbox must never claim "Live"');
+      assert.ok(tx.provider_ref.startsWith('tl_'), 'real ledger reference recorded');
+      assert.ok(res.data.payment.status === 'TEST_SETTLED');
+    });
+
+    it('unconfigured live providers fail honestly — no fabricated SETTLED rows', async () => {
+      const cfg = await apiRequest('/api/payments/config');
+      if (cfg.data.providers.stripe.configured) return; // real key present in this env — skip
+      const before = await apiRequest('/api/payments', { token: adminToken });
+      const beforeCount = before.data.paymentTransactions.length;
+
+      const res = await apiRequest('/api/orders', {
+        method: 'POST',
+        body: {
+          customer_name: 'Stripe Hopeful',
+          customer_email: 'stripe@nexstore.dev',
+          shipping_address: '2 Honest Ave',
+          payment_provider: 'stripe',
+          items: [{ product_id: prodId, quantity: 1 }]
+        }
+      });
+      assert.equal(res.status, 503);
+      assert.ok(/not configured/i.test(res.data.error), 'honest NOT_CONFIGURED message');
+      assert.equal(res.data.payment.status, 'NOT_CONFIGURED');
+
+      const after = await apiRequest('/api/payments', { token: adminToken });
+      assert.equal(after.data.paymentTransactions.length, beforeCount, 'no transaction fabricated');
+    });
+
+    it('unknown providers are rejected; legacy checkouts route to the Test Ledger', async () => {
+      const bad = await apiRequest('/api/orders', {
+        method: 'POST',
+        body: {
+          customer_name: 'X',
+          customer_email: 'x@x.dev',
+          shipping_address: 'Y',
+          payment_provider: 'dogecoin',
+          items: [{ product_id: prodId, quantity: 1 }]
+        }
+      });
+      assert.equal(bad.status, 400);
+
+      const legacy = await apiRequest('/api/orders', {
+        method: 'POST',
+        body: {
+          customer_name: 'Legacy Buyer',
+          customer_email: 'legacy@nexstore.dev',
+          shipping_address: '3 Compat St',
+          payment_method: 'Card',
+          items: [{ product_id: prodId, quantity: 1 }]
+        }
+      });
+      assert.equal(legacy.status, 201);
+      assert.equal(legacy.data.paymentTransaction.mode, 'test', 'legacy strings settle on the labeled Test Ledger');
+    });
+
+    it('Stripe webhook signatures are really verified (HMAC scheme)', () => {
+      const secret = 'whsec_test_secret_123';
+      const payload = JSON.stringify({ type: 'payment_intent.succeeded', data: { object: { id: 'pi_1' } } });
+      const t = Math.floor(Date.now() / 1000);
+      const v1 = createHmac('sha256', secret).update(`${t}.${payload}`).digest('hex');
+      assert.equal(verifyStripeSignature(payload, `t=${t},v1=${v1}`, secret), true, 'valid signature accepted');
+      assert.equal(verifyStripeSignature(payload, `t=${t},v1=${'0'.repeat(64)}`, secret), false, 'forged signature rejected');
+      const stale = t - 3600;
+      const staleSig = createHmac('sha256', secret).update(`${stale}.${payload}`).digest('hex');
+      assert.equal(verifyStripeSignature(payload, `t=${stale},v1=${staleSig}`, secret), false, 'replay outside tolerance rejected');
+    });
+
+    it('webhook endpoint is honest when unconfigured and rejects bad signatures', async () => {
+      const res = await apiRequest('/api/payments/webhook/stripe', {
+        method: 'POST',
+        body: { type: 'payment_intent.succeeded' }
+      });
+      // Without STRIPE_WEBHOOK_SECRET the endpoint must refuse honestly (503),
+      // or, if configured in this env, reject the unsigned payload (400).
+      assert.ok([400, 503].includes(res.status), `honest refusal, got ${res.status}`);
+    });
+
+    it('manual admin payments also route through the real dispatcher', async () => {
+      const res = await apiRequest('/api/payments/process', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+          order_id: 'ord-manual-test',
+          order_number: 'NEX-MANUAL-1',
+          customer_name: 'Manual',
+          customer_email: 'manual@nexstore.dev',
+          amount: 12.5,
+          payment_provider: 'test'
+        }
+      });
+      assert.equal(res.status, 201);
+      assert.equal(res.data.paymentTransaction.status, 'TEST_SETTLED');
+      assert.equal(res.data.paymentTransaction.mode, 'test');
+    });
+  });
+
+  // ============================================================================
+  // 19. NAVIGATION WIRING INTEGRITY (EVERY LINK TARGET RESOLVES)
+  // ============================================================================
+  describe('19. Navigation Wiring Integrity', () => {
+    const VALID_TABS = new Set([
+      'store', 'apps', 'mobile-subs', 'subsystems', 'tracker', 'admin', 'database',
+      'docs', 'overview', 'developer-portal', 'user-portal', 'community', 'syscheck',
+      'rig-builder' // special-cased overlay, not a tab
+    ]);
+
+    it('every setActiveTab/onNavigateTab target in App-wired components is a real destination', () => {
+      const wired = [
+        'src/components/CommandPaletteModal.jsx',
+        'src/components/AdminDashboardView.jsx',
+        'src/components/StorefrontView.jsx',
+        'src/components/AuthGateView.jsx',
+        'src/components/DocumentationView.jsx',
+        'src/components/Navbar.jsx',
+        'src/components/SysCheckView.jsx',
+        'src/components/CommunityView.jsx',
+        'src/components/DesktopSideNav.jsx',
+        'src/components/MobileBottomNav.jsx'
+      ];
+      const bad = [];
+      for (const rel of wired) {
+        const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+        for (const m of src.matchAll(/(?:setActiveTab|onNavigateTab)\??\.\?\(\s*'([a-z-]+)'/g)) {
+          if (!VALID_TABS.has(m[1])) bad.push(`${rel} -> '${m[1]}'`);
+        }
+        for (const m of src.matchAll(/(?:setActiveTab|onNavigateTab)\(\s*'([a-z-]+)'/g)) {
+          if (!VALID_TABS.has(m[1])) bad.push(`${rel} -> '${m[1]}'`);
+        }
+      }
+      assert.deepEqual(bad, [], `dead nav targets found: ${bad.join(', ')}`);
+    });
+
+    it('command palette tab: fields all resolve to real tabs', () => {
+      const src = fs.readFileSync(path.join(process.cwd(), 'src/components/CommandPaletteModal.jsx'), 'utf8');
+      const tabs = [...src.matchAll(/tab: '([a-z-]+)'/g)].map((m) => m[1]);
+      assert.ok(tabs.length >= 8, 'palette commands carry tab fields');
+      for (const t of tabs) assert.ok(VALID_TABS.has(t), `palette tab '${t}' must resolve`);
+    });
+
+    it('nav array ids resolve to tabs or declared overlays', () => {
+      const overlayIds = new Set(['bto-studio', 'cli-terminal', 'cmd-palette', 'cart-drawer', 'wishlist-drawer', 'compare-modal', 'push-center']);
+      const bad = [];
+      for (const rel of ['src/components/DesktopSideNav.jsx', 'src/components/MobileBottomNav.jsx']) {
+        const src = fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+        const navSection = src.slice(src.indexOf('const primaryNav') >= 0 ? src.indexOf('const primaryNav') : src.indexOf('const allWorkspaces'));
+        for (const m of navSection.matchAll(/id: '([a-z-]+)'/g)) {
+          const id = m[1];
+          if (!VALID_TABS.has(id) && !overlayIds.has(id)) bad.push(`${rel} -> '${id}'`);
+        }
+      }
+      assert.deepEqual(bad, [], `nav entries with unknown destinations: ${bad.join(', ')}`);
     });
   });
 });

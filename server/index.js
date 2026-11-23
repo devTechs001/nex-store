@@ -25,6 +25,7 @@ import {
   ensureEnvAdminCredentials,
   getAdminBootstrapStatus,
   getHostingEnvAndBlueprintsConfig,
+  loadDotEnvFile,
   updateHostingEnvVariables,
   hashPassword,
   verifyPassword,
@@ -50,6 +51,7 @@ import { getNeuralStatus, runTraining, getRecommendations } from './neuralEngine
 import { toCents, fromCents, lineCents, percentOfCents, fixedDiscountCents, taxOfCents, computeOrderMoney } from './money.js';
 import { buildPolyglotPackage, runPolyglotSource, buildZipArchive, detectToolchains } from './polyglotBuilder.js';
 import { importGitRepo } from './gitImport.js';
+import { getPaymentsConfig, processPayment, verifyStripeSignature } from './payments.js';
 import { recordRequest, startSampler, getMetricsSnapshot, sampleMemory } from './metrics.js';
 import os from 'node:os';
 import { runAllVerificationSuites } from './testSuiteRunner.js';
@@ -3665,7 +3667,7 @@ app.get('/api/orders/track/:orderNumber', (req, res) => {
   res.json({ order: maskPublicOrderPII({ ...order, items }) });
 });
 
-app.post('/api/orders', (req, res) => {
+app.post('/api/orders', async (req, res) => {
   try {
     const {
       customer_name,
@@ -3676,6 +3678,8 @@ app.post('/api/orders', (req, res) => {
       shipping_country = 'Kenya',
       shipping_method = 'NEX Express Air (1-2 Days)',
       payment_method = 'Card •••• 4242',
+      payment_provider = '',
+      payment_phone = '',
       coupon_code = null,
       notes = '',
       items = []
@@ -3754,21 +3758,44 @@ app.post('/api/orders', (req, res) => {
     const taxAmount = money.taxAmount;
     const total = money.total;
 
-    // Payment identity generation (pure computation, outside transaction scope)
+    // ---- Real payment processing (server/payments.js) ----
+    // A transaction is only ever SETTLED by a real gateway; sandbox checkouts
+    // settle as TEST_SETTLED on the honestly-labeled NEX Test Ledger.
     const updatedProducts = [];
     const payId = `pay-${Date.now().toString(36)}`;
-    const providerName = payment_method.toLowerCase().includes('m-pesa')
-      ? 'Safaricom Daraja 3.0 STK'
-      : payment_method.toLowerCase().includes('apple')
-      ? 'Apple Pay / Adyen Edge'
-      : payment_method.toLowerCase().includes('usdc') || payment_method.toLowerCase().includes('crypto')
-      ? 'NEX Web3 On-Chain Settlement'
-      : 'Stripe Live Gateway';
-    const authCode = `AUTH-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const requestedProvider = String(payment_provider || '').toLowerCase();
+    const provider = requestedProvider || 'test'; // legacy payment_method strings route to the Test Ledger
+    const payment = await processPayment({
+      provider,
+      orderId: orderId,
+      orderNumber,
+      amountDollars: total,
+      customer: { name: customer_name, email: customer_email, phone: customer_phone },
+      phone: payment_phone || customer_phone,
+      description: `NEX Store order ${orderNumber}`
+    });
+
+    if (!payment.ok) {
+      const code = payment.status === 'NOT_CONFIGURED' ? 503 : payment.status === 'UNKNOWN_PROVIDER' ? 400 : 402;
+      return res.status(code).json({
+        error: payment.error || `Payment ${payment.status}`,
+        payment: { provider: payment.provider, mode: payment.mode, status: payment.status }
+      });
+    }
+
+    const providerName = payment.provider;
+    const authCode = payment.authCode || '—';
     const receiptHash = `sha256:${crypto
       .createHash('sha256')
-      .update(`${payId}:${orderNumber}:${total}:${now}`)
+      .update(`${payId}:${payment.providerRef}:${total}:${now}`)
       .digest('hex')}`;
+    const paymentDisplay =
+      payment.mode === 'test'
+        ? `Test Ledger • sandbox`
+        : payment.provider === 'M-Pesa' || payment.provider?.includes('Daraja')
+        ? `M-Pesa STK • ${payment_phone || customer_phone}`
+        : payment.provider;
+    const orderStatus = payment.status === 'SETTLED' || payment.status === 'TEST_SETTLED' ? 'placed' : 'payment_pending';
 
     // Atomic checkout: all order writes (order, items, stock, coupon usage,
     // payment record) commit together or roll back together.
@@ -3785,7 +3812,7 @@ app.post('/api/orders', (req, res) => {
         payment_method, subtotal, discount_amount, shipping_cost, tax_amount,
         total, coupon_code, status, tracking_number, estimated_delivery,
         notes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'placed', ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       orderId,
       orderNumber,
@@ -3796,13 +3823,14 @@ app.post('/api/orders', (req, res) => {
       shipping_city.trim(),
       shipping_country.trim(),
       shipping_method,
-      payment_method,
+      paymentDisplay,
       calculatedSubtotal,
       discountAmount,
       shippingCost,
       taxAmount,
       total,
       appliedCouponCode,
+      orderStatus,
       trackingNumber,
       estDelivery,
       notes,
@@ -3868,8 +3896,9 @@ app.post('/api/orders', (req, res) => {
     db.prepare(`
       INSERT INTO payment_transactions (
         id, order_id, order_number, customer_name, customer_email, amount, currency,
-        payment_method, provider, status, auth_code, receipt_hash, risk_score, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'USD', ?, ?, 'SETTLED', ?, ?, 0, ?)
+        payment_method, provider, status, auth_code, receipt_hash, risk_score, created_at,
+        mode, provider_ref
+      ) VALUES (?, ?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?, 0, ?, ?, ?)
     `).run(
       payId,
       orderId,
@@ -3877,11 +3906,14 @@ app.post('/api/orders', (req, res) => {
       customer_name.trim(),
       customer_email.trim(),
       total,
-      payment_method,
+      paymentDisplay,
       providerName,
+      payment.status,
       authCode,
       receiptHash,
-      now
+      now,
+      payment.mode,
+      payment.providerRef || ''
     );
 
     db.exec('COMMIT');
@@ -3904,9 +3936,14 @@ app.post('/api/orders', (req, res) => {
 
     const activity = recordActivityEvent({
       event_type: 'order_placed',
-      title: `Order #${orderNumber} & Payment Settled (${authCode})`,
-      message: `${customer_name} in ${shipping_city} ordered ${resolvedItems.map((i) => `${i.qty}x ${i.prod.name}`).join(', ')} ($${total.toFixed(2)} via ${providerName})`,
-      meta: { order_number: orderNumber, total, city: shipping_city, auth_code: authCode }
+      title:
+        payment.status === 'TEST_SETTLED'
+          ? `Order #${orderNumber} placed · Test Ledger settlement (${authCode})`
+          : payment.status === 'SETTLED'
+          ? `Order #${orderNumber} placed · Payment settled via ${providerName} (${authCode})`
+          : `Order #${orderNumber} placed · Payment ${payment.status} via ${providerName}`,
+      message: `${customer_name} in ${shipping_city} ordered ${resolvedItems.map((i) => `${i.qty}x ${i.prod.name}`).join(', ')} ($${total.toFixed(2)} · ${providerName} · ${payment.status})`,
+      meta: { order_number: orderNumber, total, city: shipping_city, payment_status: payment.status, provider: providerName, auth_code: authCode }
     });
 
     const inventoryLogs = db.prepare('SELECT * FROM inventory_logs ORDER BY created_at DESC LIMIT 30').all();
@@ -3926,6 +3963,15 @@ app.post('/api/orders', (req, res) => {
       order: fullOrder,
       paymentTransaction,
       paymentTransactions: maskPublicOrders(paymentTransactions),
+      payment: {
+        provider: payment.provider,
+        mode: payment.mode,
+        status: payment.status,
+        providerRef: payment.providerRef,
+        approveUrl: payment.approveUrl || '',
+        clientSecret: payment.clientSecret || '',
+        note: payment.raw?.note || ''
+      },
       updatedProducts,
       activity
     });
@@ -3944,7 +3990,60 @@ app.get('/api/payments', (req, res) => {
   res.json({ paymentTransactions });
 });
 
-app.post('/api/payments/process', (req, res) => {
+// Public payment provider configuration (flags only — no secrets).
+app.get('/api/payments/config', (_req, res) => {
+  res.json(getPaymentsConfig());
+});
+
+// Stripe webhook — real signature verification (HMAC scheme), honest outcomes.
+app.post('/api/payments/webhook/stripe', (req, res) => {
+  loadDotEnvFile();
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) {
+    return res.status(503).json({ error: 'Stripe webhooks are not configured (set STRIPE_WEBHOOK_SECRET).' });
+  }
+  const rawPayload = JSON.stringify(req.body);
+  const sig = req.headers['stripe-signature'] || '';
+  if (!verifyStripeSignature(rawPayload, sig, secret)) {
+    recordSecurityEvent({
+      source_ip: req.socket?.remoteAddress || 'unknown',
+      event_type: 'webhook_rejected',
+      threat_level: 'medium',
+      vector: 'POST /api/payments/webhook/stripe',
+      payload: String(sig).slice(0, 120),
+      action_taken: 'REJECTED'
+    });
+    return res.status(400).json({ error: 'Invalid Stripe signature.' });
+  }
+  const event = req.body || {};
+  const intent = event.data?.object || {};
+  if (intent.id) {
+    const newStatus =
+      event.type === 'payment_intent.succeeded'
+        ? 'SETTLED'
+        : event.type === 'payment_intent.payment_failed'
+        ? 'FAILED'
+        : null;
+    if (newStatus) {
+      db.prepare('UPDATE payment_transactions SET status = ? WHERE provider_ref = ?').run(newStatus, intent.id);
+    }
+  }
+  res.json({ received: true, type: event.type || 'unknown' });
+});
+
+// M-Pesa Daraja callback — records the real STK result against the transaction.
+app.post('/api/payments/mpesa/callback', (req, res) => {
+  const stk = req.body?.Body?.stkCallback || {};
+  const checkoutId = stk.CheckoutRequestID || '';
+  const resultCode = stk.ResultCode;
+  const newStatus = resultCode === 0 ? 'SETTLED' : 'FAILED';
+  if (checkoutId) {
+    db.prepare('UPDATE payment_transactions SET status = ? WHERE provider_ref = ?').run(newStatus, checkoutId);
+  }
+  res.json({ ResultCode: 0, ResultDesc: 'Callback accepted' });
+});
+
+app.post('/api/payments/process', async (req, res) => {
   if (rejectUnlessAdmin(req, res, 'process payment transactions')) return;
   const {
     order_id = `ord-${Date.now()}`,
@@ -3953,7 +4052,9 @@ app.post('/api/payments/process', (req, res) => {
     customer_email = 'buyer@nexstore.dev',
     amount = 0,
     currency = 'USD',
-    payment_method = 'Stripe Card •••• 4242'
+    payment_method = 'NEX Test Ledger (sandbox)',
+    payment_provider = 'test',
+    payment_phone = ''
   } = req.body || {};
 
   const numAmount = Number(amount);
@@ -3961,26 +4062,34 @@ app.post('/api/payments/process', (req, res) => {
     return res.status(400).json({ error: 'Valid payment amount (> 0) is required.' });
   }
 
+  // Real gateway dispatch — settles only when the provider confirms.
+  const payment = await processPayment({
+    provider: payment_provider || 'test',
+    orderId: String(order_id),
+    orderNumber: String(order_number),
+    amountDollars: numAmount,
+    customer: { name: customer_name, email: customer_email, phone: payment_phone },
+    phone: payment_phone
+  });
+  if (!payment.ok) {
+    const code = payment.status === 'NOT_CONFIGURED' ? 503 : 402;
+    return res.status(code).json({ error: payment.error, payment: { provider: payment.provider, mode: payment.mode, status: payment.status } });
+  }
+
   const payId = `pay-${Date.now().toString(36)}`;
   const now = new Date().toISOString();
-  const provider = payment_method.toLowerCase().includes('m-pesa')
-    ? 'Safaricom Daraja 3.0 STK'
-    : payment_method.toLowerCase().includes('apple')
-    ? 'Apple Pay / Adyen Edge'
-    : payment_method.toLowerCase().includes('usdc') || payment_method.toLowerCase().includes('crypto')
-    ? 'NEX Web3 On-Chain Settlement'
-    : 'Stripe Live Gateway';
-  const authCode = `AUTH-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  const authCode = payment.authCode || '—';
   const receiptHash = `sha256:${crypto
     .createHash('sha256')
-    .update(`${payId}:${order_number}:${numAmount}:${now}`)
+    .update(`${payId}:${payment.providerRef}:${numAmount}:${now}`)
     .digest('hex')}`;
 
   db.prepare(`
     INSERT INTO payment_transactions (
       id, order_id, order_number, customer_name, customer_email, amount, currency,
-      payment_method, provider, status, auth_code, receipt_hash, risk_score, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SETTLED', ?, ?, 0, ?)
+      payment_method, provider, status, auth_code, receipt_hash, risk_score, created_at,
+      mode, provider_ref
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `).run(
     payId,
     String(order_id),
@@ -3990,10 +4099,13 @@ app.post('/api/payments/process', (req, res) => {
     numAmount,
     String(currency),
     String(payment_method),
-    provider,
+    payment.provider,
+    payment.status,
     authCode,
     receiptHash,
-    now
+    now,
+    payment.mode,
+    payment.providerRef || ''
   );
 
   const paymentTransaction = db.prepare('SELECT * FROM payment_transactions WHERE id = ?').get(payId);
@@ -5565,6 +5677,60 @@ app.post('/api/neural/train', (_req, res) => {
 app.get('/api/neural/recommendations', (_req, res) => {
   const products = getAllProducts();
   res.json({ recommendations: getRecommendations(products) });
+});
+
+// Splash-screen boot telemetry: REAL app configs & statuses (public, no secrets).
+app.get('/api/boot-status', (_req, res) => {
+  try {
+    const dbStats = getDatabaseStats();
+    const payments = getPaymentsConfig();
+    const buildCounts = db
+      .prepare('SELECT build_status, COUNT(*) AS c FROM app_builds GROUP BY build_status')
+      .all()
+      .reduce((acc, r) => {
+        acc[r.build_status] = r.c;
+        return acc;
+      }, {});
+    const appCount = db.prepare('SELECT COUNT(*) AS c FROM apps').get().c;
+    const productCount = db.prepare('SELECT COUNT(*) AS c FROM products').get().c;
+    const orderCount = db.prepare('SELECT COUNT(*) AS c FROM orders').get().c;
+    const envAdmin = getEnvAdminConfig();
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      server: {
+        status: 'healthy',
+        node: process.version,
+        uptimeSec: Math.round(process.uptime())
+      },
+      database: {
+        engine: 'SQLite (WAL)',
+        tables: dbStats.totalTables,
+        rows: dbStats.totalRows,
+        size: dbStats.sizeFormatted
+      },
+      payments: {
+        testLedger: true,
+        stripe: payments.providers.stripe.configured,
+        paypal: payments.providers.paypal.configured,
+        mpesa: payments.providers.mpesa.configured
+      },
+      systems: {
+        apps: appCount,
+        products: productCount,
+        orders: orderCount,
+        builds: buildCounts
+      },
+      security: {
+        xssShield: true,
+        rbac: true,
+        sessionSecretConfigured: Boolean(process.env.NEX_SESSION_SECRET) || Boolean(envAdmin.masterToken),
+        envAdminConfigured: envAdmin.envLoaded
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: `Boot status unavailable: ${err.message}` });
+  }
 });
 
 app.get('/api/health', (_req, res) => {

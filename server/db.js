@@ -480,7 +480,9 @@ export function initSchema() {
       auth_code TEXT NOT NULL,
       receipt_hash TEXT NOT NULL,
       risk_score INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'demo',
+      provider_ref TEXT DEFAULT ''
     );
 
     -- Collaborative platform: reviews + threaded comments on apps/systems
@@ -516,6 +518,16 @@ export function initSchema() {
       created_at TEXT NOT NULL
     );
   `);
+
+  // Payment honesty migration: tag every pre-existing transaction as 'demo'
+  // (seeded fixture data), while new rows carry explicit 'test'/'live' modes.
+  const payCols = db.prepare('PRAGMA table_info(payment_transactions)').all().map((c) => c.name);
+  if (!payCols.includes('mode')) {
+    db.exec("ALTER TABLE payment_transactions ADD COLUMN mode TEXT NOT NULL DEFAULT 'demo'");
+  }
+  if (!payCols.includes('provider_ref')) {
+    db.exec("ALTER TABLE payment_transactions ADD COLUMN provider_ref TEXT DEFAULT ''");
+  }
 
   // Ensure existing apps table has multi-source, image_url, resources, AI & developer system columns
   const appCols = db.prepare('PRAGMA table_info(apps)').all().map((c) => c.name);
