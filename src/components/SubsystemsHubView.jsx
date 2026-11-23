@@ -22,7 +22,9 @@ import {
   Terminal,
   Wifi,
   Atom,
-  RefreshCw as RefreshQuantumIcon
+  RefreshCw as RefreshQuantumIcon,
+  Brain,
+  TrendingDown
 } from 'lucide-react';
 
 export default function SubsystemsHubView({
@@ -55,6 +57,43 @@ export default function SubsystemsHubView({
   // Quantum Security Core telemetry (real cryptographic status from /api/quantum/status)
   const [quantumStatus, setQuantumStatus] = useState(null);
   const [quantumBusy, setQuantumBusy] = useState(false);
+
+  // NEX Neural Engine — real MLP training telemetry
+  const [neuralStatus, setNeuralStatus] = useState(null);
+  const [trainingResult, setTrainingResult] = useState(null);
+  const [neuralBusy, setNeuralBusy] = useState(false);
+
+  const fetchNeuralStatus = async () => {
+    try {
+      const res = await fetch('/api/neural/status');
+      if (res.ok) setNeuralStatus(await res.json());
+    } catch {
+      // keep previous snapshot
+    }
+  };
+
+  const runNeuralTraining = async () => {
+    setNeuralBusy(true);
+    try {
+      const res = await fetch('/api/neural/train', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setTrainingResult(data);
+        fetchNeuralStatus();
+      }
+    } catch {
+      // keep previous result
+    } finally {
+      setNeuralBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (subTab === 'neural' && !neuralStatus) {
+      fetchNeuralStatus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subTab]);
 
   const fetchQuantumStatus = async () => {
     setQuantumBusy(true);
@@ -278,7 +317,8 @@ export default function SubsystemsHubView({
             { id: 'integrations', label: `Netlify & Cloud Integrations (${integrations.length})`, icon: Globe },
             { id: 'audio-push', label: 'Audio Synth & Push Broadcast Lab', icon: Bell },
             { id: 'browsers', label: 'Cross-Browser CSS & Standards Matrix', icon: Layers },
-            { id: 'quantum', label: 'Quantum Security Core', icon: Atom }
+            { id: 'quantum', label: 'Quantum Security Core', icon: Atom },
+            { id: 'neural', label: 'Neural Engine (Deep Learning)', icon: Brain }
           ].map((tab) => {
             const Icon = tab.icon;
             const active = subTab === tab.id;
@@ -1171,7 +1211,198 @@ export default function SubsystemsHubView({
             </div>
           )}
         </div>
-      )}
-    </div>
+        )}
+        {/* ============================== 12. NEX NEURAL ENGINE ============================== */}
+        {subTab === 'neural' && (
+          <div className="space-y-8 animate-slide-in-up">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-3xl font-bold text-white font-orbitron flex items-center">
+                  <Brain size={28} className="mr-3 text-emerald-400" />
+                  NEX Neural Engine
+                </h2>
+                <p className="text-gray-400 text-sm mt-1">
+                  Real deep learning core — a genuine MLP with backpropagation &amp; mini-batch SGD.
+                  No simulated metrics: every number below comes from actual gradient descent runs in
+                  <code className="mx-1 text-emerald-300">server/neuralEngine.js</code>.
+                </p>
+              </div>
+              <button
+                onClick={runNeuralTraining}
+                disabled={neuralBusy}
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm shadow-xl shadow-emerald-900/40 transition-all disabled:opacity-50 flex items-center"
+              >
+                <RefreshQuantumIcon size={16} className={`mr-2 ${neuralBusy ? 'animate-spin' : ''}`} />
+                {neuralBusy ? 'Training (backprop running)…' : 'Train Neural Networks Now'}
+              </button>
+            </div>
+
+            {/* Architecture + live state */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {[
+                {
+                  label: 'Architecture (Demand Forecaster)',
+                  value: (
+                    <>
+                      MLP {neuralStatus?.forecaster?.architecture?.join(' → ') || '4 → 16 → 8 → 1'}
+                      <div className="text-xs text-gray-500 mt-1">tanh hidden · sigmoid output · MSE loss</div>
+                    </>
+                  ),
+                  accent: 'from-emerald-600 to-teal-600'
+                },
+                {
+                  label: 'Training State',
+                  value: (
+                    <>
+                      {neuralStatus?.forecaster?.trained
+                        ? `${neuralStatus.forecaster.epochsTrained} epochs trained`
+                        : 'Not trained yet'}
+                      <div className="text-xs text-gray-500 mt-1">
+                        Model fingerprint: {neuralStatus?.forecaster?.modelFingerprint || '—'}
+                      </div>
+                    </>
+                  ),
+                  accent: 'from-violet-600 to-purple-600'
+                },
+                {
+                  label: 'Latest Demand Fit (MAE)',
+                  value: (
+                    <>
+                      {trainingResult?.demandForecaster?.meanAbsoluteError ??
+                        neuralStatus?.forecaster?.lastRun?.meanAbsoluteError ??
+                        '—'}
+                      <div className="text-xs text-gray-500 mt-1">mean |prediction − real velocity| over {neuralStatus?.productCount || 0} SKUs</div>
+                    </>
+                  ),
+                  accent: 'from-cyan-600 to-blue-600'
+                }
+              ].map((c, i) => (
+                <div key={i} className={`rounded-2xl p-[1px] bg-gradient-to-br ${c.accent}`}>
+                  <div className="bg-[#0A0F1E] rounded-2xl p-6">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase mb-2">{c.label}</div>
+                    <div className="text-white font-bold text-xl font-orbitron">{c.value}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Real loss curve */}
+            {(() => {
+              const loss = trainingResult?.demandForecaster?.lossHistory;
+              if (!loss || loss.length === 0) {
+                return (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-8 text-center text-gray-400 text-sm">
+                    Press <span className="text-emerald-300 font-bold">Train Neural Networks Now</span> to run 300 XOR
+                    epochs + 250 demand-forecast epochs — the live loss curve will plot here.
+                  </div>
+                );
+              }
+              const w = 900;
+              const h = 260;
+              const maxL = Math.max(...loss);
+              const minL = Math.min(...loss);
+              const pts = loss
+                .map((l, i) => {
+                  const x = 20 + (i / (loss.length - 1)) * (w - 40);
+                  const y = h - 30 - ((l - minL) / (maxL - minL || 1)) * (h - 60);
+                  return `${x.toFixed(1)},${y.toFixed(1)}`;
+                })
+                .join(' ');
+              return (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-white font-bold flex items-center">
+                      <TrendingDown size={16} className="mr-2 text-emerald-400" />
+                      Real Backpropagation Loss Curve (250 epochs, MSE)
+                    </h3>
+                    <div className="text-xs text-gray-400">
+                      start <span className="text-amber-300">{loss[0]}</span> → final{' '}
+                      <span className="text-emerald-300">{loss[loss.length - 1]}</span> (
+                      {(((loss[0] - loss[loss.length - 1]) / loss[0]) * 100).toFixed(1)}% reduction)
+                    </div>
+                  </div>
+                  <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+                    {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+                      <line
+                        key={f}
+                        x1={20}
+                        x2={w - 20}
+                        y1={30 + f * (h - 60)}
+                        y2={30 + f * (h - 60)}
+                        stroke="rgba(255,255,255,0.08)"
+                      />
+                    ))}
+                    <polyline points={pts} fill="none" stroke="#34d399" strokeWidth={2.5} />
+                    <text x={22} y={24} fill="#94a3b8" fontSize={11}>
+                      {maxL.toFixed(4)}
+                    </text>
+                    <text x={22} y={h - 8} fill="#94a3b8" fontSize={11}>
+                      {minL.toFixed(4)}
+                    </text>
+                    <text x={w - 70} y={h - 8} fill="#94a3b8" fontSize={11}>
+                      epoch →
+                    </text>
+                  </svg>
+                </div>
+              );
+            })()}
+
+            {/* XOR convergence proof + recommendations */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+                <h3 className="text-white font-bold mb-4">XOR Convergence Probe (non-linear learning proof)</h3>
+                <div className="grid grid-cols-4 gap-3 text-center">
+                  {(trainingResult?.xorProbe?.predictions || neuralStatus?.xorProbe?.predictions || []).map((p, i) => (
+                    <div key={i} className="bg-black/30 rounded-xl p-3">
+                      <div className="text-xs text-gray-400">
+                        [{p.input.join(', ')}]
+                      </div>
+                      <div className="text-white font-bold text-lg mt-1">{p.predicted}</div>
+                      <div className="text-xs text-gray-500">target {p.expected}</div>
+                    </div>
+                  ))}
+                  {!trainingResult?.xorProbe?.predictions && !neuralStatus?.xorProbe?.predictions && (
+                    <div className="col-span-4 text-gray-400 text-sm py-4">
+                      Train once to run the XOR probe.
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 text-xs text-gray-400">
+                  XOR is not linearly separable — a network can only nail these four values by genuinely learning a
+                  non-linear decision surface through backprop.
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+                <h3 className="text-white font-bold mb-4">Model-Predicted Demand Leaders</h3>
+                <div className="space-y-2">
+                  {(trainingResult?.recommendations || []).slice(0, 6).map((r, i) => (
+                    <div key={r.productId} className="flex items-center justify-between bg-black/25 rounded-lg px-4 py-2">
+                      <div className="flex items-center">
+                        <span className="text-emerald-400 font-bold text-sm mr-3">#{i + 1}</span>
+                        <span className="text-white text-sm">{r.productName}</span>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-400 rounded-full"
+                            style={{ width: `${Math.round(r.demandScore * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-emerald-300 text-xs font-mono w-12 text-right">{r.demandScore}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {!trainingResult?.recommendations && (
+                    <div className="text-gray-400 text-sm py-4">
+                      Train once to score every SKU with the fitted network.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
   );
 }

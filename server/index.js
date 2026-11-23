@@ -39,6 +39,8 @@ import {
   queryMongoCollection,
   insertMongoBsonDocument
 } from './mongoEngine.js';
+import { getNeuralStatus, runTraining, getRecommendations } from './neuralEngine.js';
+import os from 'node:os';
 import { runAllVerificationSuites } from './testSuiteRunner.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -4396,45 +4398,145 @@ function executeSingleCommand(singleRawCmd) {
     const text = baseCmd.slice(5).trim().replace(/^["']|["']$/g, '');
     outputLines = [text];
   } else if (lower === 'whoami') {
-    outputLines = ['root@nex-edge-nbo (uid=0 gid=0 groups=0(root),100(secops),101(sqlite-wal))'];
-  } else if (lower === 'uname -a' || lower === 'uname') {
+    // Real OS identity of the service process
+    let user;
+    try {
+      user = os.userInfo();
+      outputLines = [`${user.username} (uid=${user.uid} gid=${user.gid})`];
+    } catch {
+      outputLines = [`${process.env.USER || process.env.USERNAME || 'nex'} (uid=unavailable)`];
+    }
+  } else if (lower === 'id') {
+    try {
+      const user = os.userInfo();
+      outputLines = [`uid=${user.uid} gid=${user.gid} user=${user.username} home=${user.homedir}`];
+    } catch {
+      outputLines = ['id: user info unavailable in this sandbox'];
+    }
+  } else if (lower === 'hostname') {
+    outputLines = [os.hostname()];
+  } else if (lower === 'date') {
+    outputLines = [new Date().toString()];
+  } else if (lower === 'pwd') {
+    outputLines = [process.cwd()];
+  } else if (lower === 'uname' || lower === 'uname -a') {
     outputLines = [
-      'Linux nex-edge-nbo-01 6.11.0-nex-anycast #1 SMP PREEMPT_DYNAMIC Node.js ' +
-        process.version +
-        ' x86_64 GNU/Linux (SQLite3 WAL Engine)'
+      `${os.type()} ${os.hostname()} ${os.release()} ${os.arch()} ${os.platform()} — Node.js ${process.version} (SQLite WAL Engine)`
     ];
   } else if (lower === 'uptime') {
+    const la = os.loadavg().map((n) => n.toFixed(2)).join(', ');
+    const up = os.uptime();
+    const h = Math.floor(up / 3600);
+    const m = Math.floor((up % 3600) / 60);
     outputLines = [
-      `up ${Math.round(process.uptime())} seconds, ${Math.max(1, clients.size)} active WS user(s), load average: 0.24, 0.19, 0.15`
+      `${new Date().toLocaleTimeString()} up ${h}:${String(m).padStart(2, '0')}, ${clients.size} ws client(s), load average: ${la}`
     ];
+  } else if (lower === 'nproc') {
+    outputLines = [String(os.cpus().length)];
   } else if (lower === 'env') {
+    // Real process environment — secret values are masked
+    const SECRET_ENV = /TOKEN|KEY|SECRET|PASSWORD|URI|CREDENTIAL/i;
+    outputLines = Object.entries(process.env)
+      .filter(([k]) => !k.startsWith('npm_'))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${SECRET_ENV.test(k) ? '[MASKED]' : v}`);
+  } else if (lower === 'top' || lower === 'ps') {
+    // Real process telemetry for this server process
+    const mem = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const la = os.loadavg().map((n) => n.toFixed(2)).join(', ');
     outputLines = [
-      'NEX_VERSION=3.0.0',
-      'NEX_CLUSTER_PRIMARY=af-south-nbo-01 (196.216.84.12)',
-      'SQLITE_JOURNAL_MODE=WAL',
-      'SQLITE_TABLES=17',
-      'WAF_SHIELD=ENABLED (Cloudflare Anycast + Ed25519)',
-      `NODE_RUNTIME=${process.version}`
+      `top - ${new Date().toLocaleTimeString()} | load avg: ${la} | cpus: ${os.cpus().length}`,
+      `Mem : ${(totalMem / 1024 / 1024 / 1024).toFixed(2)} GB total, ${(freeMem / 1024 / 1024 / 1024).toFixed(2)} GB free, ${(((totalMem - freeMem) / totalMem) * 100).toFixed(1)}% used`,
+      '',
+      'PID    USER         RSS      HEAP     CPU(s)   ELAPSED  STATE  COMMAND',
+      '────── ──────────── ──────── ──────── ──────── ──────── ────── ─────────────────────────',
+      `${String(process.pid).padEnd(6)} ${(os.userInfo().username || 'nex').padEnd(12)} ${String((mem.rss / 1024 / 1024).toFixed(1) + 'M').padEnd(8)} ${String((mem.heapUsed / 1024 / 1024).toFixed(1) + 'M').padEnd(8)} ${String(((cpu.user + cpu.system) / 1e6).toFixed(2)).padEnd(8)} ${String(Math.round(process.uptime()) + 's').padEnd(8)} RUN    node server/index.js`
     ];
-  } else if (lower === 'top') {
-    const nodes = db.prepare('SELECT * FROM server_nodes ORDER BY cpu_load DESC').all();
+  } else if (lower === 'free') {
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const mem = process.memoryUsage();
     outputLines = [
-      'PID    USER      PR   VIRT    RES    STATE   CPU%   MEM%   NODE / PROCESS',
-      '────── ───────── ──── ─────── ────── ─────── ────── ────── ──────────────────────────────',
-      ...nodes.map(
-        (n, idx) =>
-          `${String(1400 + idx * 37).padEnd(6)} root      20   1.84G   512M   RUN     ${(n.cpu_load + '%').padEnd(6)} ${(n.ram_usage + '%').padEnd(6)} nex-edge-worker (${n.id})`
-      )
+      '              total        used        free      shared  buff/cache   available',
+      `Mem:   ${String((totalMem / 1024 / 1024 / 1024).toFixed(2) + 'G').padStart(12)}${String(((totalMem - freeMem) / 1024 / 1024 / 1024).toFixed(2) + 'G').padStart(12)}${String((freeMem / 1024 / 1024 / 1024).toFixed(2) + 'G').padStart(12)}${'0G'.padStart(12)}${'—'.padStart(12)}${String((freeMem / 1024 / 1024 / 1024).toFixed(2) + 'G').padStart(12)}`,
+      `Proc:  ${String((mem.rss / 1024 / 1024).toFixed(1) + 'M RSS').padStart(12)}${String((mem.heapUsed / 1024 / 1024).toFixed(1) + 'M heap').padStart(12)}${String((mem.external / 1024 / 1024).toFixed(1) + 'M ext').padStart(12)}`
     ];
+  } else if (lower === 'df') {
+    try {
+      const st = fs.statfsSync(process.cwd());
+      const total = st.blocks * st.bsize;
+      const free = st.bfree * st.bsize;
+      const used = total - free;
+      outputLines = [
+        'Filesystem      Size   Used  Avail  Use%  Mounted on',
+        `nex-sandbox   ${(total / 1024 / 1024 / 1024).toFixed(1)}G  ${(used / 1024 / 1024 / 1024).toFixed(1)}G  ${(free / 1024 / 1024 / 1024).toFixed(1)}G  ${Math.round((used / total) * 100)}%  ${process.cwd()}`
+      ];
+    } catch {
+      outputLines = ['df: filesystem statistics unavailable'];
+    }
+  } else if (lower === 'ls' || lower.startsWith('ls ')) {
+    // Real directory listing, sandboxed to the project tree (no dotfiles)
+    const arg = baseCmd.slice(2).trim().replace(/^["']|["']$/g, '');
+    const SAFE_DIRS = new Set(['', '.', './', 'server', 'src', 'public', 'data', 'tests', 'docs', 'dist', 'server/static']);
+    const target = arg.replace(/\/+$/, '') || '.';
+    if (!SAFE_DIRS.has(target)) {
+      exitCode = 1;
+      outputLines = [`ls: ${arg}: permission denied (sandbox allows: ${[...SAFE_DIRS].filter(Boolean).join(', ')})`];
+    } else {
+      const abs = path.resolve(process.cwd(), target);
+      const entries = fs
+        .readdirSync(abs, { withFileTypes: true })
+        .filter((e) => !e.name.startsWith('.'))
+        .sort((a, b) => (a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1));
+      outputLines = entries.map((e) => {
+        if (e.isDirectory()) return `${e.name}/`;
+        try {
+          const size = fs.statSync(path.join(abs, e.name)).size;
+          return `${e.name}  ${(size / 1024).toFixed(1)}K`;
+        } catch {
+          return e.name;
+        }
+      });
+    }
+  } else if (lower.startsWith('cat ')) {
+    // Real file reads, allowlisted docs only — never .env or source of credentials
+    const arg = baseCmd.slice(4).trim().replace(/^["']|["']$/g, '');
+    const SAFE_FILES = new Set([
+      'README.md',
+      'package.json',
+      '.env.example',
+      'COPYRIGHT_AND_DRM.md',
+      'netlify.toml',
+      'render.yaml',
+      'docs/ARCHITECTURE_AND_GUIDE.md'
+    ]);
+    if (!SAFE_FILES.has(arg)) {
+      exitCode = 1;
+      outputLines = [`cat: ${arg}: permission denied (sandbox allows: ${[...SAFE_FILES].join(', ')})`];
+    } else {
+      try {
+        outputLines = fs.readFileSync(path.resolve(process.cwd(), arg), 'utf8').split(/\r?\n/).slice(0, 200);
+      } catch (err) {
+        exitCode = 1;
+        outputLines = [`cat: ${arg}: ${err.message}`];
+      }
+    }
   } else if (lower === 'netstat') {
-    const nodes = db.prepare('SELECT * FROM server_nodes').all();
+    // Real socket table for this server: listener + live WebSocket sessions
+    const port = process.env.PORT || 3000;
     outputLines = [
-      'PROTO  LOCAL ADDRESS          FOREIGN EDGE PEER      STATE         LATENCY   CONNS',
-      '────── ────────────────────── ────────────────────── ───────────── ───────── ──────',
-      ...nodes.map(
-        (n) =>
-          `tcp4   0.0.0.0:3000           ${n.ip_address.padEnd(18)}:443 ESTABLISHED   ${(n.latency_ms + 'ms').padEnd(9)} ${n.active_connections}`
-      )
+      'Proto  Local Address         State        PID     Detail',
+      '────── ───────────────────── ──────────── ─────── ──────────────────────────────',
+      `tcp    0.0.0.0:${String(port).padEnd(11)} LISTEN       ${String(process.pid).padEnd(7)} express + ws (/ws)`,
+      ...Array.from(clients.entries()).slice(0, 10).map(
+        ([, meta], i) =>
+          `tcp    0.0.0.0:${String(port).padEnd(11)} ESTABLISHED  ${String(process.pid).padEnd(7)} ws-client ${meta.id}${meta.viewingProductId ? ` → ${meta.viewingProductId}` : ''}`
+      ),
+      '',
+      `${clients.size} live WebSocket session(s) tracked`
     ];
   } else if (lower === 'nex benchmark' || lower === 'benchmark') {
     const t0 = performance.now();
@@ -4851,6 +4953,23 @@ app.get('/api/quantum/status', (_req, res) => {
     quantumShieldActive: true,
     generatedAt: new Date().toISOString()
   });
+});
+
+// NEX Neural Engine — real MLP training & model-backed recommendations
+app.get('/api/neural/status', (_req, res) => {
+  const products = getAllProducts();
+  res.json(getNeuralStatus(products));
+});
+
+app.post('/api/neural/train', (_req, res) => {
+  const products = getAllProducts();
+  const result = runTraining(products);
+  res.json(result);
+});
+
+app.get('/api/neural/recommendations', (_req, res) => {
+  const products = getAllProducts();
+  res.json({ recommendations: getRecommendations(products) });
 });
 
 app.get('/api/health', (_req, res) => {

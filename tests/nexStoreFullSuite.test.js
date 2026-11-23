@@ -798,4 +798,89 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.ok(uploadRes.data.account.avatar.startsWith('data:image/png;base64,'));
     });
   });
+
+  // ============================================================================
+  // 7. NEX NEURAL ENGINE (REAL DEEP LEARNING — MLP BACKPROP + SGD)
+  // ============================================================================
+  describe('7. NEX Neural Engine (Real MLP Training & Model Recommendations)', () => {
+    it('reports engine status and trains real networks with decreasing loss', async () => {
+      const statusRes = await apiRequest('/api/neural/status');
+      assert.equal(statusRes.status, 200);
+      assert.ok(statusRes.data.engine.includes('Neural Engine'));
+      assert.ok(statusRes.data.productCount > 0, 'training corpus built from real products');
+
+      const trainRes = await apiRequest('/api/neural/train', { method: 'POST', token: adminToken });
+      assert.equal(trainRes.status, 200);
+
+      const hist = trainRes.data.demandForecaster.lossHistory;
+      assert.ok(Array.isArray(hist) && hist.length === 250, 'real 250-epoch loss history recorded');
+      assert.ok(
+        trainRes.data.demandForecaster.finalLoss < trainRes.data.demandForecaster.startLoss,
+        'backpropagation must genuinely reduce loss'
+      );
+      assert.ok(trainRes.data.xorProbe.converged, 'XOR probe must converge (non-linear learning)');
+      for (const p of trainRes.data.xorProbe.predictions) {
+        assert.ok(
+          Math.abs(p.predicted - p.expected) < 0.2,
+          `XOR[${p.input}] predicted ${p.predicted} ≈ target ${p.expected}`
+        );
+      }
+    });
+
+    it('serves model-scored product recommendations', async () => {
+      const recRes = await apiRequest('/api/neural/recommendations');
+      assert.equal(recRes.status, 200);
+      assert.ok(recRes.data.recommendations.length >= 3, 'model-backed recommendations');
+      const scores = recRes.data.recommendations.map((r) => r.demandScore);
+      assert.deepEqual(scores, [...scores].sort((a, b) => b - a), 'sorted by predicted demand');
+    });
+  });
+
+  // ============================================================================
+  // 8. REAL SYSTEM TERMINAL (OS TELEMETRY + SANDBOXED FS + SECRET MASKING)
+  // ============================================================================
+  describe('8. Real System Terminal (Live OS Commands & Sandboxed File Access)', () => {
+    it('executes real OS telemetry commands (uname, free, ls)', async () => {
+      const unameRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'uname -a', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.equal(unameRes.status, 200);
+      assert.ok(unameRes.data.output.includes(process.version), 'uname reports the real Node runtime');
+      assert.ok(/Linux|Darwin|Windows/i.test(unameRes.data.output), 'uname reports the real OS type');
+
+      const freeRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'free', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.ok(freeRes.data.output.includes('Mem:'), 'free reports real memory');
+
+      const lsRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'ls', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.ok(lsRes.data.output.includes('package.json'), 'ls lists real project files');
+    });
+
+    it('sandbox-denies sensitive file reads and masks secrets in env output', async () => {
+      const denyRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'cat .env', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.equal(denyRes.status, 200);
+      assert.ok(denyRes.data.output.includes('permission denied'), '.env must be unreadable');
+
+      const envRes = await apiRequest('/api/terminal/exec', {
+        method: 'POST',
+        token: adminToken,
+        body: { command: 'env', actor: 'nex_root_admin@nex-store' }
+      });
+      assert.ok(!/nex_whop_sk_|mongodb(\+srv)?:\/\//.test(envRes.data.output), 'env must not leak secret values');
+      assert.ok(envRes.data.output.includes('[MASKED]') || envRes.data.output.includes('NODE_RUNTIME'), 'env works');
+    });
+  });
 });
