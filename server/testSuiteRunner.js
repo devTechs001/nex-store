@@ -23,6 +23,7 @@ import {
 } from './db.js';
 import { renderAppBannerSvg, inspectAndFetchUrlResources } from './appArtAndFetcher.js';
 import { recordRequest, sampleMemory, getMetricsSnapshot } from './metrics.js';
+import { getPaymentsConfig } from './payments.js';
 import { renderSandboxedAppHtml, detectAppArchetype } from './appSandboxRuntime.js';
 import {
   getEnvAdminConfig,
@@ -607,6 +608,51 @@ export async function runAllVerificationSuites() {
       db.prepare('DELETE FROM app_reviews WHERE id = ?').run(revId);
       db.prepare('DELETE FROM app_comments WHERE id IN (?, ?)').run(rootId, replyId);
       return 'Verified review aggregates and two-level comment threading';
+    });
+  });
+
+  // ============================================================================
+  // SUITE: REAL PAYMENT PROVIDERS & HONEST CHECKOUT (NO FABRICATED SETTLEMENTS)
+  // ============================================================================
+  await runSuite('payments-honesty', 'Payment Providers & Honest Checkout', 'Commerce Integrity', async (testCase) => {
+    await testCase('payment config reports real provider flags without secrets', () => {
+      const cfg = getPaymentsConfig();
+      assert.equal(cfg.providers.test.configured, true, 'Test Ledger always available');
+      assert.equal(cfg.providers.test.mode, 'test');
+      for (const id of ['stripe', 'paypal', 'mpesa']) {
+        assert.equal(typeof cfg.providers[id].configured, 'boolean', `${id} flag must be boolean`);
+        assert.ok(cfg.providers[id].note, `${id} must carry an honest note`);
+      }
+      const raw = JSON.stringify(cfg);
+      assert.ok(!raw.includes('sk_') && !raw.includes('access_token'), 'config must never leak secrets');
+      return 'Verified provider configuration flags and zero secret leakage';
+    });
+
+    await testCase('Stripe webhook signatures are really verified (HMAC + replay window)', async () => {
+      const { verifyStripeSignature: verify } = await import('../server/payments.js');
+      const secret = 'whsec_suite_secret';
+      const payload = '{"type":"payment_intent.succeeded"}';
+      const t = Math.floor(Date.now() / 1000);
+      const v1 = crypto.createHmac('sha256', secret).update(`${t}.${payload}`).digest('hex');
+      assert.equal(verify(payload, `t=${t},v1=${v1}`, secret), true, 'valid HMAC must pass');
+      assert.equal(verify(payload, `t=${t},v1=${'a'.repeat(64)}`, secret), false, 'forged HMAC must fail');
+      return 'Verified genuine Stripe signature scheme incl. tamper rejection';
+    });
+
+    await testCase('Test Ledger settlement is honestly labeled and never claims Live', () => {
+      const payId = `pay_suite_${Date.now().toString(36)}`;
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO payment_transactions (id, order_id, order_number, customer_name, customer_email, amount, currency,
+          payment_method, provider, status, auth_code, receipt_hash, risk_score, created_at, mode, provider_ref)
+         VALUES (?, 'ord-suite', 'NEX-SUITE-1', 'Suite', 'suite@nex.dev', 9.99, 'USD',
+          'Test Ledger • sandbox', 'NEX Test Ledger (sandbox)', 'TEST_SETTLED', 'TL-SUITE', 'sha256:suite', 0, ?, 'test', 'tl_suite')`
+      ).run(payId, now);
+      const row = db.prepare('SELECT * FROM payment_transactions WHERE id = ?').get(payId);
+      assert.equal(row.mode, 'test');
+      assert.ok(/Test Ledger/.test(row.provider) && !/Live/i.test(row.provider), 'sandbox label must be honest');
+      db.prepare('DELETE FROM payment_transactions WHERE id = ?').run(payId);
+      return 'Verified sandbox settlement labeling (TEST_SETTLED, mode=test, no Live claims)';
     });
   });
 

@@ -10,7 +10,9 @@ import {
   CreditCard,
   Smartphone,
   ShieldCheck,
-  Truck
+  Truck,
+  Wallet,
+  FlaskConical
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
 import { toCents, fromCents, lineCents, percentOfCents, fixedDiscountCents, taxOfCents } from '../utils/money.js';
@@ -46,6 +48,8 @@ export default function CartCheckoutDrawer({
   const [shippingCountry, setShippingCountry] = useState('Kenya');
   const [shippingMethod, setShippingMethod] = useState('NEX Same-Day Courier ($15)');
   const [paymentMethod, setPaymentMethod] = useState('M-Pesa Express / Instant Pay');
+  const [paymentsConfig, setPaymentsConfig] = useState(null);
+  const [paymentProvider, setPaymentProvider] = useState('test');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
@@ -57,6 +61,24 @@ export default function CartCheckoutDrawer({
       setDrawerTab(initialMode || 'cart');
     }
   }, [isOpen, initialMode]);
+
+  // Real payment provider config from the server (configured flags + honest notes)
+  React.useEffect(() => {
+    if (!isOpen) return;
+    let alive = true;
+    fetch('/api/payments/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (!alive || !cfg) return;
+        setPaymentsConfig(cfg);
+        const firstLive = ['mpesa', 'stripe', 'paypal'].find((id) => cfg.providers?.[id]?.configured);
+        setPaymentProvider(firstLive || 'test');
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [isOpen]);
 
   // ---- Integer-cent money math (src/utils/money.js) — no float drift ----
   const subtotal = useMemo(
@@ -163,6 +185,8 @@ export default function CartCheckoutDrawer({
           shipping_country: shippingCountry,
           shipping_method: shippingMethod,
           payment_method: paymentMethod,
+          payment_provider: paymentProvider,
+          payment_phone: customerPhone,
           coupon_code: appliedCoupon?.code || null,
           notes,
           items: cart.map((item) => ({
@@ -209,7 +233,8 @@ export default function CartCheckoutDrawer({
       tax: taxAmount,
       total: grandTotal,
       coupon_code: appliedCoupon?.code || null,
-      status: 'processing',
+      status: 'offline-demo',
+      payment_method: `${paymentMethod} — OFFLINE DEMO (no server, nothing charged)`,
       tracking_number: `1Z999AA10${Math.floor(100000000 + Math.random() * 899999999)}`,
       estimated_delivery: '2-3 Business Days',
       items: cart.map((item) => ({
@@ -222,7 +247,7 @@ export default function CartCheckoutDrawer({
       timeline: [
         {
           status: 'ordered',
-          label: 'Order Confirmed & Verified',
+          label: 'Offline demo order — no server reached, no payment processed',
           timestamp: new Date().toISOString(),
           completed: true
         },
@@ -674,27 +699,49 @@ export default function CartCheckoutDrawer({
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { label: 'M-Pesa Express / Instant Pay', icon: Smartphone },
-                      { label: 'Card •••• 4242', icon: CreditCard }
+                      { id: 'mpesa', label: 'M-Pesa (Daraja STK)', icon: Smartphone },
+                      { id: 'stripe', label: 'Card — Stripe', icon: CreditCard },
+                      { id: 'paypal', label: 'PayPal', icon: Wallet },
+                      { id: 'test', label: 'Test Ledger (sandbox)', icon: FlaskConical }
                     ].map((pm) => {
                       const Icon = pm.icon;
+                      const info = paymentsConfig?.providers?.[pm.id];
+                      const usable = pm.id === 'test' || info?.configured;
                       return (
                         <button
                           type="button"
-                          key={pm.label}
-                          onClick={() => setPaymentMethod(pm.label)}
-                          className={`flex items-center gap-2 rounded-xl border p-2.5 text-left text-xs font-medium cursor-pointer ${
-                            paymentMethod === pm.label
+                          key={pm.id}
+                          disabled={!usable}
+                          onClick={() => {
+                            setPaymentProvider(pm.id);
+                            setPaymentMethod(pm.label);
+                          }}
+                          title={info?.note || (usable ? '' : 'Not configured on this server')}
+                          className={`flex items-center gap-2 rounded-xl border p-2.5 text-left text-xs font-medium ${
+                            usable ? 'cursor-pointer' : 'cursor-not-allowed opacity-45'
+                          } ${
+                            paymentProvider === pm.id
                               ? 'border-indigo-500 bg-indigo-500/15 text-indigo-400 font-bold'
                               : inputSurface
                           }`}
                         >
                           <Icon className="h-4 w-4 text-indigo-400 shrink-0" />
                           <span className="truncate">{pm.label}</span>
+                          {pm.id !== 'test' && !info?.configured && (
+                            <span className="ml-auto text-[8px] uppercase tracking-wide text-slate-400">not set</span>
+                          )}
+                          {pm.id === 'test' && (
+                            <span className="ml-auto text-[8px] uppercase tracking-wide text-amber-400">no real charge</span>
+                          )}
                         </button>
                       );
                     })}
                   </div>
+                  {paymentsConfig?.providers?.[paymentProvider]?.note && (
+                    <p className="mt-1.5 text-[10px] text-slate-400">
+                      {paymentsConfig.providers[paymentProvider].note}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -766,6 +813,10 @@ export default function CartCheckoutDrawer({
                       <span className="text-slate-400">Payment Gateway Auth:</span>
                       <span className="font-mono-num font-bold text-cyan-400">
                         {completedPayment.auth_code} ({completedPayment.provider})
+                        {' '}
+                        <span className={completedPayment.mode === 'live' ? 'text-emerald-400' : 'text-amber-400'}>
+                          [{String(completedPayment.status || '').replaceAll('_', ' ')} · {completedPayment.mode === 'live' ? 'LIVE' : completedPayment.mode === 'test' ? 'SANDBOX' : 'DEMO'}]
+                        </span>
                       </span>
                     </div>
                     <div className="font-mono-num text-[10px] text-emerald-400 truncate">
