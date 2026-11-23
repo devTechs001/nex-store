@@ -18,6 +18,7 @@ import { formatPrice } from '../utils/currency.js';
 import { getProductArtUrl } from '../utils/storeEngine.js';
 
 export default function CommandPaletteModal({
+  session,
   isOpen,
   onClose,
   products,
@@ -58,6 +59,7 @@ export default function CommandPaletteModal({
   const quickCommands = [
     {
       id: 'cmd-overview',
+      tab: 'overview',
       label: 'Open Connected Overview Dashboard',
       hint: 'Unified live ecosystem telemetry & quick-launch hub',
       icon: Sparkles,
@@ -68,6 +70,7 @@ export default function CommandPaletteModal({
     },
     {
       id: 'cmd-store',
+      tab: 'store',
       label: 'Go to Hardware Storefront',
       hint: 'Browse catalog & flash deals',
       icon: Store,
@@ -78,6 +81,7 @@ export default function CommandPaletteModal({
     },
     {
       id: 'cmd-tracker',
+      tab: 'tracker',
       label: 'Open Live Order Tracker',
       hint: 'Track shipments in real time via WebSockets',
       icon: Truck,
@@ -88,6 +92,7 @@ export default function CommandPaletteModal({
     },
     {
       id: 'cmd-admin',
+      tab: 'admin',
       label: 'Open Root Admin System (.env Only)',
       hint: 'Isolated Root Admin operations, WAF & stock command',
       icon: ShieldCheck,
@@ -98,6 +103,7 @@ export default function CommandPaletteModal({
     },
     {
       id: 'cmd-dev-portal',
+      tab: 'developer-portal',
       label: 'Open Scoped Developer Portal',
       hint: 'Manage own published apps & cloud instances',
       icon: Command,
@@ -108,6 +114,7 @@ export default function CommandPaletteModal({
     },
     {
       id: 'cmd-user-portal',
+      tab: 'user-portal',
       label: 'Open Normal System User Portal',
       hint: 'Buyer profile image, orders & installed apps',
       icon: Tag,
@@ -118,6 +125,7 @@ export default function CommandPaletteModal({
     },
     {
       id: 'cmd-db',
+      tab: 'database',
       label: 'Open SQLite + MongoDB Database Studio',
       hint: 'Inspect all 28 tables & run live SQL/BSON queries',
       icon: Database,
@@ -128,6 +136,7 @@ export default function CommandPaletteModal({
     },
     {
       id: 'cmd-pulse',
+      roles: ['admin'],
       label: 'Trigger Live WebSocket Store Event',
       hint: 'Broadcast simulated real-time shopper activity',
       icon: Zap,
@@ -147,6 +156,10 @@ export default function CommandPaletteModal({
       }
     }
   ];
+
+  // Role-separated commands: each session only sees what it can run.
+  const role = roleForSession(session);
+  const visibleCommands = filterNavForRole(quickCommands, role);
 
   if (!isOpen) return null;
 
@@ -262,7 +275,7 @@ export default function CommandPaletteModal({
               Platform Navigation & Real-Time Actions
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-              {quickCommands.map((cmd) => {
+              {visibleCommands.map((cmd) => {
                 const Icon = cmd.icon;
                 return (
                   <button

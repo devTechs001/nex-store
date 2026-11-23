@@ -25,6 +25,12 @@ import { db } from '../server/db.js';
 import { computeOrderMoney } from '../server/money.js';
 import { collectSourceFiles, detectProjectLanguage } from '../server/gitImport.js';
 import {
+  canRoleAccessTab,
+  filterNavForRole,
+  roleForSession,
+  TAB_ROLE_ACCESS
+} from '../src/utils/navigation.js';
+import {
   getEnvAdminConfig,
   detectXssAttempt,
   sanitizeObjectPayloads,
@@ -1269,6 +1275,51 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
         body: { url: 'https://github.com/octocat/Hello-World' }
       });
       assert.equal(res.status, 403);
+    });
+  });
+
+  // ============================================================================
+  // 13. ROLE-BASED NAVIGATION POLICY (ADMINS / DEVELOPERS / USERS / GUESTS)
+  // ============================================================================
+  describe('13. Role-Based Navigation Separation', () => {
+    const ALL_TABS = ['store', 'apps', 'mobile-subs', 'tracker', 'docs', 'overview', 'subsystems', 'admin', 'database', 'developer-portal', 'user-portal'];
+
+    it('guests see only public surfaces', () => {
+      const visible = ALL_TABS.filter((t) => canRoleAccessTab('guest', t));
+      assert.deepEqual(visible.sort(), ['apps', 'docs', 'mobile-subs', 'store', 'tracker'].sort());
+    });
+
+    it('users get public + user portal only (never admin/dev surfaces)', () => {
+      const visible = ALL_TABS.filter((t) => canRoleAccessTab('user', t));
+      assert.deepEqual(visible.sort(), ['apps', 'docs', 'mobile-subs', 'store', 'tracker', 'user-portal'].sort());
+    });
+
+    it('developers get public + developer portal only', () => {
+      const visible = ALL_TABS.filter((t) => canRoleAccessTab('developer', t));
+      assert.deepEqual(visible.sort(), ['apps', 'developer-portal', 'docs', 'mobile-subs', 'store', 'tracker'].sort());
+    });
+
+    it('admins see every workspace', () => {
+      for (const t of ALL_TABS) assert.ok(canRoleAccessTab('admin', t), `admin must access ${t}`);
+    });
+
+    it('nav item filtering matches the router policy', () => {
+      const items = ALL_TABS.map((id) => ({ id, label: id }));
+      assert.equal(filterNavForRole(items, 'guest').length, 5);
+      assert.equal(filterNavForRole(items, 'user').length, 6);
+      assert.equal(filterNavForRole(items, 'developer').length, 6);
+      assert.equal(filterNavForRole(items, 'admin').length, ALL_TABS.length);
+      // explicit roles override (e.g. admin-only command palette actions)
+      const cmdItems = [{ id: 'cmd-pulse', roles: ['admin'] }, { id: 'cmd-theme' }];
+      assert.equal(filterNavForRole(cmdItems, 'guest').length, 1);
+      assert.equal(filterNavForRole(cmdItems, 'admin').length, 2);
+    });
+
+    it('session role resolution and policy table stay consistent', () => {
+      assert.equal(roleForSession({ account: { role: 'developer' } }), 'developer');
+      assert.equal(roleForSession(null), 'guest');
+      assert.ok(TAB_ROLE_ACCESS['developer-portal'].includes('developer'));
+      assert.ok(!TAB_ROLE_ACCESS['user-portal'].includes('developer'));
     });
   });
 });

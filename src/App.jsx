@@ -27,6 +27,7 @@ import {
   hydrateApp
 } from './utils/storeEngine.js';
 import { authHeaders, getStoredToken, setStoredToken } from './utils/auth.js';
+import { TAB_ROLE_ACCESS, roleForSession, canRoleAccessTab, filterNavForRole, ROLE_LABELS, ROLE_BADGE_STYLES } from './utils/navigation.js';
 import AuthGateView from './components/AuthGateView.jsx';
 import {
   playSound,
@@ -73,18 +74,11 @@ export default function App() {
     setSession(account ? { account } : null);
   }, []);
 
-  const PRIVATE_TAB_ROLES = {
-    subsystems: ['admin'],
-    database: ['admin'],
-    overview: ['admin'],
-    admin: ['admin'],
-    'developer-portal': ['admin', 'developer'],
-    'user-portal': ['admin', 'user']
-  };
-
+  // Role-based navigation policy — shared with every nav surface so menus
+  // and the router authorize identically (src/utils/navigation.js).
   const canAccessTab = useCallback(
     (tab) => {
-      const roles = PRIVATE_TAB_ROLES[tab];
+      const roles = TAB_ROLE_ACCESS[tab];
       if (!roles) return true;
       return Boolean(session?.account && roles.includes(session.account.role));
     },
@@ -1762,6 +1756,7 @@ export default function App() {
 
       {/* Sticky Top Navbar + Multi-Theme Switcher + Sound/Push Controls + Real-Time Ticker */}
       <Navbar
+        session={session}
         activeTab={activeTab}
         setActiveTab={(tab) => {
           handlePlaySound('click');
@@ -1836,6 +1831,7 @@ export default function App() {
       {/* Desktop Side Navigation Rail + Main Active Workspace View */}
       <div className="flex flex-1 min-w-0">
         <DesktopSideNav
+          session={session}
           activeTab={activeTab}
           setActiveTab={(tab) => {
             handlePlaySound('click');
@@ -1883,6 +1879,7 @@ export default function App() {
         <main className="flex-1 min-w-0 pb-28 lg:pb-20">
         {activeTab === 'store' && (
           <StorefrontView
+            session={session}
             products={products}
             categories={categories}
             selectedCategory={selectedCategory}
@@ -2076,6 +2073,7 @@ export default function App() {
 
       {/* Mobile Fixed Bottom Navigation Dock & Full-Featured Mobile Command Drawer */}
       <MobileBottomNav
+        session={session}
         activeTab={activeTab}
         setActiveTab={(tab) => {
           handlePlaySound('click');
@@ -2191,6 +2189,7 @@ export default function App() {
 
       {/* Command Palette (⌘K) Modal */}
       <CommandPaletteModal
+        session={session}
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         products={products}
