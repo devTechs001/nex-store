@@ -23,6 +23,7 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
+import { roleForSession, canRoleAccessTab } from '../utils/navigation.js';
 import {
   getProductArtUrl,
   isCustomProductImage,
@@ -107,6 +108,7 @@ const HARDWARE_SKU_PRESETS = [
 ];
 
 export default function StorefrontView({
+  session,
   products,
   categories,
   selectedCategory,
@@ -1243,21 +1245,32 @@ export default function StorefrontView({
             </h2>
             <p className="text-xs sm:text-sm opacity-80">
               Every order, stock change, review, and promotion is persisted in our 11-table SQLite
-              database and pushed live to all connected browsers over WebSockets. Explore the{' '}
-              <button
-                onClick={() => onNavigateTab('database')}
-                className="text-indigo-400 underline font-semibold cursor-pointer"
-              >
-                SQLite DB Studio
-              </button>{' '}
-              or manage operations in{' '}
-              <button
-                onClick={() => onNavigateTab('admin')}
-                className="text-indigo-400 underline font-semibold cursor-pointer"
-              >
-                Admin Ops
-              </button>
-              .
+              database and pushed live to all connected browsers over WebSockets.{' '}
+              {canRoleAccessTab(roleForSession(session), 'database') ? (
+                <>
+                  Explore the{' '}
+                  <button
+                    onClick={() => onNavigateTab('database')}
+                    className="text-indigo-400 underline font-semibold cursor-pointer"
+                  >
+                    SQLite DB Studio
+                  </button>{' '}
+                </>
+              ) : (
+                <>Browse the live catalog and track orders in real time. </>
+              )}
+              {canRoleAccessTab(roleForSession(session), 'admin') && (
+                <>
+                  or manage operations in{' '}
+                  <button
+                    onClick={() => onNavigateTab('admin')}
+                    className="text-indigo-400 underline font-semibold cursor-pointer"
+                  >
+                    Admin Ops
+                  </button>
+                  .
+                </>
+              )}
             </p>
           </div>
 

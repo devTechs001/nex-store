@@ -22,8 +22,10 @@ import {
 } from 'lucide-react';
 import { CURRENCIES } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
+import { roleForSession, canRoleAccessTab, ROLE_LABELS, ROLE_BADGE_STYLES } from '../utils/navigation.js';
 
 export default function Navbar({
+  session,
   activeTab,
   setActiveTab,
   searchQuery,
@@ -161,20 +163,30 @@ export default function Navbar({
 
         {/* Right: Compact Action Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Connected Overview Dashboard Button */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('overview')}
-            title="Open Connected Overview & Executive Dashboard"
-            className={`inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-[11px] font-semibold transition cursor-pointer ${
-              activeTab === 'overview'
-                ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-sm'
-                : 'theme-input text-emerald-400 hover:border-emerald-400/50'
-            }`}
+          {/* Role badge — shows which navigation identity is active */}
+          <span
+            title={`Navigation role: ${ROLE_LABELS[roleForSession(session)]}`}
+            className={`hidden sm:inline-flex h-8 items-center rounded-xl border px-2 font-mono-num text-[9px] font-bold uppercase tracking-wide ${ROLE_BADGE_STYLES[roleForSession(session)]}`}
           >
-            <Activity className="h-3.5 w-3.5" />
-            <span>Overview</span>
-          </button>
+            {ROLE_LABELS[roleForSession(session)]}
+          </span>
+
+          {/* Connected Overview Dashboard Button (admin roles only) */}
+          {canRoleAccessTab(roleForSession(session), 'overview') && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('overview')}
+              title="Open Connected Overview & Executive Dashboard"
+              className={`inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-[11px] font-semibold transition cursor-pointer ${
+                activeTab === 'overview'
+                  ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-sm'
+                  : 'theme-input text-emerald-400 hover:border-emerald-400/50'
+              }`}
+            >
+              <Activity className="h-3.5 w-3.5" />
+              <span>Overview</span>
+            </button>
+          )}
 
           {/* Quick Mobile SDK & Subscriptions Tab Button */}
           <button
@@ -191,7 +203,8 @@ export default function Navbar({
             <span className="hidden xl:inline">Mobile &amp; Plans</span>
           </button>
 
-          {/* Live Event Pulse Trigger (Desktop) */}
+          {/* Live Event Pulse Trigger (Desktop, admin roles only — API is RBAC-gated) */}
+          {canRoleAccessTab(roleForSession(session), 'admin') && (
           <button
             type="button"
             onClick={onSimulateRealtime}
@@ -201,6 +214,7 @@ export default function Navbar({
             <Zap className="h-3 w-3 text-amber-400" />
             <span>Pulse</span>
           </button>
+          )}
 
           {/* Currency Selector */}
           <select

@@ -19,6 +19,9 @@ import DesktopSideNav from './components/DesktopSideNav.jsx';
 import MobileBottomNav from './components/MobileBottomNav.jsx';
 import MobileAndSubscriptionsView from './components/MobileAndSubscriptionsView.jsx';
 import SplashScreen from './components/SplashScreen.jsx';
+import SysCheckView from './components/SysCheckView.jsx';
+import CommunityView from './components/CommunityView.jsx';
+import ShareSystemModal from './components/ShareSystemModal.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
 import {
   getFallbackBootstrapData,
@@ -27,6 +30,7 @@ import {
   hydrateApp
 } from './utils/storeEngine.js';
 import { authHeaders, getStoredToken, setStoredToken } from './utils/auth.js';
+import { TAB_ROLE_ACCESS, roleForSession, canRoleAccessTab, filterNavForRole, ROLE_LABELS, ROLE_BADGE_STYLES } from './utils/navigation.js';
 import AuthGateView from './components/AuthGateView.jsx';
 import {
   playSound,
@@ -73,18 +77,11 @@ export default function App() {
     setSession(account ? { account } : null);
   }, []);
 
-  const PRIVATE_TAB_ROLES = {
-    subsystems: ['admin'],
-    database: ['admin'],
-    overview: ['admin'],
-    admin: ['admin'],
-    'developer-portal': ['admin', 'developer'],
-    'user-portal': ['admin', 'user']
-  };
-
+  // Role-based navigation policy — shared with every nav surface so menus
+  // and the router authorize identically (src/utils/navigation.js).
   const canAccessTab = useCallback(
     (tab) => {
-      const roles = PRIVATE_TAB_ROLES[tab];
+      const roles = TAB_ROLE_ACCESS[tab];
       if (!roles) return true;
       return Boolean(session?.account && roles.includes(session.account.role));
     },
@@ -1744,6 +1741,7 @@ export default function App() {
   );
 
   const [showSplash, setShowSplash] = useState(true);
+  const [shareTarget, setShareTarget] = useState(null);
 
   const unreadNotificationsCount = useMemo(
     () => notifications.filter((n) => !n.is_read).length,
@@ -1759,9 +1757,19 @@ export default function App() {
       }`}
     >
       {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
+      {shareTarget && (
+        <ShareSystemModal
+          app={shareTarget}
+          session={session}
+          onPlaySound={handlePlaySound}
+          onClose={() => setShareTarget(null)}
+          onShared={() => setShareTarget(null)}
+        />
+      )}
 
       {/* Sticky Top Navbar + Multi-Theme Switcher + Sound/Push Controls + Real-Time Ticker */}
       <Navbar
+        session={session}
         activeTab={activeTab}
         setActiveTab={(tab) => {
           handlePlaySound('click');
@@ -1836,6 +1844,7 @@ export default function App() {
       {/* Desktop Side Navigation Rail + Main Active Workspace View */}
       <div className="flex flex-1 min-w-0">
         <DesktopSideNav
+          session={session}
           activeTab={activeTab}
           setActiveTab={(tab) => {
             handlePlaySound('click');
@@ -1883,6 +1892,7 @@ export default function App() {
         <main className="flex-1 min-w-0 pb-28 lg:pb-20">
         {activeTab === 'store' && (
           <StorefrontView
+            session={session}
             products={products}
             categories={categories}
             selectedCategory={selectedCategory}
@@ -1910,6 +1920,7 @@ export default function App() {
 
         {activeTab === 'apps' && (
           <AppStoreView
+            session={session}
             apps={apps}
             appInstalls={appInstalls}
             polyglotAutomations={polyglotAutomations}
@@ -1919,6 +1930,10 @@ export default function App() {
             onCreateApp={handleCreateApp}
             onImportGit={handleImportGit}
             onPlaySound={handlePlaySound}
+            onShareApp={(app) => {
+              handlePlaySound('click');
+              setShareTarget(app);
+            }}
           />
         )}
 
@@ -2051,6 +2066,22 @@ export default function App() {
           </div>
         )}
 
+        {activeTab === 'community' && (
+          <CommunityView
+            session={session}
+            apps={apps}
+            onPlaySound={handlePlaySound}
+            onShareApp={(app) => {
+              handlePlaySound('click');
+              setShareTarget(app);
+            }}
+          />
+        )}
+
+        {activeTab === 'syscheck' && !canAccessTab('syscheck') ? renderAuthGate('syscheck') : (
+          <SysCheckView session={session} onPlaySound={handlePlaySound} />
+        )}
+
         {/* Global Copyright & Anti-Piracy DRM Protection Footer */}
         <footer className="mx-auto max-w-7xl px-4 pt-6 pb-4">
           <div className="rounded-2xl border border-amber-500/30 bg-slate-950/60 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono-num">
@@ -2076,6 +2107,7 @@ export default function App() {
 
       {/* Mobile Fixed Bottom Navigation Dock & Full-Featured Mobile Command Drawer */}
       <MobileBottomNav
+        session={session}
         activeTab={activeTab}
         setActiveTab={(tab) => {
           handlePlaySound('click');
@@ -2191,6 +2223,7 @@ export default function App() {
 
       {/* Command Palette (⌘K) Modal */}
       <CommandPaletteModal
+        session={session}
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         products={products}

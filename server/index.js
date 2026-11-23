@@ -22,6 +22,8 @@ import { executePolyglotAutomation, aiEnhancePolyglotScript } from './polyglotAu
 import { formatSubscriptionPlan } from './mobileAndSubscriptions.js';
 import {
   getEnvAdminConfig,
+  ensureEnvAdminCredentials,
+  getAdminBootstrapStatus,
   getHostingEnvAndBlueprintsConfig,
   updateHostingEnvVariables,
   hashPassword,
@@ -48,6 +50,7 @@ import { getNeuralStatus, runTraining, getRecommendations } from './neuralEngine
 import { toCents, fromCents, lineCents, percentOfCents, fixedDiscountCents, taxOfCents, computeOrderMoney } from './money.js';
 import { buildPolyglotPackage, runPolyglotSource, buildZipArchive, detectToolchains } from './polyglotBuilder.js';
 import { importGitRepo } from './gitImport.js';
+import { recordRequest, startSampler, getMetricsSnapshot, sampleMemory } from './metrics.js';
 import os from 'node:os';
 import { runAllVerificationSuites } from './testSuiteRunner.js';
 
@@ -57,7 +60,39 @@ const __dirname = path.dirname(__filename);
 // Initialize & seed SQLite database
 seedDatabase();
 
+// Bootstrap Root Admin credentials from the environment: on first boot with
+// missing or CHANGE_ME .env placeholders, REAL strong credentials are
+// generated and persisted into .env (never exposed via API).
+const adminCredentialBootstrap = ensureEnvAdminCredentials();
+if (adminCredentialBootstrap.bootstrapped) {
+  console.log(
+    `[NEX-BOOTSTRAP] Root Admin credentials provisioned (${adminCredentialBootstrap.generated.join(', ')}) — ` +
+      `${adminCredentialBootstrap.persisted ? 'persisted to .env' : 'held in memory only (read-only filesystem)'}. ` +
+      `Read NEX_ADMIN_PASSWORD / NEX_ADMIN_MASTER_TOKEN from .env or your platform env config.`
+  );
+}
+
 const app = express();
+
+// Real request telemetry for the System Check dashboard: per-route counts,
+// latency percentiles and status classes, collected from actual traffic.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api')) return next();
+  const t0 = Date.now();
+  res.on('finish', () => {
+    try {
+      const normalized = req.path
+        .split('/')
+        .map((seg) => (/^[a-f0-9-]{8,}$/i.test(seg) ? ':id' : seg))
+        .join('/');
+      recordRequest(req.method, normalized, res.statusCode, Date.now() - t0);
+    } catch {
+      // telemetry must never break a request
+    }
+  });
+  next();
+});
+startSampler();
 
 // Enforced CORS: only configured origins (CORS_ALLOWED_ORIGINS), same-origin
 // requests (e.g. the served SPA or a proxied preview), and localhost dev are
@@ -438,6 +473,248 @@ app.get('/api/app-art/:idFile', (req, res) => {
 });
 
 // 2. Bootstrap Endpoint (Fast initial load)
+// ============================================================================
+// SYSTEM-WIDE CHECK — real memory, resources, configs, apps, uploaded systems,
+// request telemetry, graphs (time series) and honest recommendations.
+// Access: Root Admin (full) and Developers (their ops view; config masked).
+// ============================================================================
+function collectConfigStatus(fullDetail) {
+  const envAdmin = getEnvAdminConfig();
+  const base = {
+    nodeEnv: process.env.NODE_ENV || 'development',
+    sessionSecretConfigured: Boolean(process.env.NEX_SESSION_SECRET),
+    corsConfigured: Boolean(process.env.CORS_ALLOWED_ORIGINS),
+    database: 'data/nexstore.db',
+    envAdminConfigured: envAdmin.envLoaded
+  };
+  if (!fullDetail) return { restricted: true, ...base };
+  return {
+    ...base,
+    adminUsernameConfigured: Boolean(process.env.NEX_ADMIN_USERNAME),
+    adminEmailConfigured: Boolean(process.env.NEX_ADMIN_EMAIL),
+    adminMasterTokenConfigured: Boolean(envAdmin.masterToken),
+    mongoConfigured: Boolean(process.env.MONGODB_URI),
+    hostingConfigured: Boolean(process.env.NETLIFY_AUTH_TOKEN || process.env.RENDER_API_KEY)
+  };
+}
+
+function buildSystemRecommendations(data) {
+  const recs = [];
+  const push = (severity, title, detail, action) => recs.push({ severity, title, detail, action });
+
+  const { metrics, buildRows, appRows, reviewStats, shareCount } = data;
+
+  if (metrics.system.memUsedPct >= 85) {
+    push('critical', 'System memory pressure', `Host memory is ${metrics.system.memUsedPct}% used (${metrics.system.freeMemMb} MB free).`, 'Profile memory or raise the instance size before traffic grows.');
+  } else if (metrics.process.heapUsedMb >= 300) {
+    push('warning', 'Elevated heap usage', `Node heap is at ${metrics.process.heapUsedMb} MB of ${Number((metrics.process.heapTotal / 1048576).toFixed(1))} MB.`, 'Run a heap snapshot under load and check for retained buffers (uploads stay in memory by design).');
+  }
+  if (metrics.requests.total > 20 && metrics.requests.errorRatePct > 2) {
+    push('critical', 'Elevated 5xx error rate', `${metrics.requests.errorRatePct}% of ${metrics.requests.total} requests failed with 5xx.`, 'Inspect the failing routes in the request table below and correlate with terminal logs.');
+  }
+  if (metrics.requests.p95Ms > 750) {
+    push('warning', 'Slow p95 latency', `p95 response time is ${metrics.requests.p95Ms} ms across ${metrics.requests.total} requests.`, 'Optimise the slowest routes first — heavy SQLite scans and package builds are the usual causes.');
+  }
+  const unavailable = buildRows.filter((b) => b.build_status === 'TOOLCHAIN_UNAVAILABLE');
+  for (const b of unavailable.slice(0, 3)) {
+    push('info', `Toolchain unavailable: ${b.language}`, `System "${b.name}" (${b.app_id}) targets ${b.language} but no toolchain is installed on this host.`, 'Install the SDK or target a transpiled language; the build stays honest until then.');
+  }
+  const invalid = buildRows.filter((b) => b.build_status === 'INVALID');
+  for (const b of invalid.slice(0, 3)) {
+    push('warning', `Build failed: ${b.name}`, `System "${b.name}" (${b.language}) failed validation.`, 'Open the build log, fix the source, and re-convert.');
+  }
+  const noImage = appRows.filter((a) => !a.image_url).length;
+  if (noImage > 0) push('info', 'Listing quality: missing visuals', `${noImage} of ${appRows.length} listings have no image.`, 'Add screenshots — listings with visuals get more installs and reviews.');
+  const zeroReviewApps = appRows.filter((a) => a.reviewCount === 0);
+  if (zeroReviewApps.length > 0) push('info', 'Zero community feedback', `${zeroReviewApps.length} app(s) have no reviews yet.`, 'Invite your first reviewers from the Community tab — reviews drive ranking.');
+  if (shareCount === 0) push('info', 'Nothing shared yet', 'No systems or apps have been shared to the community feed.', 'Use the Share button on any of your systems to publish it to the Community tab.');
+  if (reviewStats.count > 0 && reviewStats.avg < 3.5) {
+    push('warning', 'Low average review score', `Community average is ${reviewStats.avg}/5 across ${reviewStats.count} reviews.`, 'Read the latest reviews and prioritise the most-requested fixes.');
+  }
+  return recs;
+}
+
+app.get('/api/system/check', (req, res) => {
+  if (!req.actor) return res.status(401).json({ error: 'Authentication required for the system check.' });
+  if (req.actor.role === 'user') {
+    return res.status(403).json({ error: 'RBAC Isolation: system check is for Developers and Root Admin.' });
+  }
+  const isAdmin = req.actor.role === 'admin';
+
+  sampleMemory(); // refresh the graph series on every inspection
+  const metrics = getMetricsSnapshot();
+
+  const buildRows = db
+    .prepare(
+      `SELECT b.app_id, b.language, b.build_status, b.build_toolchain, b.source_bytes, b.created_at,
+              COALESCE(a.name, b.app_id) AS name
+       FROM app_builds b LEFT JOIN apps a ON a.id = b.app_id
+       ORDER BY b.created_at DESC LIMIT 50`
+    )
+    .all();
+  const buildStatusCounts = buildRows.reduce((acc, b) => {
+    acc[b.build_status] = (acc[b.build_status] || 0) + 1;
+    return acc;
+  }, {});
+  const appRows = db
+    .prepare(
+      `SELECT a.id, a.name, a.image_url, a.description, a.downloads,
+              (SELECT COUNT(*) FROM app_reviews r WHERE r.app_id = a.id) AS reviewCount
+       FROM apps a`
+    )
+    .all();
+  const reviewAgg = db.prepare('SELECT COUNT(*) AS count, AVG(rating) AS avg FROM app_reviews').get();
+  const reviewStats = { count: reviewAgg.count || 0, avg: Number((reviewAgg.avg || 0).toFixed(2)) };
+  const shareCount = db.prepare('SELECT COUNT(*) AS c FROM app_shares').get().c;
+
+  const recommendations = buildSystemRecommendations({ metrics, buildRows, appRows, reviewStats, shareCount });
+  const healthScore = Math.max(
+    0,
+    100 - recommendations.reduce((a, r) => a + (r.severity === 'critical' ? 18 : r.severity === 'warning' ? 9 : 3), 0)
+  );
+  const status = healthScore >= 85 ? 'HEALTHY' : healthScore >= 60 ? 'DEGRADED' : 'CRITICAL';
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    healthScore,
+    status,
+    metrics,
+    dbStats: getDatabaseStats(),
+    config: collectConfigStatus(isAdmin),
+    uploadedSystems: buildRows.map((b) => ({
+      app_id: b.app_id,
+      name: b.name,
+      language: b.language,
+      build_status: b.build_status,
+      toolchain: b.build_toolchain,
+      sourceBytes: b.source_bytes,
+      convertedAt: b.created_at
+    })),
+    buildStatusCounts,
+    apps: {
+      total: appRows.length,
+      withImage: appRows.filter((a) => a.image_url).length,
+      zeroReview: appRows.filter((a) => a.reviewCount === 0).length,
+      totalDownloads: appRows.reduce((a, x) => a + (x.downloads || 0), 0)
+    },
+    reviews: reviewStats,
+    shares: { total: shareCount },
+    recommendations
+  });
+});
+
+// ============================================================================
+// DEVELOPER SHARING — publish a system/app to the community feed
+// ============================================================================
+app.get('/api/shares', (_req, res) => {
+  const shares = db
+    .prepare(
+      `SELECT s.*, a.description, a.category, a.language, a.image_url
+       FROM app_shares s LEFT JOIN apps a ON a.id = s.app_id
+       ORDER BY s.created_at DESC LIMIT 60`
+    )
+    .all();
+  res.json({ shares });
+});
+
+app.post('/api/apps/:id/share', (req, res) => {
+  if (!req.actor) return res.status(401).json({ error: 'Authentication required to share.' });
+  if (req.actor.role === 'user') {
+    return res.status(403).json({ error: 'RBAC Isolation: only Developers and Root Admin can share systems/apps.' });
+  }
+  const appRow = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  if (!appRow) return res.status(404).json({ error: 'App/system not found.' });
+
+  const message = String(req.body?.message || '').slice(0, 280);
+  const kind = req.body?.kind === 'app' ? 'app' : 'system';
+  const slugBase =
+    appRow.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 40) || 'system';
+  const slug = `${slugBase}-${Date.now().toString(36)}`;
+  const id = `share_${crypto.randomBytes(8).toString('hex')}`;
+  db.prepare(
+    'INSERT INTO app_shares (id, slug, app_id, app_name, author, message, kind, created_at) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(id, slug, appRow.id, appRow.name, req.actor.username, message, kind, new Date().toISOString());
+  const share = db.prepare('SELECT * FROM app_shares WHERE id = ?').get(id);
+  res.status(201).json({ share, shareUrl: `/?share=${slug}&tab=community` });
+});
+
+app.delete('/api/shares/:id', (req, res) => {
+  if (!req.actor) return res.status(401).json({ error: 'Authentication required.' });
+  const share = db.prepare('SELECT * FROM app_shares WHERE id = ?').get(req.params.id);
+  if (!share) return res.status(404).json({ error: 'Share not found.' });
+  if (req.actor.role !== 'admin' && share.author !== req.actor.username) {
+    return res.status(403).json({ error: 'Only the author or a Root Admin can remove a share.' });
+  }
+  db.prepare('DELETE FROM app_shares WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ============================================================================
+// COLLABORATIVE PLATFORM — reviews + threaded comments on apps/systems
+// ============================================================================
+app.get('/api/apps/:id/reviews', (req, res) => {
+  const reviews = db
+    .prepare('SELECT * FROM app_reviews WHERE app_id = ? ORDER BY created_at DESC')
+    .all(req.params.id);
+  const avg = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
+  res.json({ reviews, summary: { count: reviews.length, avg: Number(avg.toFixed(2)) } });
+});
+
+app.post('/api/apps/:id/reviews', (req, res) => {
+  if (!req.actor) return res.status(401).json({ error: 'Authentication required to review.' });
+  const appRow = db.prepare('SELECT id FROM apps WHERE id = ?').get(req.params.id);
+  if (!appRow) return res.status(404).json({ error: 'App/system not found.' });
+  const rating = Math.round(Number(req.body?.rating));
+  if (!(rating >= 1 && rating <= 5)) {
+    return res.status(422).json({ error: 'Rating must be an integer between 1 and 5.' });
+  }
+  const body = String(req.body?.body || '').slice(0, 2000);
+  const id = `rev_${crypto.randomBytes(8).toString('hex')}`;
+  db.prepare(
+    'INSERT INTO app_reviews (id, app_id, author, author_role, rating, body, created_at) VALUES (?,?,?,?,?,?,?)'
+  ).run(id, req.params.id, req.actor.username, req.actor.role, rating, body, new Date().toISOString());
+  db.prepare('UPDATE apps SET reviews_count = (SELECT COUNT(*) FROM app_reviews WHERE app_id = ?) WHERE id = ?').run(
+    req.params.id,
+    req.params.id
+  );
+  const review = db.prepare('SELECT * FROM app_reviews WHERE id = ?').get(id);
+  res.status(201).json({ review });
+});
+
+app.get('/api/apps/:id/comments', (req, res) => {
+  const comments = db
+    .prepare('SELECT * FROM app_comments WHERE app_id = ? ORDER BY created_at ASC')
+    .all(req.params.id);
+  res.json({ comments });
+});
+
+app.post('/api/apps/:id/comments', (req, res) => {
+  if (!req.actor) return res.status(401).json({ error: 'Authentication required to comment.' });
+  const appRow = db.prepare('SELECT id FROM apps WHERE id = ?').get(req.params.id);
+  if (!appRow) return res.status(404).json({ error: 'App/system not found.' });
+  const body = String(req.body?.body || '').trim().slice(0, 2000);
+  if (!body) return res.status(422).json({ error: 'Comment body is required.' });
+
+  let parentId = null;
+  if (req.body?.parent_id) {
+    const parent = db.prepare('SELECT id, app_id FROM app_comments WHERE id = ?').get(String(req.body.parent_id));
+    if (!parent || parent.app_id !== req.params.id) {
+      return res.status(422).json({ error: 'Parent comment not found on this app.' });
+    }
+    parentId = parent.id;
+  }
+  const id = `cmt_${crypto.randomBytes(8).toString('hex')}`;
+  db.prepare(
+    'INSERT INTO app_comments (id, app_id, parent_id, author, author_role, body, created_at) VALUES (?,?,?,?,?,?,?)'
+  ).run(id, req.params.id, parentId, req.actor.username, req.actor.role, body, new Date().toISOString());
+  const comment = db.prepare('SELECT * FROM app_comments WHERE id = ?').get(id);
+  res.status(201).json({ comment });
+});
+
 app.get('/api/bootstrap', (_req, res) => {
   const categories = db.prepare('SELECT * FROM categories').all();
   const products = getAllProducts();
@@ -533,7 +810,8 @@ app.get('/api/bootstrap', (_req, res) => {
     authConfig: {
       envAdminConfigured: envAdmin.envLoaded,
       adminUsernameHint: envAdmin.username,
-      adminEmailHint: envAdmin.email
+      adminEmailHint: envAdmin.email,
+      ...getAdminBootstrapStatus()
     },
     analytics: getAnalyticsSummary(),
     dbStats: getDatabaseStats(),
@@ -703,6 +981,7 @@ app.get('/api/auth/config', (_req, res) => {
     adminEmailHint: envAdmin.email,
     adminAvatar: rootAdminCustomAvatar || '🛡️',
     envSource: '.env (process.env.NEX_ADMIN_USERNAME / NEX_ADMIN_PASSWORD)',
+    ...getAdminBootstrapStatus(),
     roleSeparation: {
       admin: 'Root Admin System (.env only)',
       developer: 'Scoped Developer Portal (own apps & cloud instances)',

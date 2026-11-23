@@ -19,10 +19,14 @@ import {
   RefreshCw,
   CheckCircle2,
   Cpu,
-  Smartphone
+  Smartphone,
+  MessageSquareHeart,
+  Gauge
 } from 'lucide-react';
+import { roleForSession, filterNavForRole, ROLE_LABELS, ROLE_BADGE_STYLES } from '../utils/navigation.js';
 
 export default function DesktopSideNav({
+  session,
   activeTab,
   setActiveTab,
   collapsed,
@@ -104,6 +108,22 @@ export default function DesktopSideNav({
       badgeColor: 'bg-amber-500/15 text-amber-400 border-amber-500/30'
     },
     {
+      id: 'community',
+      label: 'Community & Collab',
+      sub: 'Shared Systems, Reviews & Threads',
+      icon: MessageSquareHeart,
+      badge: 'New',
+      badgeColor: 'bg-violet-500/15 text-violet-400 border-violet-500/30'
+    },
+    {
+      id: 'syscheck',
+      label: 'System Check',
+      sub: 'Memory, Requests & Recommendations',
+      icon: Gauge,
+      badge: 'Live',
+      badgeColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+    },
+    {
       id: 'admin',
       label: 'Admin System (.env)',
       sub: 'Root Ops (Admin Only)',
@@ -147,6 +167,10 @@ export default function DesktopSideNav({
       badgeColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
     }
   ];
+
+  // Role-separated navigation: each session only sees links it can enter.
+  const role = roleForSession(session);
+  const visibleNav = filterNavForRole(primaryNav, role);
 
   const studioTools = [
     {
@@ -240,14 +264,21 @@ export default function DesktopSideNav({
 
       {/* Scrollable Navigation Sections */}
       <div className="flex-1 overflow-y-auto no-scrollbar px-2.5 py-3 space-y-5">
-        {/* Section 1: Core Workspaces */}
+        {/* Section 1: Core Workspaces (role-filtered) */}
         <div className="space-y-1">
           {!collapsed && (
-            <div className="px-2.5 pb-1 font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
-              Core Workspaces (8)
+            <div className="flex items-center justify-between px-2.5 pb-1">
+              <span className="font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
+                {ROLE_LABELS[role]} Workspaces ({visibleNav.length})
+              </span>
+              <span
+                className={`rounded-md border px-1.5 py-0.5 font-mono-num text-[8px] font-bold uppercase ${ROLE_BADGE_STYLES[role]}`}
+              >
+                {role}
+              </span>
             </div>
           )}
-          {primaryNav.map((item) => {
+          {visibleNav.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             return (

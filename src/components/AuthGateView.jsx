@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, ShieldCheck, UserPlus, LogIn, Atom } from 'lucide-react';
 
 /**
@@ -16,6 +16,21 @@ export default function AuthGateView({ tab = 'portal', session = null, onAuthent
   const [role, setRole] = useState('developer');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [authCfg, setAuthCfg] = useState(null);
+
+  // Real env-admin credential config from bootstrap (hint only — never secrets)
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/auth/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setAuthCfg(d);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const tabLabel = {
     admin: 'Root Admin Console',
@@ -167,6 +182,23 @@ export default function AuthGateView({ tab = 'portal', session = null, onAuthent
                     placeholder="e.g. nex_root_admin"
                     className="w-full rounded-xl border px-3.5 py-2.5 text-xs theme-card"
                   />
+                  {authCfg?.envAdminConfigured && (
+                    <p className="mt-1.5 text-[10px] font-mono-num theme-text-muted">
+                      Root Admin from env:{' '}
+                      <button
+                        type="button"
+                        onClick={() => setIdentifier(authCfg.adminUsernameHint)}
+                        className="text-indigo-400 underline font-semibold cursor-pointer"
+                      >
+                        {authCfg.adminUsernameHint}
+                      </button>
+                      {authCfg.credentialsBootstrapped && (
+                        <span className="ml-1 text-emerald-400">
+                          • credentials bootstrapped into .env at first boot
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <>

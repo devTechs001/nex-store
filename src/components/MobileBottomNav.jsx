@@ -21,12 +21,16 @@ import {
   CheckCircle2,
   Smartphone,
   Download,
-  Sparkles
+  Sparkles,
+  MessageSquareHeart,
+  Gauge
 } from 'lucide-react';
 import { CURRENCIES } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
+import { roleForSession, filterNavForRole, ROLE_LABELS, ROLE_BADGE_STYLES } from '../utils/navigation.js';
 
 export default function MobileBottomNav({
+  session,
   activeTab,
   setActiveTab,
   mobileMenuOpen,
@@ -65,12 +69,18 @@ export default function MobileBottomNav({
     { id: 'mobile-subs', label: 'Mobile SDK, PWA & Plans', sub: 'Flutter, Native & Tiers', icon: Smartphone, badge: 'SDK + PWA' },
     { id: 'subsystems', label: 'Subsystems & Security', sub: '6 Edge Nodes & WAF Shield', icon: Server, badge: `${badges.subsystems?.onlineNodes || 6} Online` },
     { id: 'tracker', label: 'Order Tracker', sub: 'Live Fulfillment Telemetry', icon: Truck, badge: `${badges.tracker?.activeOrders ?? 3} Active` },
+    { id: 'community', label: 'Community & Collab', sub: 'Shared Systems, Reviews & Threads', icon: MessageSquareHeart, badge: 'New' },
+    { id: 'syscheck', label: 'System Check', sub: 'Memory, Requests & Recommendations', icon: Gauge, badge: 'Live' },
     { id: 'admin', label: 'Admin System (.env)', sub: 'Root Admin Operations Only', icon: ShieldCheck, badge: '.env Root' },
     { id: 'developer-portal', label: 'Developer Portal', sub: 'Scoped Dev Apps & Cloud', icon: Layers, badge: 'Devs' },
     { id: 'user-portal', label: 'User Account Portal', sub: 'Personal Profile & Orders', icon: CheckCircle2, badge: 'Users' },
     { id: 'database', label: 'SQLite Studio', sub: 'Live WAL Table Explorer', icon: Database, badge: `${totalTables} DB` },
     { id: 'docs', label: 'Docs & API Guide', sub: 'REST, WS & CLI Manual', icon: BookOpen, badge: 'v3.2' }
   ];
+
+  // Role-separated navigation: each session only sees links it can enter.
+  const role = roleForSession(session);
+  const visibleWorkspaces = filterNavForRole(allWorkspaces, role);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -226,13 +236,20 @@ export default function MobileBottomNav({
               </button>
             </div>
 
-            {/* All 8 Workspaces List */}
+            {/* Role-Filtered Workspaces List */}
             <div className="space-y-1.5">
-              <div className="px-1 font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
-                Workspaces (8)
+              <div className="flex items-center justify-between px-1">
+                <span className="font-mono-num text-[10px] font-bold uppercase tracking-wider theme-text-muted">
+                  {ROLE_LABELS[role]} Workspaces ({visibleWorkspaces.length})
+                </span>
+                <span
+                  className={`rounded-md border px-1.5 py-0.5 font-mono-num text-[8px] font-bold uppercase ${ROLE_BADGE_STYLES[role]}`}
+                >
+                  {role}
+                </span>
               </div>
               <div className="space-y-1">
-                {allWorkspaces.map((ws) => {
+                {visibleWorkspaces.map((ws) => {
                   const Icon = ws.icon;
                   const active = activeTab === ws.id;
                   return (

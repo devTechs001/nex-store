@@ -431,3 +431,30 @@ input[type='range']::-moz-range-thumb {
   cursor: pointer;
   border: 2px solid #ffffff;
 }
+
+
+/* ============ Quantum motion & effects ============ */
+@keyframes quantum-fade-up {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.quantum-fade-up {
+  animation: quantum-fade-up 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes quantum-pulse-glow {
+  0%, 100% { filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.35)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 38px rgba(139, 92, 246, 0.55)); transform: scale(1.02); }
+}
+.quantum-pulse-glow {
+  animation: quantum-pulse-glow 3.2s ease-in-out infinite;
+}
+@keyframes quantum-card-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.quantum-card-in {
+  animation: quantum-card-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .quantum-fade-up, .quantum-pulse-glow, .quantum-card-in { animation: none; }
+}

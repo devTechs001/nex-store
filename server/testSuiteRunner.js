@@ -22,6 +22,7 @@ import {
   recordTerminalLog
 } from './db.js';
 import { renderAppBannerSvg, inspectAndFetchUrlResources } from './appArtAndFetcher.js';
+import { recordRequest, sampleMemory, getMetricsSnapshot } from './metrics.js';
 import { renderSandboxedAppHtml, detectAppArchetype } from './appSandboxRuntime.js';
 import {
   getEnvAdminConfig,
@@ -549,6 +550,65 @@ export async function runAllVerificationSuites() {
       });
     }
   );
+
+  // ============================================================================
+  // SUITE: SYSTEM-WIDE CHECK, DEVELOPER SHARING & COLLABORATION (REAL DATA)
+  // ============================================================================
+  await runSuite('syscheck-collab', 'System Check, Sharing & Collaboration', 'Platform Integrity', async (testCase) => {
+    await testCase('request telemetry + memory metrics are measured, not simulated', () => {
+      recordRequest('GET', '/api/system/check', 200, 12);
+      recordRequest('GET', '/api/system/check', 200, 30);
+      recordRequest('GET', '/api/system/check', 500, 80);
+      sampleMemory();
+      const snap = getMetricsSnapshot();
+      assert.ok(snap.process.rssMb > 0, 'RSS must be a real measurement');
+      assert.ok(snap.system.cpuCount >= 1, 'CPU count must be real');
+      assert.ok(snap.requests.total >= 3, 'requests must be counted from real traffic');
+      assert.ok(snap.requests.topRoutes.some((r) => r.route === 'GET /api/system/check' && r.count >= 3));
+      assert.ok(snap.requests.s5xx >= 1 || snap.requests.errors5xx >= 1, '5xx must be tallied honestly');
+      assert.ok(Array.isArray(snap.memorySeries) && snap.memorySeries.length >= 1, 'graph series required');
+      return 'Verified live request counters, latency percentiles, memory samples and graph series';
+    });
+
+    await testCase('developer sharing produces a public, unique community record', () => {
+      const app = db.prepare('SELECT id, name FROM apps LIMIT 1').get();
+      const slug = `suite-share-${Date.now().toString(36)}`;
+      const id = `share_suite_${crypto.randomBytes(6).toString('hex')}`;
+      db.prepare(
+        'INSERT INTO app_shares (id, slug, app_id, app_name, author, message, kind, created_at) VALUES (?,?,?,?,?,?,?,?)'
+      ).run(id, slug, app.id, app.name, 'suite_runner', 'verification share', 'system', new Date().toISOString());
+      const row = db.prepare('SELECT * FROM app_shares WHERE slug = ?').get(slug);
+      assert.ok(row, 'share must be publicly queryable by slug');
+      assert.equal(row.app_id, app.id);
+      db.prepare('DELETE FROM app_shares WHERE id = ?').run(id);
+      return 'Verified share creation, public lookup and cleanup';
+    });
+
+    await testCase('collaborative reviews & threaded comments persist with parent linkage', () => {
+      const app = db.prepare('SELECT id FROM apps LIMIT 1').get();
+      const revId = `rev_suite_${crypto.randomBytes(6).toString('hex')}`;
+      db.prepare(
+        'INSERT INTO app_reviews (id, app_id, author, author_role, rating, body, created_at) VALUES (?,?,?,?,?,?,?)'
+      ).run(revId, app.id, 'suite_runner', 'developer', 5, 'great system', new Date().toISOString());
+      const agg = db.prepare('SELECT COUNT(*) AS c, AVG(rating) AS avg FROM app_reviews WHERE app_id = ?').get(app.id);
+      assert.ok(agg.c >= 1 && agg.avg > 0, 'review aggregates must derive from real rows');
+
+      const rootId = `cmt_suite_${crypto.randomBytes(6).toString('hex')}`;
+      const replyId = `cmt_suite_${crypto.randomBytes(6).toString('hex')}`;
+      db.prepare(
+        'INSERT INTO app_comments (id, app_id, parent_id, author, author_role, body, created_at) VALUES (?,?,?,?,?,?,?)'
+      ).run(rootId, app.id, null, 'suite_runner', 'developer', 'root comment', new Date().toISOString());
+      db.prepare(
+        'INSERT INTO app_comments (id, app_id, parent_id, author, author_role, body, created_at) VALUES (?,?,?,?,?,?,?)'
+      ).run(replyId, app.id, rootId, 'suite_runner', 'user', 'threaded reply', new Date().toISOString());
+      const thread = db.prepare('SELECT parent_id FROM app_comments WHERE id = ?').get(replyId);
+      assert.equal(thread.parent_id, rootId, 'reply must link to its parent');
+
+      db.prepare('DELETE FROM app_reviews WHERE id = ?').run(revId);
+      db.prepare('DELETE FROM app_comments WHERE id IN (?, ?)').run(rootId, replyId);
+      return 'Verified review aggregates and two-level comment threading';
+    });
+  });
 
   const totalTests = suites.reduce((sum, s) => sum + s.totalCount, 0);
   const totalPassed = suites.reduce((sum, s) => sum + s.passedCount, 0);

@@ -482,6 +482,39 @@ export function initSchema() {
       risk_score INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+
+    -- Collaborative platform: reviews + threaded comments on apps/systems
+    CREATE TABLE IF NOT EXISTS app_reviews (
+      id TEXT PRIMARY KEY,
+      app_id TEXT NOT NULL,
+      author TEXT NOT NULL,
+      author_role TEXT NOT NULL DEFAULT 'user',
+      rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+      body TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_comments (
+      id TEXT PRIMARY KEY,
+      app_id TEXT NOT NULL,
+      parent_id TEXT DEFAULT NULL,
+      author TEXT NOT NULL,
+      author_role TEXT NOT NULL DEFAULT 'user',
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    -- Developer sharing: public share records for systems/apps
+    CREATE TABLE IF NOT EXISTS app_shares (
+      id TEXT PRIMARY KEY,
+      slug TEXT UNIQUE NOT NULL,
+      app_id TEXT NOT NULL,
+      app_name TEXT NOT NULL,
+      author TEXT NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'system',
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Ensure existing apps table has multi-source, image_url, resources, AI & developer system columns

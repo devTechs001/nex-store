@@ -22,7 +22,8 @@ import {
   HardDrive,
   Activity,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Share2
 } from 'lucide-react';
 import { renderSandboxedAppHtml } from '../../server/appSandboxRuntime.js';
 import {
@@ -114,6 +115,8 @@ export default function AppStoreView({
   onUninstallApp,
   onCreateApp,
   onImportGit,
+  onShareApp,
+  session,
   onPlaySound
 }) {
   const [selectedSource, setSelectedSource] = useState('all');
@@ -1757,6 +1760,15 @@ export default function AppStoreView({
                         }`}
                       />
                     </button>
+                    {onShareApp && session?.account && session.account.role !== 'user' && (
+                      <button
+                        onClick={() => onShareApp(app)}
+                        className="inline-flex items-center gap-1 rounded-xl px-2 py-2 text-xs font-semibold theme-subtle hover:border-cyan-400/50 cursor-pointer"
+                        title="Share this system/app to the community feed"
+                      >
+                        <Share2 className="h-3.5 w-3.5 text-cyan-400" />
+                      </button>
+                    )}
                   </div>
 
                   {isInstalled ? (
