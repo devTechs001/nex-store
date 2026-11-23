@@ -5679,6 +5679,60 @@ app.get('/api/neural/recommendations', (_req, res) => {
   res.json({ recommendations: getRecommendations(products) });
 });
 
+// Splash-screen boot telemetry: REAL app configs & statuses (public, no secrets).
+app.get('/api/boot-status', (_req, res) => {
+  try {
+    const dbStats = getDatabaseStats();
+    const payments = getPaymentsConfig();
+    const buildCounts = db
+      .prepare('SELECT build_status, COUNT(*) AS c FROM app_builds GROUP BY build_status')
+      .all()
+      .reduce((acc, r) => {
+        acc[r.build_status] = r.c;
+        return acc;
+      }, {});
+    const appCount = db.prepare('SELECT COUNT(*) AS c FROM apps').get().c;
+    const productCount = db.prepare('SELECT COUNT(*) AS c FROM products').get().c;
+    const orderCount = db.prepare('SELECT COUNT(*) AS c FROM orders').get().c;
+    const envAdmin = getEnvAdminConfig();
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      server: {
+        status: 'healthy',
+        node: process.version,
+        uptimeSec: Math.round(process.uptime())
+      },
+      database: {
+        engine: 'SQLite (WAL)',
+        tables: dbStats.totalTables,
+        rows: dbStats.totalRows,
+        size: dbStats.sizeFormatted
+      },
+      payments: {
+        testLedger: true,
+        stripe: payments.providers.stripe.configured,
+        paypal: payments.providers.paypal.configured,
+        mpesa: payments.providers.mpesa.configured
+      },
+      systems: {
+        apps: appCount,
+        products: productCount,
+        orders: orderCount,
+        builds: buildCounts
+      },
+      security: {
+        xssShield: true,
+        rbac: true,
+        sessionSecretConfigured: Boolean(process.env.NEX_SESSION_SECRET) || Boolean(envAdmin.masterToken),
+        envAdminConfigured: envAdmin.envLoaded
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: `Boot status unavailable: ${err.message}` });
+  }
+});
+
 app.get('/api/health', (_req, res) => {
   const mem = process.memoryUsage();
   const dbStats = getDatabaseStats();

@@ -1429,6 +1429,20 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       const envAdmin = getEnvAdminConfig();
       assert.ok(!JSON.stringify(res.data).includes(envAdmin.password), 'no secrets in system check');
     });
+
+    it('boot telemetry (/api/boot-status) powers the splash matrix with REAL statuses', async () => {
+      const res = await apiRequest('/api/boot-status');
+      assert.equal(res.status, 200);
+      const d = res.data;
+      assert.equal(d.server.status, 'healthy');
+      assert.ok(d.database.tables >= 20 && d.database.rows > 0, 'real DB readings');
+      assert.equal(d.payments.testLedger, true);
+      for (const id of ['stripe', 'paypal', 'mpesa']) assert.ok(typeof d.payments[id] === 'boolean');
+      assert.ok(d.systems.apps > 0 && d.systems.products > 0, 'real catalog counts');
+      assert.equal(d.security.xssShield, true);
+      const envAdmin = getEnvAdminConfig();
+      assert.ok(!JSON.stringify(d).includes(envAdmin.password), 'boot status never leaks secrets');
+    });
   });
 
   // ============================================================================
