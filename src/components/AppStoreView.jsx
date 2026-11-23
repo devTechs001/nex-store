@@ -9,6 +9,7 @@ import {
   Sparkles,
   Search,
   Globe,
+  FileText,
   ShieldCheck,
   ExternalLink,
   Play,
@@ -112,6 +113,7 @@ export default function AppStoreView({
   onDownloadApp,
   onUninstallApp,
   onCreateApp,
+  onImportGit,
   onPlaySound
 }) {
   const [selectedSource, setSelectedSource] = useState('all');
@@ -222,8 +224,124 @@ export default function AppStoreView({
   const [installCmd, setInstallCmd] = useState('');
   const [appChangelog, setAppChangelog] = useState('v1.0.0 — Verified SHA-256 sandbox runtime & anti-piracy DRM lock.');
 
+  // Real app package payload (HTML source uploaded from disk, stored & served
+  // verbatim by /api/sandbox/:id and /api/apps/:id/package).
+  const [appPackageHtml, setAppPackageHtml] = useState('');
+  const [appPackageName, setAppPackageName] = useState('');
+
+  // Real git import (clones the repo server-side → real source tree → convert)
+  const [gitImportUrl, setGitImportUrl] = useState('');
+  const [gitImportBusy, setGitImportBusy] = useState(false);
+  const [gitImportResult, setGitImportResult] = useState(null);
+
+  const handleGitImport = async () => {
+    const url = gitImportUrl.trim();
+    if (!url || !onImportGit) return;
+    setGitImportBusy(true);
+    setGitImportResult(null);
+    try {
+      const result = await onImportGit(url);
+      setGitImportResult(result);
+      if (result.status === 201) onPlaySound?.('success');
+    } catch (err) {
+      setGitImportResult({ status: 0, data: { error: String(err.message || err) } });
+    } finally {
+      setGitImportBusy(false);
+    }
+  };
+
+  // Polyglot source project (Flutter/C++/Python/Rust/Java/Go/TS) — converted
+  // on publish by the real toolchain pipeline (esbuild/g++/py_compile/SDK probes).
+  const [polySourceFiles, setPolySourceFiles] = useState({});
+  const [polyEntryFile, setPolyEntryFile] = useState('');
+  const [buildReport, setBuildReport] = useState(null);
+
+  const ENTRY_GUESS = [
+    'lib/main.dart', 'main.dart', 'main.py', 'app.py', 'main.cpp', 'src/main.cpp',
+    'src/main.rs', 'main.rs', 'src/Main.java', 'main.java', 'main.go', 'src/main.ts',
+    'main.ts', 'index.ts', 'index.js', 'main.js'
+  ];
+
+  const handleUploadSourceFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const next = { ...polySourceFiles };
+    for (const f of files) {
+      try {
+        next[f.name] = await f.text();
+      } catch {
+        // skip unreadable
+      }
+    }
+    setPolySourceFiles(next);
+    if (!polyEntryFile) {
+      const guess = ENTRY_GUESS.find((g) => next[g] !== undefined) || Object.keys(next)[0] || '';
+      setPolyEntryFile(guess);
+    }
+  };
+
+  // (build-report fetch effect lives below, after detailsModalData is declared)
+
+  const handleUploadAppPackageFile = async (fileList) => {
+    const file = Array.from(fileList || []).find(
+      (f) => /\.(html?|xhtml)$/i.test(f.name) || f.type === 'text/html'
+    );
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setAppPackageHtml(text);
+      setAppPackageName(file.name);
+    } catch {
+      // unreadable file
+    }
+  };
+
+  // Live link health for the preview modal (real HTTP reachability check).
+  const [previewLinkHealth, setPreviewLinkHealth] = useState(null);
+
+  useEffect(() => {
+    if (!previewApp?.id) {
+      setPreviewLinkHealth(null);
+      return;
+    }
+    let alive = true;
+    setPreviewLinkHealth(null);
+    fetch(`/api/apps/${previewApp.id}/link-health`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setPreviewLinkHealth(d);
+      })
+      .catch(() => {
+        if (alive) setPreviewLinkHealth(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [previewApp?.id]);
+
   // Full Developer & System Package Details Modal State
   const [detailsModalData, setDetailsModalData] = useState(null);
+
+  // Fetch the real conversion report when app details open.
+  useEffect(() => {
+    const appId = detailsModalData?.app?.id;
+    if (!appId) {
+      setBuildReport(null);
+      return;
+    }
+    let alive = true;
+    fetch(`/api/apps/${appId}/build`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setBuildReport(d);
+      })
+      .catch(() => {
+        if (alive) setBuildReport(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [detailsModalData?.app?.id]);
   const [detailsActiveView, setDetailsActiveView] = useState('hero');
   const [selectedAppCardViews, setSelectedAppCardViews] = useState({});
   const [inspectedUrlActiveView, setInspectedUrlActiveView] = useState('hero');
@@ -531,7 +649,10 @@ export default function AppStoreView({
       repo_url: repoUrl.trim(),
       image_url: appImageUrl ? normalizeImageDataUrl(appImageUrl) : '',
       resources: appResources,
-      ai_capabilities: appAiCapabilities
+      ai_capabilities: appAiCapabilities,
+      html_payload: appPackageHtml,
+      source_files: Object.keys(polySourceFiles).length ? polySourceFiles : undefined,
+      entry_file: polyEntryFile || undefined
     });
     onPlaySound?.('success');
     setAppName('');
@@ -543,6 +664,10 @@ export default function AppStoreView({
     setDevAvatarUrl('');
     setAppResources([]);
     setAppAiCapabilities([]);
+    setAppPackageHtml('');
+    setAppPackageName('');
+    setPolySourceFiles({});
+    setPolyEntryFile('');
     setShowUploadModal(false);
   };
 
@@ -936,7 +1061,20 @@ export default function AppStoreView({
               </div>
               <div className="flex items-center justify-between font-mono-num text-[10px] text-cyan-300 px-1">
                 <span>4 HD Image Resources (960×500 SVG/OG)</span>
-                <span>Score: {inspectedUrlData.security_score || 99}/100</span>
+                <span className="flex items-center gap-1.5">
+                  Score: {inspectedUrlData.ai_analysis?.securityScore ?? inspectedUrlData.security_score ?? '—'}/100
+                  {inspectedUrlData.ai_analysis && (
+                    <span
+                      className={`rounded px-1.5 py-0.5 border text-[9px] font-bold ${
+                        inspectedUrlData.ai_analysis.fetchedLiveFromRemote
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                          : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                      }`}
+                    >
+                      {inspectedUrlData.ai_analysis.fetchedLiveFromRemote ? 'LIVE-FETCHED' : 'URL-DERIVED'}
+                    </span>
+                  )}
+                </span>
               </div>
             </div>
 
@@ -1697,6 +1835,38 @@ export default function AppStoreView({
                     By <strong>{previewApp.developer}</strong> • v{previewApp.version} • Endpoint:{' '}
                     <code className="text-cyan-400 font-mono-num">/api/sandbox/{previewApp.id}</code>
                   </p>
+                  {/* Real live-link reachability (HTTP check performed server-side) */}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {previewLinkHealth ? (
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-0.5 border font-mono-num text-[9px] font-bold ${
+                          previewLinkHealth.reachable
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                            : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                        }`}
+                        title={previewLinkHealth.note}
+                      >
+                        <Activity className="h-2.5 w-2.5" />
+                        {previewLinkHealth.reachable
+                          ? `LIVE LINK OK • HTTP ${previewLinkHealth.httpStatus} • ${previewLinkHealth.latencyMs}ms`
+                          : `LINK UNREACHABLE${previewLinkHealth.httpStatus ? ` • HTTP ${previewLinkHealth.httpStatus}` : ''}`}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg px-2 py-0.5 border bg-white/5 border-white/10 text-gray-400 font-mono-num text-[9px] font-bold">
+                        <Activity className="h-2.5 w-2.5 animate-pulse" /> CHECKING LIVE LINK…
+                      </span>
+                    )}
+                    {previewApp.live_url && (
+                      <a
+                        href={previewApp.live_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 border bg-cyan-500/10 border-cyan-500/30 text-cyan-300 font-mono-num text-[9px] font-bold hover:bg-cyan-500/20"
+                      >
+                        <Globe className="h-2.5 w-2.5" /> OPEN LIVE URL ↗
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2276,6 +2446,165 @@ export default function AppStoreView({
               </div>
             </div>
 
+            {/* Real App Package Upload (HTML source served verbatim in the sandbox) */}
+            <div className="rounded-2xl p-3.5 theme-subtle border border-emerald-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono-num text-[10px] font-bold uppercase text-emerald-400">
+                  App Package (HTML source → real sandbox payload)
+                </span>
+                <label className="rounded-lg bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-emerald-300 cursor-pointer">
+                  Upload .html Package
+                  <input
+                    type="file"
+                    accept=".html,.htm,text/html"
+                    onChange={(e) => handleUploadAppPackageFile(e.target.files)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {appPackageHtml ? (
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-emerald-400" />
+                  <span className="font-mono-num text-[10px] text-emerald-300 truncate">
+                    ✓ {appPackageName} — {(new Blob([appPackageHtml]).size / 1024).toFixed(1)} KB will be stored,
+                    SHA-256 hashed byte-exact, and served at /api/sandbox/&lt;id&gt;
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppPackageHtml('');
+                      setAppPackageName('');
+                    }}
+                    className="ml-auto text-[10px] text-rose-400 underline cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[10px] theme-text-muted">
+                  Optional but recommended: upload the real HTML app file. Without one, the store serves the
+                  generated demo runtime instead of your actual app.
+                </p>
+              )}
+            </div>
+
+            {/* Real Git Import (clone → source tree → toolchain conversion) */}
+            <div className="rounded-2xl p-3.5 theme-subtle border border-violet-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono-num text-[10px] font-bold uppercase text-violet-400">
+                  Import Directly from Git (real clone)
+                </span>
+                <span className="rounded-md bg-violet-500/15 border border-violet-500/30 px-1.5 py-0.5 font-mono-num text-[9px] font-bold text-violet-300">
+                  git clone --depth 1
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={gitImportUrl}
+                  onChange={(e) => setGitImportUrl(e.target.value)}
+                  placeholder="https://github.com/owner/repository"
+                  className="flex-1 rounded-lg px-2.5 py-2 text-[11px] font-mono-num theme-input"
+                />
+                <button
+                  type="button"
+                  disabled={gitImportBusy || !gitImportUrl.trim()}
+                  onClick={handleGitImport}
+                  className="rounded-lg bg-violet-600 hover:bg-violet-500 px-3.5 py-2 text-[10px] font-bold text-white cursor-pointer disabled:opacity-50"
+                >
+                  {gitImportBusy ? 'Cloning…' : 'Import'}
+                </button>
+              </div>
+              {gitImportResult && (
+                <div
+                  className={`rounded-lg p-2 font-mono-num text-[9px] border ${
+                    gitImportResult.status === 201
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  {gitImportResult.status === 201 ? (
+                    <>
+                      ✓ Cloned <b>{gitImportResult.data.importedFrom?.branch}@{gitImportResult.data.importedFrom?.commitShort}</b>
+                      {' '}({gitImportResult.data.importedFrom?.fileCount} files) → detected <b>{gitImportResult.data.app?.language}</b>
+                      {' '}→ published "<b>{gitImportResult.data.app?.name}</b>" • build: {gitImportResult.data.importedFrom ? '' : ''}
+                      <b>{gitImportResult.data.app ? 'see Polyglot Conversion Report in details' : ''}</b>
+                    </>
+                  ) : (
+                    <>✗ {gitImportResult.data?.error || 'Import failed'}</>
+                  )}
+                </div>
+              )}
+              <p className="text-[9px] theme-text-muted">
+                The server really clones the repository, imports its actual source tree (up to 300 files),
+                detects the language from project structure (pubspec → Flutter, CMake/C++ , Cargo → Rust,
+                package.json → TS/JS…), and runs the toolchain conversion — no metadata-only fakes.
+              </p>
+            </div>
+
+            {/* Polyglot Source Project Upload (real toolchain conversion) */}
+            <div className="rounded-2xl p-3.5 theme-subtle border border-orange-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono-num text-[10px] font-bold uppercase text-orange-400">
+                  Polyglot Source Project (Flutter • C++ • Python • Rust • Java • Go • TS)
+                </span>
+                <label className="rounded-lg bg-orange-500/20 border border-orange-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-orange-300 cursor-pointer">
+                  Upload Source Files
+                  <input
+                    type="file"
+                    multiple
+                    accept=".ts,.tsx,.js,.jsx,.py,.cpp,.cc,.cxx,.h,.hpp,.rs,.java,.go,.dart,.yaml,.yml,.json,.toml,.txt"
+                    onChange={(e) => handleUploadSourceFiles(e.target.files)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {Object.keys(polySourceFiles).length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.keys(polySourceFiles).map((f) => (
+                      <span
+                        key={f}
+                        className="rounded-md bg-orange-500/10 border border-orange-500/25 px-1.5 py-0.5 font-mono-num text-[9px] text-orange-300"
+                      >
+                        {f} ({(new Blob([polySourceFiles[f]]).size / 1024).toFixed(1)}K)
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-num text-[9px] text-orange-400">ENTRY:</span>
+                    <input
+                      type="text"
+                      value={polyEntryFile}
+                      onChange={(e) => setPolyEntryFile(e.target.value)}
+                      placeholder="e.g. lib/main.dart / main.cpp / src/main.ts"
+                      className="flex-1 rounded-lg px-2 py-1 text-[10px] font-mono-num theme-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPolySourceFiles({});
+                        setPolyEntryFile('');
+                      }}
+                      className="text-[10px] text-rose-400 underline cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <p className="text-[9px] theme-text-muted">
+                    On publish the pipeline REALLY converts this project: TS/JS → esbuild bundle, C++ → g++
+                    compile+link, Python → py_compile, Rust/Java/Go/Flutter → SDK probe &amp; native build where
+                    available (honest TOOLCHAIN_UNAVAILABLE otherwise).
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[10px] theme-text-muted">
+                  Uploading a language project? Add its source files here and the real conversion pipeline will
+                  build an installable package on publish.
+                </p>
+              )}
+            </div>
+
             <div className="rounded-xl bg-slate-950 p-2.5 border border-indigo-500/30 font-mono-num text-[10px] text-cyan-300">
               REST API Endpoint: <code>POST /api/developer/publish</code> • Details Endpoint: <code>GET /api/apps/:id/details</code>
             </div>
@@ -2641,6 +2970,56 @@ export default function AppStoreView({
                       {detailsModalData.developerProfile?.bio}
                     </p>
                   </div>
+
+                  {/* Real Polyglot Conversion Report (toolchain build) */}
+                  {buildReport && (
+                    <div className="rounded-2xl p-4 theme-subtle space-y-2 border border-orange-500/25">
+                      <div className="flex items-center justify-between">
+                        <div className="font-mono-num text-[10px] font-bold uppercase text-orange-400">
+                          Polyglot Conversion Report (real toolchain)
+                        </div>
+                        <a
+                          href={`/api/apps/${detailsModalData.app.id}/bundle.zip`}
+                          className="rounded-lg bg-orange-500/20 border border-orange-500/40 px-2 py-1 font-mono-num text-[9px] font-bold text-orange-300 cursor-pointer"
+                        >
+                          ⬇ Download Source Bundle (.zip)
+                        </a>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 font-mono-num text-[10px]">
+                        <div>
+                          <span className="theme-text-muted">Language: </span>
+                          <strong className="text-orange-300">{buildReport.language}</strong>
+                        </div>
+                        <div>
+                          <span className="theme-text-muted">Entry: </span>
+                          <strong className="text-orange-300">{buildReport.entryFile || '—'}</strong>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="theme-text-muted">Status: </span>
+                          <strong
+                            className={
+                              buildReport.status === 'TRANSPILED' || buildReport.status === 'COMPILED' || buildReport.status === 'VALIDATED'
+                                ? 'text-emerald-400'
+                                : buildReport.status === 'TOOLCHAIN_UNAVAILABLE'
+                                ? 'text-amber-400'
+                                : 'text-rose-400'
+                            }
+                          >
+                            {buildReport.status}
+                          </strong>
+                          <span className="theme-text-muted"> • Toolchain: </span>
+                          <strong>{buildReport.toolchain}</strong>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="theme-text-muted">Source SHA-256: </span>
+                          <strong className="truncate">{buildReport.sourceTreeSha256?.slice(0, 24)}…</strong>
+                        </div>
+                      </div>
+                      <pre className="rounded-lg bg-slate-950/80 border border-white/10 p-2.5 font-mono-num text-[9px] text-cyan-200 whitespace-pre-wrap max-h-36 overflow-y-auto">
+                        {buildReport.log}
+                      </pre>
+                    </div>
+                  )}
 
                   {/* System Requirements & Mobile Bridge Card */}
                   <div className="rounded-2xl p-4 theme-subtle space-y-2 border border-teal-500/25">

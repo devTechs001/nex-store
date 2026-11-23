@@ -34,12 +34,20 @@ import {
   normalizeUploadedImageDataUrl,
   verifyAppRealnessAndMalware
 } from './envAndSecurity.js';
+
+// Request keys that carry intentional source/HTML package payloads — kept
+// byte-exact (they run only inside the CSP-sandboxed opaque-origin app iframe
+// or in process-isolated toolchain execution).
+const SANITIZE_EXEMPT_KEYS = new Set(['html_payload', 'package_html', 'package_base64', 'source_files']);
 import {
   getMongoClusterStatus,
   queryMongoCollection,
   insertMongoBsonDocument
 } from './mongoEngine.js';
 import { getNeuralStatus, runTraining, getRecommendations } from './neuralEngine.js';
+import { toCents, fromCents, lineCents, percentOfCents, fixedDiscountCents, taxOfCents, computeOrderMoney } from './money.js';
+import { buildPolyglotPackage, runPolyglotSource, buildZipArchive, detectToolchains } from './polyglotBuilder.js';
+import { importGitRepo } from './gitImport.js';
 import os from 'node:os';
 import { runAllVerificationSuites } from './testSuiteRunner.js';
 
@@ -138,7 +146,7 @@ app.use('/api', (req, res, next) => {
         `Intercepted XSS pattern ${xssHit.pattern} from ${clientIp}: ${xssHit.snippet}`,
         new Date().toISOString()
       );
-      req.body = sanitizeObjectPayloads(req.body);
+      req.body = sanitizeObjectPayloads(req.body, SANITIZE_EXEMPT_KEYS);
       req.xssSanitized = true;
     }
   }
@@ -288,11 +296,12 @@ function getOrdersWithItems(limit = 50, { full = false } = {}) {
 }
 
 function getAnalyticsSummary() {
+  // Integer-cent aggregation: revenue totals are summed as whole cents so
+  // thousands of orders never accumulate IEEE-754 drift.
   const revRow = db.prepare(`
     SELECT
       COUNT(*) as totalOrders,
-      COALESCE(SUM(total), 0) as totalRevenue,
-      COALESCE(AVG(total), 0) as avgOrderValue
+      COALESCE(SUM(CAST(ROUND(total * 100) AS INTEGER)), 0) as totalRevenueCents
     FROM orders
     WHERE status != 'cancelled'
   `).get();
@@ -312,10 +321,10 @@ function getAnalyticsSummary() {
       COUNT(*) as productCount,
       SUM(stock) as stockCount,
       SUM(sold_count) as soldCount,
-      ROUND(SUM(price * sold_count), 2) as estimatedRevenue
+      SUM(CAST(ROUND(price * 100) AS INTEGER) * sold_count) as estimatedRevenueCents
     FROM products
     GROUP BY category
-    ORDER BY estimatedRevenue DESC
+    ORDER BY estimatedRevenueCents DESC
   `).all();
 
   const reviewStats = db.prepare(`
@@ -324,15 +333,20 @@ function getAnalyticsSummary() {
 
   return {
     totalOrders: revRow.totalOrders || 0,
-    totalRevenue: Number((revRow.totalRevenue || 0).toFixed(2)),
-    avgOrderValue: Number((revRow.avgOrderValue || 0).toFixed(2)),
+    totalRevenue: fromCents(revRow.totalRevenueCents || 0),
+    avgOrderValue: fromCents(
+      revRow.totalOrders > 0 ? Math.round((revRow.totalRevenueCents || 0) / revRow.totalOrders) : 0
+    ),
     totalProducts: prodStats.totalProducts || 0,
     totalUnitsInStock: prodStats.totalUnitsInStock || 0,
     lowStockCount: prodStats.lowStockCount || 0,
     totalUnitsSold: prodStats.totalUnitsSold || 0,
     totalReviews: reviewStats.totalReviews || 0,
     avgRating: reviewStats.avgRating || 4.9,
-    categoryBreakdown: catBreakdown
+    categoryBreakdown: catBreakdown.map((row) => ({
+      ...row,
+      estimatedRevenue: fromCents(row.estimatedRevenueCents || 0)
+    }))
   };
 }
 
@@ -1661,22 +1675,56 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     system_requirements = null,
     resources = [],
     ai_capabilities = [],
-    permissions = ['Sandboxed Iframe', 'WebAudio API', 'WebSocket Stream']
+    permissions = ['Sandboxed Iframe', 'WebAudio API', 'WebSocket Stream'],
+    html_payload = '',
+    package_html = '',
+    package_base64 = '',
+    source_files = null,
+    entry_file = ''
   } = req.body || {};
 
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'App or system package name is required' });
   }
 
+  // Real package payload ingest: the uploaded app source (HTML) is stored and
+  // served verbatim by /api/sandbox/:id and /api/apps/:id/package. The
+  // SHA-256 and byte size are computed from the ACTUAL payload bytes.
+  const rawPackageHtml = String(html_payload || package_html || '').trim() ||
+    (package_base64 ? Buffer.from(String(package_base64), 'base64').toString('utf8').trim() : '');
+  const packageBytes = rawPackageHtml ? Buffer.byteLength(rawPackageHtml, 'utf8') : 0;
+  const packageSha256 = rawPackageHtml
+    ? crypto.createHash('sha256').update(rawPackageHtml, 'utf8').digest('hex')
+    : '';
+  const formatBytes = (b) =>
+    b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} B`;
+
+  // Real polyglot conversion pipeline: uploaded language source (Flutter/Dart,
+  // C++, Python, Rust, Java, Go, TS/JS) is converted with genuine toolchains
+  // (esbuild bundle, g++ compile, py_compile, SDK probes) on publish.
   const id = `app-${Date.now().toString(36)}`;
+  const hasSourceFiles = source_files && typeof source_files === 'object' && Object.keys(source_files).length > 0;
+  const buildResult = hasSourceFiles
+    ? buildPolyglotPackage({
+        appId: id,
+        name: String(name).trim(),
+        language: String(language || '').toLowerCase(),
+        sourceFiles: source_files,
+        entryFile: String(entry_file || '')
+      })
+    : null;
+
   const now = new Date().toISOString();
   const cleanLiveUrl =
     String(live_url).trim() ||
     `https://${String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}.netlify.app`;
-  const sha256Hash = crypto
-    .createHash('sha256')
-    .update(`${id}:${name}:${version}:${cleanLiveUrl}`)
-    .digest('hex');
+  const sha256Hash =
+    packageSha256 ||
+    (buildResult ? buildResult.sourceTreeSha256 : '') ||
+    crypto
+      .createHash('sha256')
+      .update(`${id}:${name}:${version}:${cleanLiveUrl}`)
+      .digest('hex');
   const normalizedImg = image_url && String(image_url).trim()
     ? normalizeUploadedImageDataUrl(String(image_url).trim())
     : '';
@@ -1689,6 +1737,12 @@ function handlePublishDeveloperAppOrSystem(req, res) {
   const resolvedResources =
     Array.isArray(resources) && resources.length > 0
       ? resources
+      : rawPackageHtml
+      ? [
+          { type: 'package', name: 'app-package.html', url: `/api/apps/${id}/package`, size: formatBytes(packageBytes), status: 'UPLOADED' },
+          { type: 'image', name: 'og-preview-banner.svg', url: resolvedImageUrl, size: '24 KB' },
+          { type: 'security', name: 'drm-sha256-attestation.sig', url: cleanLiveUrl, size: '4 KB' }
+        ]
       : [
           { type: 'image', name: 'og-preview-banner.svg', url: resolvedImageUrl, size: '24 KB' },
           { type: 'manifest', name: 'nex-app-manifest.json', url: `/api/apps/${id}/package`, size },
@@ -1731,7 +1785,7 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     category,
     language,
     JSON.stringify(['web', 'linux', 'macos', 'windows', 'flutter', 'react-native']),
-    size,
+    rawPackageHtml ? formatBytes(packageBytes) : buildResult ? formatBytes(buildResult.sourceBytes) : size,
     String(developer).trim(),
     icon,
     license,
@@ -1755,6 +1809,35 @@ function handlePublishDeveloperAppOrSystem(req, res) {
   );
 
   const createdApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
+
+  if (rawPackageHtml) {
+    db.prepare(
+      'INSERT OR REPLACE INTO app_packages (id, app_id, content_html, content_type, size_bytes, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(`pkg-${id}`, id, rawPackageHtml, 'text/html; charset=utf-8', packageBytes, packageSha256, now);
+  }
+
+  if (buildResult) {
+    db.prepare(
+      `INSERT OR REPLACE INTO app_builds (
+        id, app_id, language, entry_file, source_files_json, build_status, build_toolchain,
+        build_log, runner_html, source_tree_sha256, source_bytes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      `build-${id}`,
+      id,
+      String(language || '').toLowerCase(),
+      buildResult.entryFile || '',
+      JSON.stringify(source_files),
+      buildResult.status,
+      buildResult.toolchain,
+      buildResult.log,
+      buildResult.runnerHtml,
+      buildResult.sourceTreeSha256,
+      buildResult.sourceBytes,
+      now
+    );
+  }
+
   const activity = recordActivityEvent({
     event_type: 'product_created',
     title: `Published ${package_type.toUpperCase()} • ${createdApp.name}`,
@@ -1792,6 +1875,58 @@ function handlePublishDeveloperAppOrSystem(req, res) {
 
 app.post('/api/apps', handlePublishDeveloperAppOrSystem);
 app.post('/api/developer/publish', handlePublishDeveloperAppOrSystem);
+
+// Real Git Import: `git clone --depth 1` the repository, collect its actual
+// source tree, detect the language from project structure, and publish the
+// imported project through the real polyglot conversion pipeline.
+app.post('/api/apps/import-git', (req, res) => {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to import from git.' });
+  }
+  if (req.actor.role === 'user') {
+    return res.status(403).json({ error: 'RBAC Isolation: only Developers and Root Admin can import repositories.' });
+  }
+  const rawUrl = req.body?.url || req.body?.repo_url || '';
+  try {
+    const imported = importGitRepo(rawUrl, { allowFileUrl: req.actor.role === 'admin' });
+    const { sourceFiles, language, entryFile, repoMeta } = imported;
+    if (!repoMeta.fileCount) {
+      return res.status(422).json({
+        error: `Cloned ${repoMeta.branch}@${repoMeta.commitShort} successfully but found no importable source files.`,
+        importedFrom: repoMeta
+      });
+    }
+
+    const prettyName = String(repoMeta.name || 'imported-app')
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+    // Feed the REAL imported project into the standard publish + convert flow.
+    req.body = {
+      name: req.body?.name || prettyName,
+      description:
+        req.body?.description ||
+        `Git-imported ${language} project from ${repoMeta.url} (${repoMeta.branch}@${repoMeta.commitShort}).`,
+      version: req.body?.version || '1.0.0',
+      language,
+      package_type: req.body?.package_type || 'app',
+      category: req.body?.category || 'web',
+      developer: req.body?.developer || repoMeta.owner,
+      source_provider: repoMeta.url.includes('github') ? 'GitHub' : 'Git',
+      live_url: req.body?.live_url || repoMeta.url,
+      repo_url: repoMeta.url,
+      install_command: `nex git-install ${repoMeta.commitShort} --repo=${repoMeta.url}`,
+      changelog: `Imported from git: ${repoMeta.branch}@${repoMeta.commitShort} — "${repoMeta.commitSubject}"`,
+      source_files: sourceFiles,
+      entry_file: entryFile
+    };
+    const origJson = res.json.bind(res);
+    res.json = (payload) => origJson({ ...payload, importedFrom: repoMeta });
+    handlePublishDeveloperAppOrSystem(req, res);
+  } catch (err) {
+    res.status(400).json({ error: `Git import failed: ${err.message || err}` });
+  }
+});
 
 // Allow Admin / Developer to modify or unpublish an app/system package (RBAC enforced)
 app.patch('/api/apps/:id', (req, res) => {
@@ -2005,8 +2140,12 @@ app.delete('/api/apps/:id/uninstall', (req, res) => {
 });
 
 // Real Isolated HTML5/Canvas/WebAudio Sandbox Runtime Endpoint for <iframe sandbox="...">
+// Serves the REAL uploaded package bytes when one exists; falls back to the
+// archetype demo runtime for legacy/seed apps without an uploaded payload.
 app.get('/api/sandbox/:id', (req, res) => {
   const rawId = req.params.id;
+  const pkg = db.prepare('SELECT * FROM app_packages WHERE app_id = ?').get(rawId);
+  const build = db.prepare('SELECT * FROM app_builds WHERE app_id = ?').get(rawId);
   const foundApp =
     db.prepare('SELECT * FROM apps WHERE id = ?').get(rawId) || {
       id: rawId,
@@ -2020,10 +2159,118 @@ app.get('/api/sandbox/:id', (req, res) => {
       description: 'Isolated sandbox container runtime.'
     };
 
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  if (pkg) {
+    // Real uploaded application — hardened sandbox CSP (opaque origin).
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "sandbox allow-scripts allow-forms allow-modals allow-popups");
+    res.setHeader('X-NEX-Package-Sha256', pkg.sha256);
+    return res.send(pkg.content_html);
+  }
+
+  if (build && build.runner_html) {
+    // Real converted polyglot package (esbuild bundle / toolchain runner).
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "sandbox allow-scripts allow-forms allow-modals allow-popups");
+    res.setHeader('X-NEX-Build-Status', build.build_status);
+    return res.send(build.runner_html);
+  }
+
   const html = renderSandboxedAppHtml(foundApp);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store');
   res.send(html);
+});
+
+// Real conversion report for polyglot packages (toolchain, status, logs)
+app.get('/api/apps/:id/build', (req, res) => {
+  const build = db.prepare('SELECT * FROM app_builds WHERE app_id = ?').get(req.params.id);
+  if (!build) return res.status(404).json({ error: 'No build record for this app (not a polyglot source package)' });
+  res.json({
+    appId: build.app_id,
+    language: build.language,
+    entryFile: build.entry_file,
+    status: build.build_status,
+    toolchain: build.build_toolchain,
+    log: build.build_log,
+    sourceTreeSha256: build.source_tree_sha256,
+    sourceBytes: build.source_bytes,
+    sourceFiles: JSON.parse(build.source_files_json || '{}'),
+    createdAt: build.created_at,
+    hostToolchains: detectToolchains()
+  });
+});
+
+// Real execution of installed polyglot packages (process-isolated, 5s timeout)
+app.post('/api/apps/:id/run', (req, res) => {
+  const build = db.prepare('SELECT * FROM app_builds WHERE app_id = ?').get(req.params.id);
+  if (!build) return res.status(404).json({ error: 'No executable source package for this app' });
+  const sourceFiles = JSON.parse(build.source_files_json || '{}');
+  const result = runPolyglotSource({
+    language: build.language,
+    sourceFiles,
+    entryFile: build.entry_file
+  });
+
+  recordTerminalLog({
+    command: `nex run-app ${build.app_id} (${build.language})`,
+    output: result.ranNative
+      ? `[NATIVE] exit=${result.exitCode} toolchain=${result.toolchain} stdout=${String(result.stdout).slice(0, 200)}`
+      : `[HONEST] ${String(result.stderr).slice(0, 200)}`,
+    exit_code: result.exitCode,
+    duration_ms: 0
+  });
+
+  const acceptHdr = String(req.get('accept') || '');
+  if (/text\/html/.test(acceptHdr) && !/application\/json/.test(acceptHdr)) {
+    // Form-POST navigation from the sandboxed runner — render a real results page.
+    return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Run results</title>
+<style>html,body{margin:0;padding:20px;font-family:ui-monospace,monospace;background:#0b1020;color:#e2e8f0}
+pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;font-size:12px;white-space:pre-wrap;overflow:auto}
+.ok{color:#34d399}.bad{color:#f87171}.meta{font-size:11px;color:#94a3b8}</style></head><body>
+<h2 style="font-size:15px">Execution result ${result.exitCode === 0 ? '<span class="ok">✓ exit 0</span>' : `<span class="bad">✗ exit ${result.exitCode}</span>`}</h2>
+<p class="meta">Toolchain: ${escapeHtmlForRun(result.toolchain)} • ${result.ranNative ? 'real native execution' : 'no simulated output'}</p>
+${result.stdout ? `<h3 style="font-size:12px">stdout</h3><pre>${escapeHtmlForRun(result.stdout)}</pre>` : ''}
+${result.stderr ? `<h3 style="font-size:12px">stderr</h3><pre class="bad">${escapeHtmlForRun(result.stderr)}</pre>` : ''}
+<p class="meta"><a href="javascript:history.back()" style="color:#38bdf8">◀ Back to app</a></p>
+</body></html>`);
+  }
+
+  res.json({ appId: build.app_id, language: build.language, ...result });
+});
+
+function escapeHtmlForRun(s = '') {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Real installable project bundle (valid ZIP archive of the source tree)
+app.get('/api/apps/:id/bundle.zip', (req, res) => {
+  const build = db.prepare('SELECT * FROM app_builds WHERE app_id = ?').get(req.params.id);
+  if (!build) return res.status(404).json({ error: 'No source package for this app' });
+  const sourceFiles = JSON.parse(build.source_files_json || '{}');
+  const app = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  const files = {
+    'nex-app.manifest.json': JSON.stringify(
+      {
+        name: app?.name || build.app_id,
+        version: app?.version || '1.0.0',
+        language: build.language,
+        entryFile: build.entry_file,
+        buildStatus: build.build_status,
+        buildToolchain: build.build_toolchain,
+        sourceTreeSha256: build.source_tree_sha256,
+        drmNotice: '© 2026 NEX STORE PROPRIETARY — DO NOT SHARE OR PIRATE'
+      },
+      null,
+      2
+    ),
+    ...sourceFiles
+  };
+  const zip = buildZipArchive(files);
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${build.app_id}-source.zip"`);
+  res.setHeader('X-NEX-Source-Sha256', build.source_tree_sha256);
+  res.send(zip);
 });
 
 // Real Standalone Executable HTML5 Package Bundle Download
@@ -2032,11 +2279,70 @@ app.get('/api/apps/:id/package', (req, res) => {
   const foundApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(rawId);
   if (!foundApp) return res.status(404).json({ error: 'App not found' });
 
+  const pkg = db.prepare('SELECT * FROM app_packages WHERE app_id = ?').get(rawId);
+  if (pkg) {
+    // Real uploaded package bytes with verified content hash.
+    res.setHeader('Content-Type', pkg.content_type || 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${foundApp.id}-v${foundApp.version}.html"`);
+    res.setHeader('X-NEX-Package-Sha256', pkg.sha256);
+    res.setHeader('X-NEX-Package-Bytes', String(pkg.size_bytes));
+    return res.send(pkg.content_html);
+  }
+
   const html = renderSandboxedAppHtml(foundApp, { isDownloadPackage: true });
   const filename = `${foundApp.id}-v${foundApp.version}-standalone.html`;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(html);
+});
+
+// Real live-link health check: performs an actual HTTP request against the
+// app's live URL and reports honest reachability, status code & latency.
+app.get('/api/apps/:id/link-health', async (req, res) => {
+  const foundApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  if (!foundApp) return res.status(404).json({ error: 'App not found' });
+  const url = String(foundApp.live_url || '').trim();
+  if (!/^https?:\/\//i.test(url)) {
+    return res.json({
+      appId: foundApp.id,
+      url,
+      reachable: false,
+      httpStatus: null,
+      latencyMs: null,
+      checkedAt: new Date().toISOString(),
+      note: 'No live URL registered for this app.'
+    });
+  }
+  const t0 = performance.now();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const head = await fetch(url, { method: 'GET', redirect: 'follow', signal: controller.signal });
+    clearTimeout(timer);
+    const latencyMs = Math.round(performance.now() - t0);
+    res.json({
+      appId: foundApp.id,
+      url,
+      reachable: head.ok,
+      httpStatus: head.status,
+      latencyMs,
+      contentType: head.headers.get('content-type') || '',
+      checkedAt: new Date().toISOString(),
+      note: head.ok
+        ? `Live URL responded OK (${head.status}) in ${latencyMs}ms.`
+        : `Live URL responded with HTTP ${head.status}.`
+    });
+  } catch (err) {
+    res.json({
+      appId: foundApp.id,
+      url,
+      reachable: false,
+      httpStatus: null,
+      latencyMs: Math.round(performance.now() - t0),
+      checkedAt: new Date().toISOString(),
+      note: `Reachability check failed: ${err.name === 'AbortError' ? 'request timed out after 5s' : 'connection failed or blocked (network-restricted environment)'}.`
+    });
+  }
 });
 
 // 2c. Polyglot AI Automation Studio Endpoints (Python, Rust, C++, Java, Go, TypeScript) — SQLite Table #20
@@ -2978,15 +3284,19 @@ app.post('/api/coupons/validate', (req, res) => {
     });
   }
 
-  const discountAmount =
+  // Integer-cent discount math — no floating-point drift.
+  const subtotalCents = toCents(subtotal);
+  const discountCents =
     coupon.discount_type === 'percentage'
-      ? Number(((Number(subtotal) * coupon.discount_value) / 100).toFixed(2))
-      : Math.min(Number(subtotal), coupon.discount_value);
+      ? percentOfCents(subtotalCents, coupon.discount_value)
+      : fixedDiscountCents(subtotalCents, coupon.discount_value);
 
   res.json({
     valid: true,
     coupon,
-    discountAmount
+    discountAmount: fromCents(discountCents),
+    discountCents,
+    subtotalCents
   });
 });
 
@@ -3105,8 +3415,10 @@ app.post('/api/orders', (req, res) => {
     const trackingNumber = `TRK-NEX-${Math.floor(1000000 + Math.random() * 9000000)}`;
     const estDelivery = new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString().slice(0, 10);
 
-    let calculatedSubtotal = 0;
+    // ---- Integer-cent money math (server/money.js) — no float drift ----
     const resolvedItems = [];
+    const unitPrices = [];
+    const quantities = [];
 
     for (const cartItem of items) {
       const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(cartItem.product_id);
@@ -3119,45 +3431,49 @@ app.post('/api/orders', (req, res) => {
           error: `Insufficient stock for ${prod.name} (Available: ${prod.stock}, Requested: ${qty})`
         });
       }
-      const lineTotal = Number((prod.price * qty).toFixed(2));
-      calculatedSubtotal += lineTotal;
+      unitPrices.push(prod.price);
+      quantities.push(qty);
       resolvedItems.push({
         prod,
         qty,
         selected_color: cartItem.selected_color || 'Default Finish',
-        lineTotal
+        lineTotal: fromCents(lineCents(prod.price, qty))
       });
     }
 
-    calculatedSubtotal = Number(calculatedSubtotal.toFixed(2));
-
-    let discountAmount = 0;
-    let appliedCouponCode = null;
-    let appliedCouponRow = null;
+    let candidateCoupon = null;
     if (coupon_code) {
       const coupon = db
         .prepare('SELECT * FROM coupons WHERE UPPER(code) = ? AND active = 1')
         .get(coupon_code.trim().toUpperCase());
       const couponExpired = Boolean(coupon?.expires_at && new Date(coupon.expires_at).getTime() < Date.now());
       const couponExhausted = Boolean(coupon && coupon.max_uses > 0 && coupon.used_count >= coupon.max_uses);
-      if (coupon && !couponExpired && !couponExhausted && calculatedSubtotal >= coupon.min_order_amount) {
-        discountAmount =
-          coupon.discount_type === 'percentage'
-            ? Number(((calculatedSubtotal * coupon.discount_value) / 100).toFixed(2))
-            : Math.min(calculatedSubtotal, coupon.discount_value);
-        appliedCouponCode = coupon.code;
-        appliedCouponRow = coupon;
+      if (coupon && !couponExpired && !couponExhausted) {
+        candidateCoupon = coupon;
       }
     }
 
-    const shippingCost = shipping_method.toLowerCase().includes('same-day')
-      ? 15
-      : calculatedSubtotal >= 300
-      ? 0
-      : 12;
-    const taxableAmount = Math.max(0, calculatedSubtotal - discountAmount);
-    const taxAmount = Number((taxableAmount * 0.08).toFixed(2));
-    const total = Number((taxableAmount + shippingCost + taxAmount).toFixed(2));
+    const money = computeOrderMoney({
+      unitPrices,
+      quantities,
+      coupon: candidateCoupon,
+      shippingMethod: shipping_method
+    });
+
+    // The coupon only counts as "applied" (and burns a use) when the
+    // integer-cent discount engine actually granted a discount.
+    let appliedCouponCode = null;
+    let appliedCouponRow = null;
+    if (candidateCoupon && money.discountCents > 0) {
+      appliedCouponCode = candidateCoupon.code;
+      appliedCouponRow = candidateCoupon;
+    }
+    const calculatedSubtotal = money.subtotal;
+    const discountAmount = money.discountAmount;
+    const shippingCost = money.shippingCost;
+    const taxableAmount = money.subtotal - money.discountAmount;
+    const taxAmount = money.taxAmount;
+    const total = money.total;
 
     // Payment identity generation (pure computation, outside transaction scope)
     const updatedProducts = [];

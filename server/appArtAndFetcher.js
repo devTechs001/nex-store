@@ -94,6 +94,63 @@ export function renderAppBannerSvg(app = {}, query = {}) {
 </svg>`;
 }
 
+/**
+ * Real HTML metadata fetch — performs an actual HTTP GET against the target
+ * URL and extracts OpenGraph/HTML meta tags from the live document. Returns
+ * null when the remote is unreachable (offline / network-restricted), in
+ * which case callers honestly fall back to URL-derived metadata.
+ */
+async function fetchHtmlMeta(url) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { 'User-Agent': 'NEX-Store-Resource-Fetcher/3.2', Accept: 'text/html,application/xhtml+xml' },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const meta = (prop) => {
+      const patterns = [
+        new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']*)["']`, 'i'),
+        new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${prop}["']`, 'i')
+      ];
+      for (const re of patterns) {
+        const m = html.match(re);
+        if (m) return m[1].trim();
+      }
+      return '';
+    };
+    const titleTag = (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1]?.trim() || '';
+    const iconMatch =
+      html.match(/<link[^>]+rel=["'](?:shortcut icon|icon|apple-touch-icon)["'][^>]+href=["']([^"']+)["']/i) ||
+      html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut icon|icon|apple-touch-icon)["']/i);
+    return {
+      title: meta('og:title') || titleTag,
+      description: meta('og:description') || meta('description'),
+      siteName: meta('og:site_name'),
+      image: meta('og:image'),
+      favicon: iconMatch ? iconMatch[1] : '',
+      finalUrl: res.url,
+      contentType: res.headers.get('content-type') || '',
+      bodyBytes: Buffer.byteLength(html, 'utf8')
+    };
+  } catch {
+    return null;
+  }
+}
+
+function resolveAgainst(base, maybeRelative) {
+  try {
+    return new URL(maybeRelative, base).href;
+  } catch {
+    return '';
+  }
+}
+
 export async function inspectAndFetchUrlResources(rawInputUrl = '') {
   const trimmed = String(rawInputUrl || '').trim();
   const normalizedUrl = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
@@ -282,7 +339,20 @@ export async function inspectAndFetchUrlResources(rawInputUrl = '') {
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(' ');
     developer = `@${sub}_architect`;
-    description = `External application fetched from ${normalizedUrl} with automated asset & security manifest inspection.`;
+    description = `External application at ${normalizedUrl}.`;
+  }
+
+  // Real live-HTML metadata pass for URLs without a specialized API fetcher.
+  // Attempts an actual HTTP GET and reads OpenGraph tags from the live page.
+  let liveMeta = null;
+  if (!fetchedLiveFromRemote) {
+    liveMeta = await fetchHtmlMeta(normalizedUrl);
+    if (liveMeta) {
+      fetchedLiveFromRemote = true;
+      if (liveMeta.title) name = liveMeta.title.slice(0, 80);
+      if (liveMeta.description) description = liveMeta.description.slice(0, 400);
+      if (liveMeta.siteName) developer = `${liveMeta.siteName.slice(0, 48)} (live site)`;
+    }
   }
 
   // Generate dynamic Studio SVG Preview Banner URL that always renders crisp in any browser
@@ -294,27 +364,32 @@ export async function inspectAndFetchUrlResources(rawInputUrl = '') {
     version,
     icon
   }).toString();
-  image_url = `/api/app-art/preview.svg?${queryParams}`;
+  const generatedBanner = `/api/app-art/preview.svg?${queryParams}`;
+  image_url = liveMeta?.image
+    ? resolveAgainst(liveMeta.finalUrl || normalizedUrl, liveMeta.image) || generatedBanner
+    : generatedBanner;
 
   const sha256_hash = crypto
     .createHash('sha256')
     .update(`${name}:${version}:${normalizedUrl}:NEX-PROPRIETARY-DRM`)
     .digest('hex');
 
+  // Honest resource manifest: statuses reflect what was ACTUALLY done.
+  const fetchStatus = fetchedLiveFromRemote ? 'FETCHED' : 'DERIVED';
   resources = [
     {
       type: 'image',
       name: 'og-preview-banner.svg',
       url: image_url,
-      size: '18.4 KB',
-      status: 'EXTRACTED'
+      size: liveMeta?.image ? 'remote og:image' : '18.4 KB',
+      status: liveMeta?.image ? 'FETCHED' : 'GENERATED'
     },
     {
       type: 'manifest',
       name: 'nex-app-manifest.json',
       url: `${normalizedUrl.replace(/\/$/, '')}/manifest.json`,
-      size: '4.2 KB',
-      status: 'VERIFIED'
+      size: liveMeta ? `${((liveMeta.bodyBytes || 0) / 1024).toFixed(1)} KB (page)` : '4.2 KB',
+      status: liveMeta ? 'DECLARED' : 'UNVERIFIED'
     },
     {
       type: 'automation',
@@ -330,7 +405,7 @@ export async function inspectAndFetchUrlResources(rawInputUrl = '') {
           : 'edge_worker_pipeline.ts',
       url: `/api/automations/templates`,
       size: '12.8 KB',
-      status: 'AI-LINKED'
+      status: 'LINKED'
     },
     {
       type: 'drm',
@@ -341,17 +416,32 @@ export async function inspectAndFetchUrlResources(rawInputUrl = '') {
     }
   ];
 
+  // Scores computed from real signals — never hardcoded.
+  const securityScore = Math.min(
+    100,
+    (normalizedUrl.startsWith('https') ? 55 : 35) +
+      (fetchedLiveFromRemote ? 25 : 0) +
+      (description ? 10 : 0) +
+      (image_url ? 10 : 0)
+  );
+  const architectureScore = Math.min(
+    100,
+    55 + (fetchedLiveFromRemote ? 25 : 0) + (resources.length >= 4 ? 10 : 0) + (language ? 10 : 0)
+  );
   const ai_analysis = {
-    architectureScore: 99,
-    securityScore: 99,
+    architectureScore,
+    securityScore,
     fetchedLiveFromRemote,
+    fetchStatus,
     detectedStack: [
       language.toUpperCase(),
       source_provider,
-      'WebAssembly / Sandbox IPC',
-      'NEX AI Copilot Ready'
+      ...(fetchedLiveFromRemote ? ['Live metadata verified'] : ['URL-derived metadata (remote fetch unavailable)']),
+      'NEX Sandbox Ready'
     ],
-    aiSummary: `AI Inspector extracted "${name}" (${language.toUpperCase()}) from ${host}: verified 4 resource bundles, generated studio preview graphic, and bound polyglot automation hooks (Python, Rust, C++, Java) under NEX Anti-Piracy DRM.`,
+    aiSummary: fetchedLiveFromRemote
+      ? `Inspector live-fetched "${name}" (${language.toUpperCase()}) from ${host}: real page metadata extracted, ${resources.length} resource entries catalogued, sandbox bindings ready under NEX Anti-Piracy DRM.`
+      : `Inspector derived "${name}" (${language.toUpperCase()}) from the URL structure of ${host} — a live fetch was attempted but the remote is unreachable from this environment. Metadata is URL-derived (not verified); re-inspect from a network-enabled environment for live extraction.`,
     recommendedAutomations: [
       { lang: 'python', script: 'ai_demand_forecaster.py', reason: 'Run AI anomaly & telemetry forecasting on app metrics' },
       { lang: 'rust', script: 'zero_trust_packet_filter.rs', reason: 'Enforce memory-safe eBPF/WAF sandbox boundary' },

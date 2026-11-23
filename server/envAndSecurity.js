@@ -421,13 +421,16 @@ export function sanitizeXssString(str) {
     .replace(/<(iframe|object|embed)\b[^>]*>/gi, '[TAG-STRIPPED]');
 }
 
-export function sanitizeObjectPayloads(obj) {
+export function sanitizeObjectPayloads(obj, exemptKeys = null) {
   if (typeof obj === 'string') return sanitizeXssString(obj);
-  if (Array.isArray(obj)) return obj.map(sanitizeObjectPayloads);
+  if (Array.isArray(obj)) return obj.map((v) => sanitizeObjectPayloads(v, exemptKeys));
   if (obj && typeof obj === 'object') {
     const out = {};
     for (const [k, v] of Object.entries(obj)) {
-      out[k] = sanitizeObjectPayloads(v);
+      // Exempted keys (e.g. intentional HTML app-package payloads) are kept
+      // byte-exact — they are served inside a CSP-sandboxed opaque-origin
+      // iframe, which is the correct security boundary for untrusted markup.
+      out[k] = exemptKeys && exemptKeys.has(k) ? v : sanitizeObjectPayloads(v, exemptKeys);
     }
     return out;
   }

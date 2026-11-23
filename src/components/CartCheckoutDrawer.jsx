@@ -13,6 +13,7 @@ import {
   Truck
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
+import { toCents, fromCents, lineCents, percentOfCents, fixedDiscountCents, taxOfCents } from '../utils/money.js';
 import { getProductArtUrl } from '../utils/storeEngine.js';
 
 export default function CartCheckoutDrawer({
@@ -57,34 +58,42 @@ export default function CartCheckoutDrawer({
     }
   }, [isOpen, initialMode]);
 
+  // ---- Integer-cent money math (src/utils/money.js) — no float drift ----
   const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+    () => fromCents(cart.reduce((sum, item) => sum + lineCents(item.price, item.quantity), 0)),
     [cart]
   );
 
   const discountAmount = useMemo(() => {
     if (!appliedCoupon) return 0;
-    if (subtotal < appliedCoupon.min_order_amount) return 0;
-    if (appliedCoupon.discount_type === 'percentage') {
-      return Number(((subtotal * appliedCoupon.discount_value) / 100).toFixed(2));
-    }
-    return Math.min(subtotal, appliedCoupon.discount_value);
+    const subtotalCents = toCents(subtotal);
+    if (subtotalCents < toCents(appliedCoupon.min_order_amount)) return 0;
+    const discountCents =
+      appliedCoupon.discount_type === 'percentage'
+        ? percentOfCents(subtotalCents, appliedCoupon.discount_value)
+        : fixedDiscountCents(subtotalCents, appliedCoupon.discount_value);
+    return fromCents(discountCents);
   }, [appliedCoupon, subtotal]);
 
   const shippingCost = useMemo(() => {
     if (cart.length === 0) return 0;
     if (shippingMethod.toLowerCase().includes('same-day')) return 15;
-    if (subtotal >= 300) return 0;
+    if (toCents(subtotal) >= 30000) return 0;
     return 12;
   }, [cart.length, shippingMethod, subtotal]);
 
   const taxAmount = useMemo(() => {
-    const taxable = Math.max(0, subtotal - discountAmount);
-    return Number((taxable * 0.08).toFixed(2));
+    const taxableCents = Math.max(0, toCents(subtotal) - toCents(discountAmount));
+    return fromCents(taxOfCents(taxableCents, 0.08));
   }, [subtotal, discountAmount]);
 
   const grandTotal = useMemo(
-    () => Number((Math.max(0, subtotal - discountAmount) + shippingCost + taxAmount).toFixed(2)),
+    () =>
+      fromCents(
+        Math.max(0, toCents(subtotal) - toCents(discountAmount)) +
+          toCents(shippingCost) +
+          toCents(taxAmount)
+      ),
     [subtotal, discountAmount, shippingCost, taxAmount]
   );
 

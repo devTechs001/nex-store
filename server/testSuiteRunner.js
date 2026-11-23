@@ -120,7 +120,9 @@ export async function runAllVerificationSuites() {
         const inspected = await inspectAndFetchUrlResources('https://nex-store-pro.netlify.app');
         assert.equal(inspected.source_provider, 'Netlify');
         assert.ok(inspected.live_url.includes('nex-store-pro.netlify.app'));
-        assert.ok(inspected.ai_analysis && inspected.ai_analysis.architectureScore === 99);
+        assert.ok(inspected.ai_analysis && typeof inspected.ai_analysis.fetchedLiveFromRemote === 'boolean');
+        assert.ok(inspected.ai_analysis.architectureScore >= 55 && inspected.ai_analysis.architectureScore <= 100);
+        assert.ok(['FETCHED', 'DERIVED'].includes(inspected.ai_analysis.fetchStatus));
         assert.ok(Array.isArray(inspected.ai_analysis.recommendedAutomations) && inspected.ai_analysis.recommendedAutomations.length === 4);
         assert.ok(inspected.drmNotice.includes('DO NOT SHARE'));
         return `Verified ${inspected.live_url} with ${inspected.ai_analysis.recommendedAutomations.length} AI automations & DRM lock`;

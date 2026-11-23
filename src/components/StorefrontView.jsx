@@ -18,7 +18,9 @@ import {
   X,
   Upload,
   Image as ImageIcon,
-  Trash2
+  Trash2,
+  Brain,
+  TrendingUp
 } from 'lucide-react';
 import { formatPrice } from '../utils/currency.js';
 import {
@@ -137,6 +139,24 @@ export default function StorefrontView({
   const [countdown, setCountdown] = useState({ hrs: 11, mins: 42, secs: 19 });
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [copiedCode, setCopiedCode] = useState(null);
+  const [neuralPicks, setNeuralPicks] = useState([]);
+
+  // Neural Picks — real model-scored demand forecasts from the NEX Neural
+  // Engine (auto-trains server-side on first request).
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/neural/recommendations')
+      .then((r) => (r.ok ? r.json() : { recommendations: [] }))
+      .then((d) => {
+        if (alive) setNeuralPicks(Array.isArray(d.recommendations) ? d.recommendations : []);
+      })
+      .catch(() => {
+        if (alive) setNeuralPicks([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Always-Open Live CAD & Hardware Preview Dock State
   const [alwaysOpenPreviewExpanded, setAlwaysOpenPreviewExpanded] = useState(true);
@@ -568,6 +588,84 @@ export default function StorefrontView({
             </div>
           ))}
       </section>
+
+      {/* Neural Picks — model-scored demand leaders from the NEX Neural Engine */}
+      {neuralPicks.length > 0 && (
+        <section className="rounded-3xl p-4 sm:p-5 theme-card border border-emerald-500/30 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/15 border border-emerald-500/30">
+                <Brain className="h-4 w-4 text-emerald-400" />
+              </span>
+              <div>
+                <h3 className="text-sm font-bold theme-text">Neural Picks</h3>
+                <p className="text-[11px] theme-text-muted">
+                  Ranked live by the NEX Neural Engine demand forecaster (MLP backprop, 250 epochs)
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 font-mono-num text-[10px] font-bold text-emerald-400">
+              <TrendingUp className="h-3 w-3" /> MODEL-SCORED
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {neuralPicks
+              .map((pick) => {
+                const product = (products || []).find((p) => p.id === pick.productId);
+                return product ? { ...pick, product } : null;
+              })
+              .filter(Boolean)
+              .slice(0, 6)
+              .map((pick) => (
+                <div
+                  key={pick.productId}
+                  className="group flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 cursor-pointer transition hover:border-emerald-400/40"
+                  onClick={() => onSelectProduct(pick.product)}
+                >
+                  <img
+                    src={getProductArtUrl(pick.product, 'hero')}
+                    alt={pick.product.name}
+                    className="h-14 w-14 rounded-xl object-cover border border-white/10"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono-num text-[10px] font-bold text-emerald-400">
+                        #{(neuralPicks.indexOf(pick) + 1) || 1}
+                      </span>
+                      <p className="truncate text-xs font-bold theme-text">{pick.product.name}</p>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="h-1.5 flex-1 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+                          style={{ width: `${Math.max(6, Math.round((pick.demandScore || 0) * 100))}%` }}
+                        />
+                      </div>
+                      <span className="font-mono-num text-[10px] text-emerald-300">
+                        {(pick.demandScore ?? 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between">
+                      <span className="text-[11px] font-bold theme-text">
+                        {formatPrice(pick.product.price, currency)}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddToCart(pick.product);
+                        }}
+                        className="rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-bold text-emerald-400 transition hover:bg-emerald-500 hover:text-white"
+                      >
+                        ADD
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
 
       {/* Always-Open Live Hardware CAD & Store Telemetry Preview Bar */}
       {activeHero && (
