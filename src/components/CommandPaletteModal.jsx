@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { roleForSession, filterNavForRole, ROLE_LABELS, ROLE_BADGE_STYLES } from '../utils/navigation.js';
 import {
   Search,
   Store,
