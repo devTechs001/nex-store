@@ -9,6 +9,7 @@ import {
   Sparkles,
   Search,
   Globe,
+  FileText,
   ShieldCheck,
   ExternalLink,
   Play,
@@ -221,6 +222,48 @@ export default function AppStoreView({
   const [devAvatarUrl, setDevAvatarUrl] = useState('');
   const [installCmd, setInstallCmd] = useState('');
   const [appChangelog, setAppChangelog] = useState('v1.0.0 — Verified SHA-256 sandbox runtime & anti-piracy DRM lock.');
+
+  // Real app package payload (HTML source uploaded from disk, stored & served
+  // verbatim by /api/sandbox/:id and /api/apps/:id/package).
+  const [appPackageHtml, setAppPackageHtml] = useState('');
+  const [appPackageName, setAppPackageName] = useState('');
+
+  const handleUploadAppPackageFile = async (fileList) => {
+    const file = Array.from(fileList || []).find(
+      (f) => /\.(html?|xhtml)$/i.test(f.name) || f.type === 'text/html'
+    );
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setAppPackageHtml(text);
+      setAppPackageName(file.name);
+    } catch {
+      // unreadable file
+    }
+  };
+
+  // Live link health for the preview modal (real HTTP reachability check).
+  const [previewLinkHealth, setPreviewLinkHealth] = useState(null);
+
+  useEffect(() => {
+    if (!previewApp?.id) {
+      setPreviewLinkHealth(null);
+      return;
+    }
+    let alive = true;
+    setPreviewLinkHealth(null);
+    fetch(`/api/apps/${previewApp.id}/link-health`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setPreviewLinkHealth(d);
+      })
+      .catch(() => {
+        if (alive) setPreviewLinkHealth(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [previewApp?.id]);
 
   // Full Developer & System Package Details Modal State
   const [detailsModalData, setDetailsModalData] = useState(null);
@@ -531,7 +574,8 @@ export default function AppStoreView({
       repo_url: repoUrl.trim(),
       image_url: appImageUrl ? normalizeImageDataUrl(appImageUrl) : '',
       resources: appResources,
-      ai_capabilities: appAiCapabilities
+      ai_capabilities: appAiCapabilities,
+      html_payload: appPackageHtml
     });
     onPlaySound?.('success');
     setAppName('');
@@ -543,6 +587,8 @@ export default function AppStoreView({
     setDevAvatarUrl('');
     setAppResources([]);
     setAppAiCapabilities([]);
+    setAppPackageHtml('');
+    setAppPackageName('');
     setShowUploadModal(false);
   };
 
@@ -936,7 +982,20 @@ export default function AppStoreView({
               </div>
               <div className="flex items-center justify-between font-mono-num text-[10px] text-cyan-300 px-1">
                 <span>4 HD Image Resources (960×500 SVG/OG)</span>
-                <span>Score: {inspectedUrlData.security_score || 99}/100</span>
+                <span className="flex items-center gap-1.5">
+                  Score: {inspectedUrlData.ai_analysis?.securityScore ?? inspectedUrlData.security_score ?? '—'}/100
+                  {inspectedUrlData.ai_analysis && (
+                    <span
+                      className={`rounded px-1.5 py-0.5 border text-[9px] font-bold ${
+                        inspectedUrlData.ai_analysis.fetchedLiveFromRemote
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                          : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                      }`}
+                    >
+                      {inspectedUrlData.ai_analysis.fetchedLiveFromRemote ? 'LIVE-FETCHED' : 'URL-DERIVED'}
+                    </span>
+                  )}
+                </span>
               </div>
             </div>
 
@@ -1697,6 +1756,38 @@ export default function AppStoreView({
                     By <strong>{previewApp.developer}</strong> • v{previewApp.version} • Endpoint:{' '}
                     <code className="text-cyan-400 font-mono-num">/api/sandbox/{previewApp.id}</code>
                   </p>
+                  {/* Real live-link reachability (HTTP check performed server-side) */}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {previewLinkHealth ? (
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-0.5 border font-mono-num text-[9px] font-bold ${
+                          previewLinkHealth.reachable
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                            : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                        }`}
+                        title={previewLinkHealth.note}
+                      >
+                        <Activity className="h-2.5 w-2.5" />
+                        {previewLinkHealth.reachable
+                          ? `LIVE LINK OK • HTTP ${previewLinkHealth.httpStatus} • ${previewLinkHealth.latencyMs}ms`
+                          : `LINK UNREACHABLE${previewLinkHealth.httpStatus ? ` • HTTP ${previewLinkHealth.httpStatus}` : ''}`}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg px-2 py-0.5 border bg-white/5 border-white/10 text-gray-400 font-mono-num text-[9px] font-bold">
+                        <Activity className="h-2.5 w-2.5 animate-pulse" /> CHECKING LIVE LINK…
+                      </span>
+                    )}
+                    {previewApp.live_url && (
+                      <a
+                        href={previewApp.live_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 border bg-cyan-500/10 border-cyan-500/30 text-cyan-300 font-mono-num text-[9px] font-bold hover:bg-cyan-500/20"
+                      >
+                        <Globe className="h-2.5 w-2.5" /> OPEN LIVE URL ↗
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2274,6 +2365,48 @@ export default function AppStoreView({
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Real App Package Upload (HTML source served verbatim in the sandbox) */}
+            <div className="rounded-2xl p-3.5 theme-subtle border border-emerald-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono-num text-[10px] font-bold uppercase text-emerald-400">
+                  App Package (HTML source → real sandbox payload)
+                </span>
+                <label className="rounded-lg bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-1 font-mono-num text-[10px] font-bold text-emerald-300 cursor-pointer">
+                  Upload .html Package
+                  <input
+                    type="file"
+                    accept=".html,.htm,text/html"
+                    onChange={(e) => handleUploadAppPackageFile(e.target.files)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {appPackageHtml ? (
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-emerald-400" />
+                  <span className="font-mono-num text-[10px] text-emerald-300 truncate">
+                    ✓ {appPackageName} — {(new Blob([appPackageHtml]).size / 1024).toFixed(1)} KB will be stored,
+                    SHA-256 hashed byte-exact, and served at /api/sandbox/&lt;id&gt;
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppPackageHtml('');
+                      setAppPackageName('');
+                    }}
+                    className="ml-auto text-[10px] text-rose-400 underline cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[10px] theme-text-muted">
+                  Optional but recommended: upload the real HTML app file. Without one, the store serves the
+                  generated demo runtime instead of your actual app.
+                </p>
+              )}
             </div>
 
             <div className="rounded-xl bg-slate-950 p-2.5 border border-indigo-500/30 font-mono-num text-[10px] text-cyan-300">

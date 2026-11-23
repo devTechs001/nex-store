@@ -15,8 +15,10 @@ process.env.NEX_TEST_NO_LISTEN = '1';
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { app, server } from '../server/index.js';
 import { db } from '../server/db.js';
+import { computeOrderMoney } from '../server/money.js';
 import {
   getEnvAdminConfig,
   detectXssAttempt,
@@ -314,7 +316,12 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.equal(res.status, 200);
       assert.equal(res.data.inspected.source_provider, 'Netlify');
       assert.ok(res.data.inspected.live_url.includes('nex-store-pro.netlify.app'));
-      assert.ok(res.data.inspected.ai_analysis && res.data.inspected.ai_analysis.architectureScore === 99);
+      assert.ok(res.data.inspected.ai_analysis, 'honest ai_analysis present');
+      const aa = res.data.inspected.ai_analysis;
+      assert.ok(typeof aa.fetchedLiveFromRemote === 'boolean', 'fetch honesty flag');
+      assert.ok(['FETCHED', 'DERIVED'].includes(aa.fetchStatus), 'honest fetchStatus');
+      assert.ok(aa.architectureScore >= 55 && aa.architectureScore <= 100, 'computed score in range');
+      assert.ok(aa.securityScore >= 35 && aa.securityScore <= 100, 'computed security score');
     });
 
     it('renders SVG app artwork via GET /api/app-art/:id.svg and client-side 4-view HD visual resources', async () => {
@@ -881,6 +888,179 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       });
       assert.ok(!/nex_whop_sk_|mongodb(\+srv)?:\/\//.test(envRes.data.output), 'env must not leak secret values');
       assert.ok(envRes.data.output.includes('[MASKED]') || envRes.data.output.includes('NODE_RUNTIME'), 'env works');
+    });
+  });
+
+  // ============================================================================
+  // 9. REAL APP PACKAGES (UPLOAD → INSTALL → PREVIEW → DOWNLOAD) & LINK HEALTH
+  // ============================================================================
+  describe('9. Real App Packages, Sandbox Preview & Live Link Health', () => {
+    const PAYLOAD_MARKER = 'NEX_REAL_PACKAGE_PAYLOAD_MARKER_2026';
+    const payloadHtml = `<!DOCTYPE html><html><head><title>Real Uploaded App</title></head>
+<body><main><h1>Real App Runtime</h1><p>${PAYLOAD_MARKER}</p>
+<script>document.title = 'boot-' + (1 + 1);</script></main></body></html>`;
+
+    it('publishes a REAL uploaded HTML package with byte-exact size & SHA-256', async () => {
+      const res = await apiRequest('/api/developer/publish', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+          name: 'Real Payload Demo App',
+          description: 'Integration test app with a genuine uploaded HTML package',
+          version: '2.0.0',
+          developer: 'nex_root_admin',
+          source_provider: 'Netlify',
+          live_url: 'https://nex-store-pro.netlify.app',
+          html_payload: payloadHtml
+        }
+      });
+      assert.equal(res.status, 201);
+      uploadedAppId = res.data.app.id;
+
+      const expectedBytes = Buffer.byteLength(payloadHtml, 'utf8');
+      const expectedSha = createHash('sha256').update(payloadHtml, 'utf8').digest('hex');
+      const expectedSizeLabel =
+        expectedBytes >= 1048576
+          ? `${(expectedBytes / 1048576).toFixed(1)} MB`
+          : expectedBytes >= 1024
+          ? `${(expectedBytes / 1024).toFixed(1)} KB`
+          : `${expectedBytes} B`;
+      assert.equal(res.data.app.sha256_hash, expectedSha, 'sha256 must hash the REAL payload bytes');
+      assert.equal(res.data.app.size, expectedSizeLabel, 'size must be real byte size');
+
+      // Sandbox preview serves the uploaded app verbatim
+      const sandbox = await apiRequest(`/api/sandbox/${uploadedAppId}`);
+      assert.equal(sandbox.status, 200);
+      assert.ok(sandbox.data.includes(PAYLOAD_MARKER), 'sandbox must serve the real uploaded HTML');
+      assert.ok(sandbox.data.includes('boot-'), 'uploaded script kept verbatim');
+
+      // Package download returns real bytes with verified hash headers
+      const pkg = await apiRequest(`/api/apps/${uploadedAppId}/package`);
+      assert.equal(pkg.status, 200);
+      assert.ok(pkg.data.includes(PAYLOAD_MARKER), 'package download = real payload bytes');
+      assert.equal(pkg.headers.get('x-nex-package-sha256'), expectedSha, 'download hash matches');
+      assert.equal(pkg.headers.get('x-nex-package-bytes'), String(expectedBytes), 'download byte count matches');
+    });
+
+    it('installs & uninstalls the real app with verified SHA records', async () => {
+      const installRes = await apiRequest(`/api/apps/${uploadedAppId}/install`, {
+        method: 'POST',
+        token: adminToken
+      });
+      assert.equal(installRes.status, 201);
+      assert.equal(installRes.data.installRecord.status, 'INSTALLED');
+      assert.equal(
+        installRes.data.installRecord.sha256_verified,
+        createHash('sha256').update(payloadHtml, 'utf8').digest('hex')
+      );
+
+      const uninst = await apiRequest(`/api/apps/${uploadedAppId}/uninstall`, {
+        method: 'DELETE',
+        token: adminToken
+      });
+      assert.equal(uninst.status, 200);
+    });
+
+    it('performs a REAL live-link health check with honest results', async () => {
+      const res = await apiRequest(`/api/apps/${uploadedAppId}/link-health`);
+      assert.equal(res.status, 200);
+      assert.equal(res.data.url, 'https://nex-store-pro.netlify.app');
+      assert.ok(typeof res.data.reachable === 'boolean', 'honest reachability boolean');
+      assert.ok(typeof res.data.latencyMs === 'number', 'measured latency');
+      assert.ok(res.data.checkedAt, 'real check timestamp');
+      if (!res.data.reachable) {
+        assert.ok(/timed out|failed|blocked/i.test(res.data.note), 'failure note is honest');
+      }
+    });
+
+    it('legacy seed apps without a payload still get the archetype sandbox runtime', async () => {
+      const sandbox = await apiRequest('/api/sandbox/app-codesync-ide');
+      assert.equal(sandbox.status, 200);
+      assert.ok(sandbox.data.includes('<html') || sandbox.data.includes('<!DOCTYPE'));
+      assert.ok(!sandbox.data.includes(PAYLOAD_MARKER), 'no foreign payload served');
+    });
+  });
+
+  // ============================================================================
+  // 10. INTEGER-CENT MONEY MATH (NO IEEE-754 DRIFT)
+  // ============================================================================
+  describe('10. Integer-Cent Money Math', () => {
+    it('computeOrderMoney produces exact integer-cent totals', () => {
+      // 3 × $10.10 = $30.30 exactly (float math: 30.299999999999997)
+      const m1 = computeOrderMoney({
+        unitPrices: [10.1, 10.1, 10.1],
+        quantities: [1, 1, 1],
+        coupon: null,
+        shippingMethod: 'standard'
+      });
+      assert.equal(m1.subtotalCents, 3030, 'subtotal is exact cents');
+      assert.equal(m1.subtotal, 30.3);
+      assert.equal(m1.taxCents, Math.round(3030 * 0.08), 'tax from cents');
+      assert.equal(m1.totalCents, 3030 + 1200 + m1.taxCents, 'total composes exactly in cents');
+
+      // Percentage coupon: 20% of $400.10 = $80.02 exactly
+      const m2 = computeOrderMoney({
+        unitPrices: [400.1],
+        quantities: [1],
+        coupon: { discount_type: 'percentage', discount_value: 20, min_order_amount: 400 },
+        shippingMethod: 'same-day'
+      });
+      assert.equal(m2.discountCents, 8002, 'percent discount rounds to exact cents');
+      assert.equal(m2.discountAmount, 80.02);
+
+      // Tiny prices never drift: 7 × $0.15 = $1.05
+      const m3 = computeOrderMoney({
+        unitPrices: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15],
+        quantities: [1, 1, 1, 1, 1, 1, 1],
+        coupon: null,
+        shippingMethod: 'standard'
+      });
+      assert.equal(m3.subtotalCents, 105);
+      assert.equal(m3.subtotal, 1.05);
+    });
+
+    it('coupon validation discounts in exact cents', async () => {
+      const res = await apiRequest('/api/coupons/validate', {
+        method: 'POST',
+        body: { code: 'NEX20', subtotal: 400.1 }
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.data.discountCents, 8002);
+      assert.equal(res.data.discountAmount, 80.02);
+    });
+
+    it('guest checkout totals are exact to the cent (subtotal/tax/total)', async () => {
+      // Price a product at $10.10 and buy 3 — float math gives 30.299999999999997.
+      const prod = db.prepare('SELECT * FROM products LIMIT 1').get();
+      await apiRequest(`/api/products/${prod.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { price: 10.1 }
+      });
+
+      const res = await apiRequest('/api/orders', {
+        method: 'POST',
+        body: {
+          customer_name: 'Cent Precise',
+          customer_email: 'cents@nexstore.dev',
+          customer_phone: '+254700000001',
+          shipping_address: '1 Integer Cent Way',
+          shipping_city: 'Nairobi',
+          shipping_country: 'Kenya',
+          shipping_method: 'Standard Ground (3-5 days)',
+          payment_method: 'Card',
+          items: [{ product_id: prod.id, quantity: 3 }]
+        }
+      });
+      assert.equal(res.status, 201);
+      const order = res.data.order;
+      assert.equal(order.subtotal, 30.3, 'subtotal exact (3 × $10.10)');
+      assert.equal(order.tax_amount, 2.42, 'tax exact (8% of 3030¢ = 242¢)');
+      assert.equal(order.shipping_cost, 12);
+      assert.equal(order.total, 44.72, 'total exact (3030 + 1200 + 242 ¢)');
+      for (const key of ['subtotal', 'discount_amount', 'shipping_cost', 'tax_amount', 'total']) {
+        assert.ok(Math.abs(order[key] * 100 - Math.round(order[key] * 100)) < 1e-9, `${key} has ≤2 decimal places`);
+      }
     });
   });
 });

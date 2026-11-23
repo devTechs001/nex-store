@@ -318,6 +318,16 @@ export function initSchema() {
       installed_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS app_packages (
+      id TEXT PRIMARY KEY,
+      app_id TEXT UNIQUE NOT NULL,
+      content_html TEXT NOT NULL,
+      content_type TEXT NOT NULL DEFAULT 'text/html; charset=utf-8',
+      size_bytes INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS polyglot_automations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

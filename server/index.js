@@ -34,12 +34,17 @@ import {
   normalizeUploadedImageDataUrl,
   verifyAppRealnessAndMalware
 } from './envAndSecurity.js';
+
+// Request keys that carry intentional HTML package payloads — kept byte-exact
+// (they run only inside the CSP-sandboxed opaque-origin app iframe).
+const SANITIZE_EXEMPT_KEYS = new Set(['html_payload', 'package_html', 'package_base64']);
 import {
   getMongoClusterStatus,
   queryMongoCollection,
   insertMongoBsonDocument
 } from './mongoEngine.js';
 import { getNeuralStatus, runTraining, getRecommendations } from './neuralEngine.js';
+import { toCents, fromCents, lineCents, percentOfCents, fixedDiscountCents, taxOfCents, computeOrderMoney } from './money.js';
 import os from 'node:os';
 import { runAllVerificationSuites } from './testSuiteRunner.js';
 
@@ -138,7 +143,7 @@ app.use('/api', (req, res, next) => {
         `Intercepted XSS pattern ${xssHit.pattern} from ${clientIp}: ${xssHit.snippet}`,
         new Date().toISOString()
       );
-      req.body = sanitizeObjectPayloads(req.body);
+      req.body = sanitizeObjectPayloads(req.body, SANITIZE_EXEMPT_KEYS);
       req.xssSanitized = true;
     }
   }
@@ -288,11 +293,12 @@ function getOrdersWithItems(limit = 50, { full = false } = {}) {
 }
 
 function getAnalyticsSummary() {
+  // Integer-cent aggregation: revenue totals are summed as whole cents so
+  // thousands of orders never accumulate IEEE-754 drift.
   const revRow = db.prepare(`
     SELECT
       COUNT(*) as totalOrders,
-      COALESCE(SUM(total), 0) as totalRevenue,
-      COALESCE(AVG(total), 0) as avgOrderValue
+      COALESCE(SUM(CAST(ROUND(total * 100) AS INTEGER)), 0) as totalRevenueCents
     FROM orders
     WHERE status != 'cancelled'
   `).get();
@@ -312,10 +318,10 @@ function getAnalyticsSummary() {
       COUNT(*) as productCount,
       SUM(stock) as stockCount,
       SUM(sold_count) as soldCount,
-      ROUND(SUM(price * sold_count), 2) as estimatedRevenue
+      SUM(CAST(ROUND(price * 100) AS INTEGER) * sold_count) as estimatedRevenueCents
     FROM products
     GROUP BY category
-    ORDER BY estimatedRevenue DESC
+    ORDER BY estimatedRevenueCents DESC
   `).all();
 
   const reviewStats = db.prepare(`
@@ -324,15 +330,20 @@ function getAnalyticsSummary() {
 
   return {
     totalOrders: revRow.totalOrders || 0,
-    totalRevenue: Number((revRow.totalRevenue || 0).toFixed(2)),
-    avgOrderValue: Number((revRow.avgOrderValue || 0).toFixed(2)),
+    totalRevenue: fromCents(revRow.totalRevenueCents || 0),
+    avgOrderValue: fromCents(
+      revRow.totalOrders > 0 ? Math.round((revRow.totalRevenueCents || 0) / revRow.totalOrders) : 0
+    ),
     totalProducts: prodStats.totalProducts || 0,
     totalUnitsInStock: prodStats.totalUnitsInStock || 0,
     lowStockCount: prodStats.lowStockCount || 0,
     totalUnitsSold: prodStats.totalUnitsSold || 0,
     totalReviews: reviewStats.totalReviews || 0,
     avgRating: reviewStats.avgRating || 4.9,
-    categoryBreakdown: catBreakdown
+    categoryBreakdown: catBreakdown.map((row) => ({
+      ...row,
+      estimatedRevenue: fromCents(row.estimatedRevenueCents || 0)
+    }))
   };
 }
 
@@ -1661,22 +1672,38 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     system_requirements = null,
     resources = [],
     ai_capabilities = [],
-    permissions = ['Sandboxed Iframe', 'WebAudio API', 'WebSocket Stream']
+    permissions = ['Sandboxed Iframe', 'WebAudio API', 'WebSocket Stream'],
+    html_payload = '',
+    package_html = '',
+    package_base64 = ''
   } = req.body || {};
 
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'App or system package name is required' });
   }
 
+  // Real package payload ingest: the uploaded app source (HTML) is stored and
+  // served verbatim by /api/sandbox/:id and /api/apps/:id/package. The
+  // SHA-256 and byte size are computed from the ACTUAL payload bytes.
+  const rawPackageHtml = String(html_payload || package_html || '').trim() ||
+    (package_base64 ? Buffer.from(String(package_base64), 'base64').toString('utf8').trim() : '');
+  const packageBytes = rawPackageHtml ? Buffer.byteLength(rawPackageHtml, 'utf8') : 0;
+  const packageSha256 = rawPackageHtml
+    ? crypto.createHash('sha256').update(rawPackageHtml, 'utf8').digest('hex')
+    : '';
+  const formatBytes = (b) =>
+    b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b >= 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} B`;
+
   const id = `app-${Date.now().toString(36)}`;
   const now = new Date().toISOString();
   const cleanLiveUrl =
     String(live_url).trim() ||
     `https://${String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}.netlify.app`;
-  const sha256Hash = crypto
-    .createHash('sha256')
-    .update(`${id}:${name}:${version}:${cleanLiveUrl}`)
-    .digest('hex');
+  const sha256Hash = packageSha256 ||
+    crypto
+      .createHash('sha256')
+      .update(`${id}:${name}:${version}:${cleanLiveUrl}`)
+      .digest('hex');
   const normalizedImg = image_url && String(image_url).trim()
     ? normalizeUploadedImageDataUrl(String(image_url).trim())
     : '';
@@ -1689,6 +1716,12 @@ function handlePublishDeveloperAppOrSystem(req, res) {
   const resolvedResources =
     Array.isArray(resources) && resources.length > 0
       ? resources
+      : rawPackageHtml
+      ? [
+          { type: 'package', name: 'app-package.html', url: `/api/apps/${id}/package`, size: formatBytes(packageBytes), status: 'UPLOADED' },
+          { type: 'image', name: 'og-preview-banner.svg', url: resolvedImageUrl, size: '24 KB' },
+          { type: 'security', name: 'drm-sha256-attestation.sig', url: cleanLiveUrl, size: '4 KB' }
+        ]
       : [
           { type: 'image', name: 'og-preview-banner.svg', url: resolvedImageUrl, size: '24 KB' },
           { type: 'manifest', name: 'nex-app-manifest.json', url: `/api/apps/${id}/package`, size },
@@ -1731,7 +1764,7 @@ function handlePublishDeveloperAppOrSystem(req, res) {
     category,
     language,
     JSON.stringify(['web', 'linux', 'macos', 'windows', 'flutter', 'react-native']),
-    size,
+    rawPackageHtml ? formatBytes(packageBytes) : size,
     String(developer).trim(),
     icon,
     license,
@@ -1755,6 +1788,13 @@ function handlePublishDeveloperAppOrSystem(req, res) {
   );
 
   const createdApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
+
+  if (rawPackageHtml) {
+    db.prepare(
+      'INSERT OR REPLACE INTO app_packages (id, app_id, content_html, content_type, size_bytes, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(`pkg-${id}`, id, rawPackageHtml, 'text/html; charset=utf-8', packageBytes, packageSha256, now);
+  }
+
   const activity = recordActivityEvent({
     event_type: 'product_created',
     title: `Published ${package_type.toUpperCase()} • ${createdApp.name}`,
@@ -2005,8 +2045,11 @@ app.delete('/api/apps/:id/uninstall', (req, res) => {
 });
 
 // Real Isolated HTML5/Canvas/WebAudio Sandbox Runtime Endpoint for <iframe sandbox="...">
+// Serves the REAL uploaded package bytes when one exists; falls back to the
+// archetype demo runtime for legacy/seed apps without an uploaded payload.
 app.get('/api/sandbox/:id', (req, res) => {
   const rawId = req.params.id;
+  const pkg = db.prepare('SELECT * FROM app_packages WHERE app_id = ?').get(rawId);
   const foundApp =
     db.prepare('SELECT * FROM apps WHERE id = ?').get(rawId) || {
       id: rawId,
@@ -2020,9 +2063,18 @@ app.get('/api/sandbox/:id', (req, res) => {
       description: 'Isolated sandbox container runtime.'
     };
 
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  if (pkg) {
+    // Real uploaded application — hardened sandbox CSP (opaque origin).
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "sandbox allow-scripts allow-forms allow-modals allow-popups");
+    res.setHeader('X-NEX-Package-Sha256', pkg.sha256);
+    return res.send(pkg.content_html);
+  }
+
   const html = renderSandboxedAppHtml(foundApp);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store');
   res.send(html);
 });
 
@@ -2032,11 +2084,70 @@ app.get('/api/apps/:id/package', (req, res) => {
   const foundApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(rawId);
   if (!foundApp) return res.status(404).json({ error: 'App not found' });
 
+  const pkg = db.prepare('SELECT * FROM app_packages WHERE app_id = ?').get(rawId);
+  if (pkg) {
+    // Real uploaded package bytes with verified content hash.
+    res.setHeader('Content-Type', pkg.content_type || 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${foundApp.id}-v${foundApp.version}.html"`);
+    res.setHeader('X-NEX-Package-Sha256', pkg.sha256);
+    res.setHeader('X-NEX-Package-Bytes', String(pkg.size_bytes));
+    return res.send(pkg.content_html);
+  }
+
   const html = renderSandboxedAppHtml(foundApp, { isDownloadPackage: true });
   const filename = `${foundApp.id}-v${foundApp.version}-standalone.html`;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(html);
+});
+
+// Real live-link health check: performs an actual HTTP request against the
+// app's live URL and reports honest reachability, status code & latency.
+app.get('/api/apps/:id/link-health', async (req, res) => {
+  const foundApp = db.prepare('SELECT * FROM apps WHERE id = ?').get(req.params.id);
+  if (!foundApp) return res.status(404).json({ error: 'App not found' });
+  const url = String(foundApp.live_url || '').trim();
+  if (!/^https?:\/\//i.test(url)) {
+    return res.json({
+      appId: foundApp.id,
+      url,
+      reachable: false,
+      httpStatus: null,
+      latencyMs: null,
+      checkedAt: new Date().toISOString(),
+      note: 'No live URL registered for this app.'
+    });
+  }
+  const t0 = performance.now();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const head = await fetch(url, { method: 'GET', redirect: 'follow', signal: controller.signal });
+    clearTimeout(timer);
+    const latencyMs = Math.round(performance.now() - t0);
+    res.json({
+      appId: foundApp.id,
+      url,
+      reachable: head.ok,
+      httpStatus: head.status,
+      latencyMs,
+      contentType: head.headers.get('content-type') || '',
+      checkedAt: new Date().toISOString(),
+      note: head.ok
+        ? `Live URL responded OK (${head.status}) in ${latencyMs}ms.`
+        : `Live URL responded with HTTP ${head.status}.`
+    });
+  } catch (err) {
+    res.json({
+      appId: foundApp.id,
+      url,
+      reachable: false,
+      httpStatus: null,
+      latencyMs: Math.round(performance.now() - t0),
+      checkedAt: new Date().toISOString(),
+      note: `Reachability check failed: ${err.name === 'AbortError' ? 'request timed out after 5s' : 'connection failed or blocked (network-restricted environment)'}.`
+    });
+  }
 });
 
 // 2c. Polyglot AI Automation Studio Endpoints (Python, Rust, C++, Java, Go, TypeScript) — SQLite Table #20
@@ -2978,15 +3089,19 @@ app.post('/api/coupons/validate', (req, res) => {
     });
   }
 
-  const discountAmount =
+  // Integer-cent discount math — no floating-point drift.
+  const subtotalCents = toCents(subtotal);
+  const discountCents =
     coupon.discount_type === 'percentage'
-      ? Number(((Number(subtotal) * coupon.discount_value) / 100).toFixed(2))
-      : Math.min(Number(subtotal), coupon.discount_value);
+      ? percentOfCents(subtotalCents, coupon.discount_value)
+      : fixedDiscountCents(subtotalCents, coupon.discount_value);
 
   res.json({
     valid: true,
     coupon,
-    discountAmount
+    discountAmount: fromCents(discountCents),
+    discountCents,
+    subtotalCents
   });
 });
 
@@ -3105,8 +3220,10 @@ app.post('/api/orders', (req, res) => {
     const trackingNumber = `TRK-NEX-${Math.floor(1000000 + Math.random() * 9000000)}`;
     const estDelivery = new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString().slice(0, 10);
 
-    let calculatedSubtotal = 0;
+    // ---- Integer-cent money math (server/money.js) — no float drift ----
     const resolvedItems = [];
+    const unitPrices = [];
+    const quantities = [];
 
     for (const cartItem of items) {
       const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(cartItem.product_id);
@@ -3119,45 +3236,49 @@ app.post('/api/orders', (req, res) => {
           error: `Insufficient stock for ${prod.name} (Available: ${prod.stock}, Requested: ${qty})`
         });
       }
-      const lineTotal = Number((prod.price * qty).toFixed(2));
-      calculatedSubtotal += lineTotal;
+      unitPrices.push(prod.price);
+      quantities.push(qty);
       resolvedItems.push({
         prod,
         qty,
         selected_color: cartItem.selected_color || 'Default Finish',
-        lineTotal
+        lineTotal: fromCents(lineCents(prod.price, qty))
       });
     }
 
-    calculatedSubtotal = Number(calculatedSubtotal.toFixed(2));
-
-    let discountAmount = 0;
-    let appliedCouponCode = null;
-    let appliedCouponRow = null;
+    let candidateCoupon = null;
     if (coupon_code) {
       const coupon = db
         .prepare('SELECT * FROM coupons WHERE UPPER(code) = ? AND active = 1')
         .get(coupon_code.trim().toUpperCase());
       const couponExpired = Boolean(coupon?.expires_at && new Date(coupon.expires_at).getTime() < Date.now());
       const couponExhausted = Boolean(coupon && coupon.max_uses > 0 && coupon.used_count >= coupon.max_uses);
-      if (coupon && !couponExpired && !couponExhausted && calculatedSubtotal >= coupon.min_order_amount) {
-        discountAmount =
-          coupon.discount_type === 'percentage'
-            ? Number(((calculatedSubtotal * coupon.discount_value) / 100).toFixed(2))
-            : Math.min(calculatedSubtotal, coupon.discount_value);
-        appliedCouponCode = coupon.code;
-        appliedCouponRow = coupon;
+      if (coupon && !couponExpired && !couponExhausted) {
+        candidateCoupon = coupon;
       }
     }
 
-    const shippingCost = shipping_method.toLowerCase().includes('same-day')
-      ? 15
-      : calculatedSubtotal >= 300
-      ? 0
-      : 12;
-    const taxableAmount = Math.max(0, calculatedSubtotal - discountAmount);
-    const taxAmount = Number((taxableAmount * 0.08).toFixed(2));
-    const total = Number((taxableAmount + shippingCost + taxAmount).toFixed(2));
+    const money = computeOrderMoney({
+      unitPrices,
+      quantities,
+      coupon: candidateCoupon,
+      shippingMethod: shipping_method
+    });
+
+    // The coupon only counts as "applied" (and burns a use) when the
+    // integer-cent discount engine actually granted a discount.
+    let appliedCouponCode = null;
+    let appliedCouponRow = null;
+    if (candidateCoupon && money.discountCents > 0) {
+      appliedCouponCode = candidateCoupon.code;
+      appliedCouponRow = candidateCoupon;
+    }
+    const calculatedSubtotal = money.subtotal;
+    const discountAmount = money.discountAmount;
+    const shippingCost = money.shippingCost;
+    const taxableAmount = money.subtotal - money.discountAmount;
+    const taxAmount = money.taxAmount;
+    const total = money.total;
 
     // Payment identity generation (pure computation, outside transaction scope)
     const updatedProducts = [];
