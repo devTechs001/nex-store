@@ -49,6 +49,100 @@ export function loadDotEnvFile(forceReload = false) {
 
 loadDotEnvFile();
 
+// ---------------------------------------------------------------------------
+// Root Admin credential bootstrap
+// ---------------------------------------------------------------------------
+// On first boot the .env.example copy carries CHANGE_ME placeholders (or the
+// env may be missing entirely). This provisions REAL strong Root Admin
+// credentials once, persists them into .env (the secret store), and reports
+// only non-secret status. The password/token are NEVER returned by any API.
+const PLACEHOLDER_RE = /CHANGE_?ME|EXAMPLE|PLACEHOLDER|password123/i;
+
+function generateStrongSecret(byteLength = 21) {
+  return crypto.randomBytes(byteLength).toString('base64url');
+}
+
+let adminBootstrapState = { bootstrapped: false, generated: [], persisted: false, at: null };
+
+export function ensureEnvAdminCredentials() {
+  loadDotEnvFile();
+
+  const needs = {};
+  if (!process.env.NEX_ADMIN_USERNAME || PLACEHOLDER_RE.test(process.env.NEX_ADMIN_USERNAME)) needs.username = true;
+  if (!process.env.NEX_ADMIN_EMAIL) needs.email = true;
+  if (!process.env.NEX_ADMIN_PASSWORD || PLACEHOLDER_RE.test(process.env.NEX_ADMIN_PASSWORD)) needs.password = true;
+  if (!process.env.NEX_ADMIN_MASTER_TOKEN || PLACEHOLDER_RE.test(process.env.NEX_ADMIN_MASTER_TOKEN)) needs.masterToken = true;
+
+  if (!Object.keys(needs).length) {
+    // Already provisioned — report the real state without regenerating.
+    return adminBootstrapState.at
+      ? adminBootstrapState
+      : { bootstrapped: false, generated: [], persisted: Boolean(process.env.NEX_ADMIN_PASSWORD), at: null };
+  }
+
+  const generated = [];
+  if (needs.username) {
+    process.env.NEX_ADMIN_USERNAME = 'nex_root_admin';
+    generated.push('username');
+  }
+  if (needs.email) {
+    process.env.NEX_ADMIN_EMAIL = process.env.NEX_ADMIN_EMAIL || 'admin@nexstore.dev';
+  }
+  if (needs.password) {
+    process.env.NEX_ADMIN_PASSWORD = `nex_${generateStrongSecret(21)}`;
+    generated.push('password');
+  }
+  if (needs.masterToken) {
+    process.env.NEX_ADMIN_MASTER_TOKEN = `nex_adm_${generateStrongSecret(21)}`;
+    generated.push('masterToken');
+  }
+
+  // Persist into .env (the operator's secret store). Never log the values.
+  let persisted = false;
+  try {
+    const lines = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8').split(/\r?\n/) : [];
+    const upserts = {
+      NEX_ADMIN_USERNAME: process.env.NEX_ADMIN_USERNAME,
+      NEX_ADMIN_EMAIL: process.env.NEX_ADMIN_EMAIL,
+      NEX_ADMIN_PASSWORD: process.env.NEX_ADMIN_PASSWORD,
+      NEX_ADMIN_MASTER_TOKEN: process.env.NEX_ADMIN_MASTER_TOKEN
+    };
+    const out = lines.map((line) => {
+      const key = line.split('=')[0]?.trim();
+      if (key && upserts[key] !== undefined) {
+        const val = upserts[key];
+        delete upserts[key];
+        return `${key}=${val}`;
+      }
+      return line;
+    });
+    for (const [key, val] of Object.entries(upserts)) out.push(`${key}=${val}`);
+    fs.writeFileSync(ENV_PATH, `${out.join('\n').replace(/\n{3,}/g, '\n\n')}\n`, 'utf8');
+    persisted = true;
+  } catch {
+    // Read-only filesystem: credentials stay in process.env for this run only.
+  }
+
+  adminBootstrapState = {
+    bootstrapped: true,
+    generated,
+    persisted,
+    at: new Date().toISOString()
+  };
+  return adminBootstrapState;
+}
+
+/** Non-secret status of the Root Admin credential bootstrap. */
+export function getAdminBootstrapStatus() {
+  return {
+    credentialsBootstrapped: adminBootstrapState.bootstrapped,
+    generatedFields: adminBootstrapState.generated,
+    persistedToEnvFile: adminBootstrapState.persisted,
+    bootstrappedAt: adminBootstrapState.at,
+    passwordSource: 'environment (.env / NEX_ADMIN_PASSWORD) — never exposed via API'
+  };
+}
+
 export function getHostingEnvAndBlueprintsConfig() {
   loadDotEnvFile(true);
   const renderVars = [

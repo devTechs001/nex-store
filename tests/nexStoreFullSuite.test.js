@@ -1322,4 +1322,54 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.ok(!TAB_ROLE_ACCESS['user-portal'].includes('developer'));
     });
   });
+
+  // ============================================================================
+  // 14. ROOT ADMIN ENV CREDENTIAL BOOTSTRAP (WITH /api/bootstrap)
+  // ============================================================================
+  describe('14. Root Admin Env-Credential Bootstrap', () => {
+    it('bootstraps REAL admin credentials (no CHANGE_ME placeholders survive)', () => {
+      const envAdmin = getEnvAdminConfig();
+      assert.ok(envAdmin.envLoaded, 'env admin fully configured after boot');
+      assert.ok(!/CHANGE_?ME/i.test(envAdmin.password), 'placeholder password must be replaced');
+      assert.ok(!/CHANGE_?ME/i.test(envAdmin.masterToken || 'x'), 'placeholder master token must be replaced');
+      assert.ok(envAdmin.password.length >= 20, 'generated password is strong');
+    });
+
+    it('/api/bootstrap carries the credential-bootstrap status but NEVER the secrets', async () => {
+      const res = await apiRequest('/api/bootstrap');
+      assert.equal(res.status, 200);
+      const cfg = res.data.authConfig;
+      assert.equal(cfg.envAdminConfigured, true);
+      assert.equal(cfg.adminUsernameHint, 'nex_root_admin');
+      assert.ok(typeof cfg.credentialsBootstrapped === 'boolean');
+      assert.ok(/never exposed via API/.test(cfg.passwordSource), 'honest secret-source note');
+
+      const envAdmin = getEnvAdminConfig();
+      const raw = JSON.stringify(res.data);
+      assert.ok(!raw.includes(envAdmin.password), 'bootstrap must never leak the admin password');
+      assert.ok(!raw.includes(envAdmin.masterToken), 'bootstrap must never leak the master token');
+    });
+
+    it('/api/auth/config exposes hints + bootstrap status only', async () => {
+      const res = await apiRequest('/api/auth/config');
+      assert.equal(res.status, 200);
+      assert.equal(res.data.envAdminConfigured, true);
+      assert.equal(res.data.adminUsernameHint, 'nex_root_admin');
+      assert.ok(res.data.envSource.includes('.env'));
+      const envAdmin = getEnvAdminConfig();
+      assert.ok(!JSON.stringify(res.data).includes(envAdmin.password), 'no password in auth config');
+    });
+
+    it('Root Admin can log in with the bootstrapped env credentials', async () => {
+      const envAdmin = getEnvAdminConfig();
+      const res = await apiRequest('/api/auth/login', {
+        method: 'POST',
+        body: { identifier: 'nex_root_admin', password: envAdmin.password }
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.data.account.role, 'admin');
+      assert.equal(res.data.account.username, 'nex_root_admin');
+      assert.ok(res.data.token, 'session token issued');
+    });
+  });
 });

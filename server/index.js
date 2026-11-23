@@ -22,6 +22,8 @@ import { executePolyglotAutomation, aiEnhancePolyglotScript } from './polyglotAu
 import { formatSubscriptionPlan } from './mobileAndSubscriptions.js';
 import {
   getEnvAdminConfig,
+  ensureEnvAdminCredentials,
+  getAdminBootstrapStatus,
   getHostingEnvAndBlueprintsConfig,
   updateHostingEnvVariables,
   hashPassword,
@@ -56,6 +58,18 @@ const __dirname = path.dirname(__filename);
 
 // Initialize & seed SQLite database
 seedDatabase();
+
+// Bootstrap Root Admin credentials from the environment: on first boot with
+// missing or CHANGE_ME .env placeholders, REAL strong credentials are
+// generated and persisted into .env (never exposed via API).
+const adminCredentialBootstrap = ensureEnvAdminCredentials();
+if (adminCredentialBootstrap.bootstrapped) {
+  console.log(
+    `[NEX-BOOTSTRAP] Root Admin credentials provisioned (${adminCredentialBootstrap.generated.join(', ')}) — ` +
+      `${adminCredentialBootstrap.persisted ? 'persisted to .env' : 'held in memory only (read-only filesystem)'}. ` +
+      `Read NEX_ADMIN_PASSWORD / NEX_ADMIN_MASTER_TOKEN from .env or your platform env config.`
+  );
+}
 
 const app = express();
 
@@ -533,7 +547,8 @@ app.get('/api/bootstrap', (_req, res) => {
     authConfig: {
       envAdminConfigured: envAdmin.envLoaded,
       adminUsernameHint: envAdmin.username,
-      adminEmailHint: envAdmin.email
+      adminEmailHint: envAdmin.email,
+      ...getAdminBootstrapStatus()
     },
     analytics: getAnalyticsSummary(),
     dbStats: getDatabaseStats(),
@@ -703,6 +718,7 @@ app.get('/api/auth/config', (_req, res) => {
     adminEmailHint: envAdmin.email,
     adminAvatar: rootAdminCustomAvatar || '🛡️',
     envSource: '.env (process.env.NEX_ADMIN_USERNAME / NEX_ADMIN_PASSWORD)',
+    ...getAdminBootstrapStatus(),
     roleSeparation: {
       admin: 'Root Admin System (.env only)',
       developer: 'Scoped Developer Portal (own apps & cloud instances)',
