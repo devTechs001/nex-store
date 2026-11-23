@@ -80,6 +80,28 @@ export default function CommandPaletteModal({
       }
     },
     {
+      id: 'cmd-community',
+      tab: 'community',
+      label: 'Community & Collaboration',
+      hint: 'Shared systems, reviews and threaded discussions',
+      icon: Command,
+      action: () => {
+        setActiveTab('community');
+        onClose();
+      }
+    },
+    {
+      id: 'cmd-syscheck',
+      tab: 'syscheck',
+      label: 'System-Wide Check',
+      hint: 'Memory, requests, configs and developer recommendations',
+      icon: Command,
+      action: () => {
+        setActiveTab('syscheck');
+        onClose();
+      }
+    },
+    {
       id: 'cmd-tracker',
       tab: 'tracker',
       label: 'Open Live Order Tracker',

@@ -92,6 +92,30 @@ export function playSound(type = 'ping', { enabled = true, volume = 0.35 } = {})
       playTone(660, 0.1, 0.2, 'triangle', 990, 0.25);
       break;
 
+    case 'quantum':
+      // Quantum boot sweep: rising luminous glide with harmonic shimmer
+      playTone(220, 0, 0.5, 'sine', 880, 0.3);
+      playTone(440, 0.12, 0.42, 'triangle', 1320, 0.22);
+      playTone(1320, 0.34, 0.5, 'sine', 1760, 0.26);
+      break;
+
+    case 'whoosh':
+      // Airy transition sweep
+      playTone(880, 0, 0.32, 'sawtooth', 180, 0.16);
+      playTone(1200, 0.04, 0.26, 'triangle', 320, 0.12);
+      break;
+
+    case 'toggle':
+      // Soft UI tick
+      playTone(980, 0, 0.05, 'triangle', 720, 0.12);
+      break;
+
+    case 'error':
+      // Descending warning buzz
+      playTone(330, 0, 0.14, 'sawtooth', 220, 0.2);
+      playTone(220, 0.12, 0.2, 'square', 147, 0.18);
+      break;
+
     case 'ping':
     default:
       // Subtle real-time WebSocket pulse

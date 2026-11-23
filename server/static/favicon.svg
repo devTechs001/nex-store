@@ -1,45 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
-    <linearGradient id="nexBg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#090d1f"/>
-      <stop offset="50%" stop-color="#111836"/>
-      <stop offset="100%" stop-color="#050814"/>
+    <radialGradient id="core" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#a5f3fc"/>
+      <stop offset="45%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </radialGradient>
+    <linearGradient id="ring1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
     </linearGradient>
-    <linearGradient id="nexGlow" x1="12" y1="12" x2="116" y2="116" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#6366f1"/>
-      <stop offset="50%" stop-color="#06b6d4"/>
-      <stop offset="100%" stop-color="#10b981"/>
+    <linearGradient id="ring2" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
     </linearGradient>
-    <linearGradient id="nexBolt" x1="40" y1="24" x2="88" y2="104" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="45%" stop-color="#67e8f9"/>
-      <stop offset="100%" stop-color="#818cf8"/>
+    <linearGradient id="ring3" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#67e8f9"/>
     </linearGradient>
-    <filter id="dropGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#06b6d4" flood-opacity="0.65"/>
-    </filter>
   </defs>
-
-  <!-- Rounded Quantum Hexagon Shield -->
-  <rect x="6" y="6" width="116" height="116" rx="30" fill="url(#nexBg)" stroke="url(#nexGlow)" stroke-width="5"/>
-
-  <!-- Outer Orbital Circuit Ring -->
-  <circle cx="64" cy="64" r="44" stroke="url(#nexGlow)" stroke-width="2" stroke-dasharray="10 6" opacity="0.7"/>
-  <circle cx="64" cy="64" r="34" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.35"/>
-
-  <!-- Corner Telemetry Nodes -->
-  <circle cx="24" cy="24" r="3.5" fill="#10b981"/>
-  <circle cx="104" cy="24" r="3.5" fill="#06b6d4"/>
-  <circle cx="24" cy="104" r="3.5" fill="#6366f1"/>
-  <circle cx="104" cy="104" r="3.5" fill="#10b981"/>
-
-  <!-- Central NEX Quantum Lightning Core -->
-  <path
-    d="M70 22L36 68H62L56 106L92 58H66L70 22Z"
-    fill="url(#nexBolt)"
-    filter="url(#dropGlow)"
-    stroke="#e0f2fe"
-    stroke-width="1.5"
-    stroke-linejoin="round"
-  />
+  <rect width="128" height="128" rx="28" fill="#060814"/>
+  <!-- orbital rings -->
+  <g fill="none" stroke-width="4.5" stroke-linecap="round">
+    <ellipse cx="64" cy="64" rx="46" ry="20" stroke="url(#ring1)" transform="rotate(-24 64 64)">
+      <animateTransform attributeName="transform" type="rotate" from="-24 64 64" to="336 64 64" dur="14s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="64" cy="64" rx="46" ry="20" stroke="url(#ring2)" transform="rotate(36 64 64)">
+      <animateTransform attributeName="transform" type="rotate" from="36 64 64" to="-324 64 64" dur="18s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="64" cy="64" rx="46" ry="20" stroke="url(#ring3)" transform="rotate(90 64 64)" opacity="0.85">
+      <animateTransform attributeName="transform" type="rotate" from="90 64 64" to="450 64 64" dur="22s" repeatCount="indefinite"/>
+    </ellipse>
+  </g>
+  <!-- glowing core -->
+  <circle cx="64" cy="64" r="17" fill="url(#core)"/>
+  <circle cx="64" cy="64" r="17" fill="none" stroke="#e0f2fe" stroke-width="1.5" opacity="0.8"/>
+  <!-- orbiting particles -->
+  <circle cx="110" cy="64" r="4" fill="#67e8f9">
+    <animateTransform attributeName="transform" type="rotate" from="0 64 64" to="360 64 64" dur="6s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="18" cy="64" r="3.2" fill="#c084fc">
+    <animateTransform attributeName="transform" type="rotate" from="180 64 64" to="-180 64 64" dur="9s" repeatCount="indefinite"/>
+  </circle>
 </svg>

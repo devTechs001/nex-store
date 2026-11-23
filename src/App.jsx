@@ -19,6 +19,9 @@ import DesktopSideNav from './components/DesktopSideNav.jsx';
 import MobileBottomNav from './components/MobileBottomNav.jsx';
 import MobileAndSubscriptionsView from './components/MobileAndSubscriptionsView.jsx';
 import SplashScreen from './components/SplashScreen.jsx';
+import SysCheckView from './components/SysCheckView.jsx';
+import CommunityView from './components/CommunityView.jsx';
+import ShareSystemModal from './components/ShareSystemModal.jsx';
 import { THEMES, applyThemeVariables } from './utils/themes.js';
 import {
   getFallbackBootstrapData,
@@ -1738,6 +1741,7 @@ export default function App() {
   );
 
   const [showSplash, setShowSplash] = useState(true);
+  const [shareTarget, setShareTarget] = useState(null);
 
   const unreadNotificationsCount = useMemo(
     () => notifications.filter((n) => !n.is_read).length,
@@ -1753,6 +1757,15 @@ export default function App() {
       }`}
     >
       {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
+      {shareTarget && (
+        <ShareSystemModal
+          app={shareTarget}
+          session={session}
+          onPlaySound={handlePlaySound}
+          onClose={() => setShareTarget(null)}
+          onShared={() => setShareTarget(null)}
+        />
+      )}
 
       {/* Sticky Top Navbar + Multi-Theme Switcher + Sound/Push Controls + Real-Time Ticker */}
       <Navbar
@@ -1907,6 +1920,7 @@ export default function App() {
 
         {activeTab === 'apps' && (
           <AppStoreView
+            session={session}
             apps={apps}
             appInstalls={appInstalls}
             polyglotAutomations={polyglotAutomations}
@@ -1916,6 +1930,10 @@ export default function App() {
             onCreateApp={handleCreateApp}
             onImportGit={handleImportGit}
             onPlaySound={handlePlaySound}
+            onShareApp={(app) => {
+              handlePlaySound('click');
+              setShareTarget(app);
+            }}
           />
         )}
 
@@ -2046,6 +2064,22 @@ export default function App() {
               }}
             />
           </div>
+        )}
+
+        {activeTab === 'community' && (
+          <CommunityView
+            session={session}
+            apps={apps}
+            onPlaySound={handlePlaySound}
+            onShareApp={(app) => {
+              handlePlaySound('click');
+              setShareTarget(app);
+            }}
+          />
+        )}
+
+        {activeTab === 'syscheck' && !canAccessTab('syscheck') ? renderAuthGate('syscheck') : (
+          <SysCheckView session={session} onPlaySound={handlePlaySound} />
         )}
 
         {/* Global Copyright & Anti-Piracy DRM Protection Footer */}

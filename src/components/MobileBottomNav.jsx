@@ -21,7 +21,9 @@ import {
   CheckCircle2,
   Smartphone,
   Download,
-  Sparkles
+  Sparkles,
+  MessageSquareHeart,
+  Gauge
 } from 'lucide-react';
 import { CURRENCIES } from '../utils/currency.js';
 import { THEMES } from '../utils/themes.js';
@@ -67,6 +69,8 @@ export default function MobileBottomNav({
     { id: 'mobile-subs', label: 'Mobile SDK, PWA & Plans', sub: 'Flutter, Native & Tiers', icon: Smartphone, badge: 'SDK + PWA' },
     { id: 'subsystems', label: 'Subsystems & Security', sub: '6 Edge Nodes & WAF Shield', icon: Server, badge: `${badges.subsystems?.onlineNodes || 6} Online` },
     { id: 'tracker', label: 'Order Tracker', sub: 'Live Fulfillment Telemetry', icon: Truck, badge: `${badges.tracker?.activeOrders ?? 3} Active` },
+    { id: 'community', label: 'Community & Collab', sub: 'Shared Systems, Reviews & Threads', icon: MessageSquareHeart, badge: 'New' },
+    { id: 'syscheck', label: 'System Check', sub: 'Memory, Requests & Recommendations', icon: Gauge, badge: 'Live' },
     { id: 'admin', label: 'Admin System (.env)', sub: 'Root Admin Operations Only', icon: ShieldCheck, badge: '.env Root' },
     { id: 'developer-portal', label: 'Developer Portal', sub: 'Scoped Dev Apps & Cloud', icon: Layers, badge: 'Devs' },
     { id: 'user-portal', label: 'User Account Portal', sub: 'Personal Profile & Orders', icon: CheckCircle2, badge: 'Users' },

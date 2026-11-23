@@ -16,7 +16,8 @@ export const TAB_ROLE_ACCESS = {
   overview: ['admin'],
   admin: ['admin'],
   'developer-portal': ['admin', 'developer'],
-  'user-portal': ['admin', 'user']
+  'user-portal': ['admin', 'user'],
+  'syscheck': ['admin', 'developer']
 };
 
 export const ROLE_LABELS = {

@@ -730,14 +730,14 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.ok(String(csvRes.data).includes('command'));
     });
 
-    it('executes the live /api/tests/run endpoint and verifies 100% pass rate across all 6 suites', async () => {
+    it('executes the live /api/tests/run endpoint and verifies 100% pass rate across all 7 suites', async () => {
       const runRes = await apiRequest('/api/tests/run', {
         method: 'POST',
         token: adminToken
       });
       assert.equal(runRes.status, 200);
       assert.equal(runRes.data.status, 'ALL_PASSED');
-      assert.equal(runRes.data.totalSuites, 6);
+      assert.equal(runRes.data.totalSuites, 7);
       assert.equal(runRes.data.totalFailed, 0);
       assert.ok(runRes.data.totalPassed >= 23);
     });
@@ -1370,6 +1370,175 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       assert.equal(res.data.account.role, 'admin');
       assert.equal(res.data.account.username, 'nex_root_admin');
       assert.ok(res.data.token, 'session token issued');
+    });
+  });
+
+  // ============================================================================
+  // 15. SYSTEM-WIDE CHECK (MEMORY / RESOURCES / CONFIGS / REQUESTS / GRAPHS)
+  // ============================================================================
+  describe('15. System-Wide Check Dashboard', () => {
+    it('guests and normal users cannot inspect the system', async () => {
+      const anon = await apiRequest('/api/system/check');
+      assert.equal(anon.status, 401);
+      const user = await apiRequest('/api/system/check', { token: userAmaraToken });
+      assert.equal(user.status, 403);
+    });
+
+    it('developers get real metrics, uploaded systems, graphs and recommendations', async () => {
+      const res = await apiRequest('/api/system/check', { token: devAetherToken });
+      assert.equal(res.status, 200);
+      const d = res.data;
+      assert.ok(d.healthScore >= 0 && d.healthScore <= 100, 'health score in range');
+      assert.ok(['HEALTHY', 'DEGRADED', 'CRITICAL'].includes(d.status));
+
+      // memory / resources — measured values, never fabricated
+      assert.ok(d.metrics.process.rssMb > 0, 'real RSS');
+      assert.ok(d.metrics.process.heapUsedMb > 0, 'real heap usage');
+      assert.ok(d.metrics.system.cpuCount >= 1, 'real CPU count');
+      assert.ok(d.metrics.system.totalMemMb > 0, 'real system memory');
+      assert.ok(Array.isArray(d.metrics.memorySeries), 'memory graph time series');
+
+      // request telemetry from actual traffic
+      assert.ok(d.metrics.requests.total >= 1, 'requests are counted');
+      assert.ok(Array.isArray(d.metrics.requests.topRoutes), 'per-route request table');
+      assert.ok(typeof d.metrics.requests.p95Ms === 'number');
+
+      // uploaded systems + app status + reports
+      assert.ok(Array.isArray(d.uploadedSystems), 'converted systems listed');
+      assert.ok(typeof d.buildStatusCounts === 'object');
+      assert.ok(typeof d.dbStats === 'object' && d.dbStats !== null);
+      assert.ok(typeof d.apps.total === 'number');
+
+      // honest recommendations
+      assert.ok(Array.isArray(d.recommendations), 'recommendations are computed');
+      for (const r of d.recommendations) {
+        assert.ok(['critical', 'warning', 'info'].includes(r.severity));
+        assert.ok(r.title && r.detail && r.action, 'each recommendation is actionable');
+      }
+
+      // config is masked for non-admins but never leaks values
+      assert.equal(d.config.restricted, true, 'developer view masks config detail');
+    });
+
+    it('admins get full config status (flags only, never secret values)', async () => {
+      const res = await apiRequest('/api/system/check', { token: adminToken });
+      assert.equal(res.status, 200);
+      assert.ok(!res.data.config.restricted);
+      assert.ok(typeof res.data.config.adminMasterTokenConfigured === 'boolean');
+      const envAdmin = getEnvAdminConfig();
+      assert.ok(!JSON.stringify(res.data).includes(envAdmin.password), 'no secrets in system check');
+    });
+  });
+
+  // ============================================================================
+  // 16. DEVELOPER SHARING (SYSTEMS / APPS → COMMUNITY FEED)
+  // ============================================================================
+  describe('16. Developer Sharing', () => {
+    let sharedSlug = '';
+
+    it('guests cannot share; users are RBAC-blocked', async () => {
+      const anon = await apiRequest('/api/apps/some-app/share', { method: 'POST', body: { message: 'x' } });
+      assert.equal(anon.status, 401);
+      const user = await apiRequest('/api/apps/some-app/share', {
+        method: 'POST',
+        token: userAmaraToken,
+        body: { message: 'x' }
+      });
+      assert.equal(user.status, 403);
+    });
+
+    it('a developer shares a system → public community feed lists it', async () => {
+      const apps = await apiRequest('/api/apps');
+      const target = apps.data.apps.find((a) => a.name) || apps.data.apps[0];
+      const res = await apiRequest(`/api/apps/${target.id}/share`, {
+        method: 'POST',
+        token: devAetherToken,
+        body: { message: 'Freshly converted quantum system — feedback welcome', kind: 'system' }
+      });
+      assert.equal(res.status, 201);
+      assert.ok(res.data.share.slug, 'public slug generated');
+      assert.ok(res.data.shareUrl.includes(res.data.share.slug));
+      sharedSlug = res.data.share.slug;
+
+      const pub = await apiRequest('/api/shares');
+      assert.equal(pub.status, 200, 'community feed is public');
+      assert.ok(pub.data.shares.some((s) => s.slug === sharedSlug), 'share visible publicly');
+      const mine = pub.data.shares.find((s) => s.slug === sharedSlug);
+      assert.equal(mine.message, 'Freshly converted quantum system — feedback welcome');
+    });
+
+    it('authors can unshare; strangers cannot', async () => {
+      const shares = await apiRequest('/api/shares');
+      const mine = shares.data.shares.find((s) => s.slug === sharedSlug);
+      const stranger = await apiRequest(`/api/shares/${mine.id}`, { method: 'DELETE', token: userAmaraToken });
+      assert.equal(stranger.status, 403);
+      const author = await apiRequest(`/api/shares/${mine.id}`, { method: 'DELETE', token: devAetherToken });
+      assert.equal(author.status, 200);
+    });
+  });
+
+  // ============================================================================
+  // 17. COLLABORATIVE PLATFORM (REVIEWS + THREADED COMMENTS)
+  // ============================================================================
+  describe('17. Collaborative Reviews & Comments', () => {
+    let appId = '';
+
+    it('reviews are public to read, auth to post, and rated 1-5 only', async () => {
+      const apps = await apiRequest('/api/apps');
+      appId = (apps.data.apps.find((a) => a.name) || apps.data.apps[0]).id;
+
+      const anon = await apiRequest(`/api/apps/${appId}/reviews`, {
+        method: 'POST',
+        body: { rating: 5, body: 'nope' }
+      });
+      assert.equal(anon.status, 401);
+
+      const bad = await apiRequest(`/api/apps/${appId}/reviews`, {
+        method: 'POST',
+        token: userAmaraToken,
+        body: { rating: 7, body: 'out of range' }
+      });
+      assert.equal(bad.status, 422);
+
+      const post = await apiRequest(`/api/apps/${appId}/reviews`, {
+        method: 'POST',
+        token: userAmaraToken,
+        body: { rating: 4, body: 'Solid build pipeline, fast previews.' }
+      });
+      assert.equal(post.status, 201);
+      assert.equal(post.data.review.rating, 4);
+
+      const list = await apiRequest(`/api/apps/${appId}/reviews`);
+      assert.equal(list.status, 200, 'reviews readable publicly');
+      assert.ok(list.data.summary.count >= 1);
+      assert.ok(list.data.summary.avg >= 1 && list.data.summary.avg <= 5, 'average derived from real rows');
+    });
+
+    it('comments support threaded replies and validate parents', async () => {
+      const root = await apiRequest(`/api/apps/${appId}/comments`, {
+        method: 'POST',
+        token: devAetherToken,
+        body: { body: 'Happy to answer questions about the conversion pipeline.' }
+      });
+      assert.equal(root.status, 201);
+
+      const reply = await apiRequest(`/api/apps/${appId}/comments`, {
+        method: 'POST',
+        token: userAmaraToken,
+        body: { body: 'How did you handle the toolchain detection?', parent_id: root.data.comment.id }
+      });
+      assert.equal(reply.status, 201);
+      assert.equal(reply.data.comment.parent_id, root.data.comment.id, 'reply is threaded');
+
+      const orphan = await apiRequest(`/api/apps/${appId}/comments`, {
+        method: 'POST',
+        token: userAmaraToken,
+        body: { body: 'bad parent', parent_id: 'cmt_doesnotexist' }
+      });
+      assert.equal(orphan.status, 422);
+
+      const list = await apiRequest(`/api/apps/${appId}/comments`);
+      assert.ok(list.data.comments.length >= 2, 'thread publicly readable');
     });
   });
 });

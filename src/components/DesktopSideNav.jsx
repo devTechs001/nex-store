@@ -19,7 +19,9 @@ import {
   RefreshCw,
   CheckCircle2,
   Cpu,
-  Smartphone
+  Smartphone,
+  MessageSquareHeart,
+  Gauge
 } from 'lucide-react';
 import { roleForSession, filterNavForRole, ROLE_LABELS, ROLE_BADGE_STYLES } from '../utils/navigation.js';
 
@@ -104,6 +106,22 @@ export default function DesktopSideNav({
       icon: Truck,
       badge: `${activeOrders} Active`,
       badgeColor: 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+    },
+    {
+      id: 'community',
+      label: 'Community & Collab',
+      sub: 'Shared Systems, Reviews & Threads',
+      icon: MessageSquareHeart,
+      badge: 'New',
+      badgeColor: 'bg-violet-500/15 text-violet-400 border-violet-500/30'
+    },
+    {
+      id: 'syscheck',
+      label: 'System Check',
+      sub: 'Memory, Requests & Recommendations',
+      icon: Gauge,
+      badge: 'Live',
+      badgeColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
     },
     {
       id: 'admin',
