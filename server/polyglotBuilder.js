@@ -179,11 +179,12 @@ export function buildPolyglotPackage({ appId = '', name = 'NEX App', language = 
   const sourceBytes = Object.values(sourceFiles || {}).reduce((a, c) => a + Buffer.byteLength(String(c ?? ''), 'utf8'), 0);
 
   if (!entry) {
+    const log = `No runnable entry point for language "${lang}" among ${Object.keys(sourceFiles || {}).length} provided file(s) — nothing to convert.`;
     return {
       status: 'INVALID',
       toolchain: 'none',
-      log: `No source files provided for language "${lang}" — nothing to convert.`,
-      runnerHtml: sourceViewerHtml(name, lang, 'INVALID', 'none', 'No source files provided.', sourceFiles),
+      log,
+      runnerHtml: sourceViewerHtml(name, lang, 'INVALID', 'none', log, sourceFiles),
       entryFile: null,
       sourceTreeSha256: sourceHash,
       sourceBytes,

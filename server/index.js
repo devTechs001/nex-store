@@ -47,6 +47,7 @@ import {
 import { getNeuralStatus, runTraining, getRecommendations } from './neuralEngine.js';
 import { toCents, fromCents, lineCents, percentOfCents, fixedDiscountCents, taxOfCents, computeOrderMoney } from './money.js';
 import { buildPolyglotPackage, runPolyglotSource, buildZipArchive, detectToolchains } from './polyglotBuilder.js';
+import { importGitRepo } from './gitImport.js';
 import os from 'node:os';
 import { runAllVerificationSuites } from './testSuiteRunner.js';
 
@@ -1874,6 +1875,58 @@ function handlePublishDeveloperAppOrSystem(req, res) {
 
 app.post('/api/apps', handlePublishDeveloperAppOrSystem);
 app.post('/api/developer/publish', handlePublishDeveloperAppOrSystem);
+
+// Real Git Import: `git clone --depth 1` the repository, collect its actual
+// source tree, detect the language from project structure, and publish the
+// imported project through the real polyglot conversion pipeline.
+app.post('/api/apps/import-git', (req, res) => {
+  if (!req.actor) {
+    return res.status(401).json({ error: 'Authentication required to import from git.' });
+  }
+  if (req.actor.role === 'user') {
+    return res.status(403).json({ error: 'RBAC Isolation: only Developers and Root Admin can import repositories.' });
+  }
+  const rawUrl = req.body?.url || req.body?.repo_url || '';
+  try {
+    const imported = importGitRepo(rawUrl, { allowFileUrl: req.actor.role === 'admin' });
+    const { sourceFiles, language, entryFile, repoMeta } = imported;
+    if (!repoMeta.fileCount) {
+      return res.status(422).json({
+        error: `Cloned ${repoMeta.branch}@${repoMeta.commitShort} successfully but found no importable source files.`,
+        importedFrom: repoMeta
+      });
+    }
+
+    const prettyName = String(repoMeta.name || 'imported-app')
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+    // Feed the REAL imported project into the standard publish + convert flow.
+    req.body = {
+      name: req.body?.name || prettyName,
+      description:
+        req.body?.description ||
+        `Git-imported ${language} project from ${repoMeta.url} (${repoMeta.branch}@${repoMeta.commitShort}).`,
+      version: req.body?.version || '1.0.0',
+      language,
+      package_type: req.body?.package_type || 'app',
+      category: req.body?.category || 'web',
+      developer: req.body?.developer || repoMeta.owner,
+      source_provider: repoMeta.url.includes('github') ? 'GitHub' : 'Git',
+      live_url: req.body?.live_url || repoMeta.url,
+      repo_url: repoMeta.url,
+      install_command: `nex git-install ${repoMeta.commitShort} --repo=${repoMeta.url}`,
+      changelog: `Imported from git: ${repoMeta.branch}@${repoMeta.commitShort} — "${repoMeta.commitSubject}"`,
+      source_files: sourceFiles,
+      entry_file: entryFile
+    };
+    const origJson = res.json.bind(res);
+    res.json = (payload) => origJson({ ...payload, importedFrom: repoMeta });
+    handlePublishDeveloperAppOrSystem(req, res);
+  } catch (err) {
+    res.status(400).json({ error: `Git import failed: ${err.message || err}` });
+  }
+});
 
 // Allow Admin / Developer to modify or unpublish an app/system package (RBAC enforced)
 app.patch('/api/apps/:id', (req, res) => {

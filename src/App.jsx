@@ -1169,6 +1169,18 @@ export default function App() {
     pushToast('App Uninstalled', `Unmounted /opt/nex-apps/${appId} from workstation.`, 'info');
   };
 
+  // Real git import: clones the repo server-side and publishes the actual
+  // source tree through the polyglot conversion pipeline.
+  const handleImportGit = async (repoUrl) => {
+    const res = await fetch('/api/apps/import-git', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url: repoUrl })
+    });
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, data };
+  };
+
   const handleCreateApp = async (appPayload) => {
     try {
       const res = await fetch('/api/apps', {
@@ -1905,6 +1917,7 @@ export default function App() {
             onDownloadApp={handleDownloadApp}
             onUninstallApp={handleUninstallApp}
             onCreateApp={handleCreateApp}
+            onImportGit={handleImportGit}
             onPlaySound={handlePlaySound}
           />
         )}

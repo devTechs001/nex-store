@@ -16,9 +16,14 @@ process.env.NEX_TEST_NO_LISTEN = '1';
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { app, server } from '../server/index.js';
 import { db } from '../server/db.js';
 import { computeOrderMoney } from '../server/money.js';
+import { collectSourceFiles, detectProjectLanguage } from '../server/gitImport.js';
 import {
   getEnvAdminConfig,
   detectXssAttempt,
@@ -1173,6 +1178,97 @@ describe('NEX Store Full-Stack Verification & Integration Suite', () => {
       const build = await apiRequest(`/api/apps/${badAppId}/build`);
       assert.equal(build.data.status, 'INVALID', 'real py_compile failure');
       assert.ok(/py_compile FAILED/.test(build.data.log), 'genuine error log');
+    });
+  });
+
+  // ============================================================================
+  // 12. REAL GIT IMPORT (CLONE → SOURCE TREE → CONVERT → INSTALL)
+  // ============================================================================
+  describe('12. Real Git Import Pipeline', () => {
+    it('detects language and entry points from real project structure', () => {
+      assert.equal(
+        detectProjectLanguage({ 'pubspec.yaml': 'name: x', 'lib/main.dart': 'void main() {}' }).language,
+        'flutter'
+      );
+      assert.equal(detectProjectLanguage({ 'main.cpp': 'int main(){}', 'CMakeLists.txt': 'x' }).language, 'cpp');
+      assert.equal(detectProjectLanguage({ 'requirements.txt': 'flask', 'app.py': 'x' }).language, 'python');
+      assert.equal(detectProjectLanguage({ 'tsconfig.json': '{}', 'src/main.ts': 'x' }).language, 'typescript');
+      assert.equal(detectProjectLanguage({ 'Cargo.toml': '[package]' }).language, 'rust');
+      assert.equal(detectProjectLanguage({ 'go.mod': 'module x' }).language, 'go');
+    });
+
+    it('collects a real source tree with honest caps and skips', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nex_collect_'));
+      try {
+        fs.mkdirSync(path.join(dir, 'lib'));
+        fs.mkdirSync(path.join(dir, 'node_modules'));
+        fs.writeFileSync(path.join(dir, 'pubspec.yaml'), 'name: probe');
+        fs.writeFileSync(path.join(dir, 'lib', 'main.dart'), 'void main() {}');
+        fs.writeFileSync(path.join(dir, 'node_modules', 'junk.js'), 'x');
+        fs.writeFileSync(path.join(dir, 'photo.png'), 'binary-ish');
+        const { files, fileCount, skipped } = collectSourceFiles(dir);
+        assert.equal(fileCount, 2);
+        assert.ok(files['lib/main.dart'] && files['pubspec.yaml']);
+        assert.ok(!files['node_modules/junk.js'], 'node_modules skipped');
+        assert.ok(skipped.wrongType >= 1, 'non-source files honestly skipped');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('really clones a public GitHub repo and publishes its actual files', async () => {
+      const res = await apiRequest('/api/apps/import-git', {
+        method: 'POST',
+        token: adminToken,
+        body: { url: 'https://github.com/octocat/Hello-World' }
+      });
+      assert.equal(res.status, 201);
+      assert.ok(/^[0-9a-f]{40}$/.test(res.data.importedFrom.commit), 'real commit SHA from git');
+      assert.ok(res.data.importedFrom.fileCount >= 1, 'actual repo files imported');
+      assert.ok(res.data.app.id, 'app published from the cloned tree');
+      const build = await apiRequest(`/api/apps/${res.data.app.id}/build`);
+      assert.ok(build.status === 200 && build.data.log, 'conversion report recorded');
+    });
+
+    it('full chain: local git repo → clone → language detect → real convert → real run', async () => {
+      // Build a genuine git repository on disk first.
+      const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nex_gitrepo_'));
+      try {
+        fs.writeFileSync(path.join(repoDir, 'main.py'), 'print("GIT_IMPORT_RUN_OK")\n');
+        fs.writeFileSync(path.join(repoDir, 'README.md'), '# probe\n');
+        execFileSync('git', ['-C', repoDir, 'init', '--quiet'], { timeout: 5000 });
+        execFileSync('git', ['-C', repoDir, 'add', '.'], { timeout: 5000 });
+        execFileSync('git', ['-C', repoDir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'probe', '--quiet'], {
+          timeout: 5000
+        });
+
+        const res = await apiRequest('/api/apps/import-git', {
+          method: 'POST',
+          token: adminToken,
+          body: { url: `file://${repoDir}` }
+        });
+        assert.equal(res.status, 201);
+        assert.equal(res.data.app.language, 'python', 'language detected from project structure');
+        assert.equal(res.data.importedFrom.fileCount, 2, 'both real files imported');
+
+        const build = await apiRequest(`/api/apps/${res.data.app.id}/build`);
+        assert.equal(build.data.status, 'VALIDATED', 'real py_compile on the cloned tree');
+
+        const run = await apiRequest(`/api/apps/${res.data.app.id}/run`, { method: 'POST' });
+        assert.equal(run.data.exitCode, 0);
+        assert.ok(run.data.stdout.includes('GIT_IMPORT_RUN_OK'), 'cloned code really executes');
+      } finally {
+        fs.rmSync(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it('RBAC: normal users cannot import from git', async () => {
+      const res = await apiRequest('/api/apps/import-git', {
+        method: 'POST',
+        token: userAmaraToken,
+        body: { url: 'https://github.com/octocat/Hello-World' }
+      });
+      assert.equal(res.status, 403);
     });
   });
 });

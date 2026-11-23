@@ -113,6 +113,7 @@ export default function AppStoreView({
   onDownloadApp,
   onUninstallApp,
   onCreateApp,
+  onImportGit,
   onPlaySound
 }) {
   const [selectedSource, setSelectedSource] = useState('all');
@@ -227,6 +228,27 @@ export default function AppStoreView({
   // verbatim by /api/sandbox/:id and /api/apps/:id/package).
   const [appPackageHtml, setAppPackageHtml] = useState('');
   const [appPackageName, setAppPackageName] = useState('');
+
+  // Real git import (clones the repo server-side → real source tree → convert)
+  const [gitImportUrl, setGitImportUrl] = useState('');
+  const [gitImportBusy, setGitImportBusy] = useState(false);
+  const [gitImportResult, setGitImportResult] = useState(null);
+
+  const handleGitImport = async () => {
+    const url = gitImportUrl.trim();
+    if (!url || !onImportGit) return;
+    setGitImportBusy(true);
+    setGitImportResult(null);
+    try {
+      const result = await onImportGit(url);
+      setGitImportResult(result);
+      if (result.status === 201) onPlaySound?.('success');
+    } catch (err) {
+      setGitImportResult({ status: 0, data: { error: String(err.message || err) } });
+    } finally {
+      setGitImportBusy(false);
+    }
+  };
 
   // Polyglot source project (Flutter/C++/Python/Rust/Java/Go/TS) — converted
   // on publish by the real toolchain pipeline (esbuild/g++/py_compile/SDK probes).
@@ -2464,6 +2486,60 @@ export default function AppStoreView({
                   generated demo runtime instead of your actual app.
                 </p>
               )}
+            </div>
+
+            {/* Real Git Import (clone → source tree → toolchain conversion) */}
+            <div className="rounded-2xl p-3.5 theme-subtle border border-violet-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono-num text-[10px] font-bold uppercase text-violet-400">
+                  Import Directly from Git (real clone)
+                </span>
+                <span className="rounded-md bg-violet-500/15 border border-violet-500/30 px-1.5 py-0.5 font-mono-num text-[9px] font-bold text-violet-300">
+                  git clone --depth 1
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={gitImportUrl}
+                  onChange={(e) => setGitImportUrl(e.target.value)}
+                  placeholder="https://github.com/owner/repository"
+                  className="flex-1 rounded-lg px-2.5 py-2 text-[11px] font-mono-num theme-input"
+                />
+                <button
+                  type="button"
+                  disabled={gitImportBusy || !gitImportUrl.trim()}
+                  onClick={handleGitImport}
+                  className="rounded-lg bg-violet-600 hover:bg-violet-500 px-3.5 py-2 text-[10px] font-bold text-white cursor-pointer disabled:opacity-50"
+                >
+                  {gitImportBusy ? 'Cloning…' : 'Import'}
+                </button>
+              </div>
+              {gitImportResult && (
+                <div
+                  className={`rounded-lg p-2 font-mono-num text-[9px] border ${
+                    gitImportResult.status === 201
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  {gitImportResult.status === 201 ? (
+                    <>
+                      ✓ Cloned <b>{gitImportResult.data.importedFrom?.branch}@{gitImportResult.data.importedFrom?.commitShort}</b>
+                      {' '}({gitImportResult.data.importedFrom?.fileCount} files) → detected <b>{gitImportResult.data.app?.language}</b>
+                      {' '}→ published "<b>{gitImportResult.data.app?.name}</b>" • build: {gitImportResult.data.importedFrom ? '' : ''}
+                      <b>{gitImportResult.data.app ? 'see Polyglot Conversion Report in details' : ''}</b>
+                    </>
+                  ) : (
+                    <>✗ {gitImportResult.data?.error || 'Import failed'}</>
+                  )}
+                </div>
+              )}
+              <p className="text-[9px] theme-text-muted">
+                The server really clones the repository, imports its actual source tree (up to 300 files),
+                detects the language from project structure (pubspec → Flutter, CMake/C++ , Cargo → Rust,
+                package.json → TS/JS…), and runs the toolchain conversion — no metadata-only fakes.
+              </p>
             </div>
 
             {/* Polyglot Source Project Upload (real toolchain conversion) */}
